@@ -20,11 +20,30 @@ is what passes the gate.
 
 ### The gate a paper idea must pass
 
+Roshan's standing instruction, 2026-09-25: **anything submitted to a journal or
+conference must be PhD-level. Short-form can be any quality.** That asymmetry is
+deliberate and the gates encode it.
+
 1. **Own new data or experiment**, not a re-cut of an existing corpus.
 2. **A verified gap**, checked against current literature, not assumed.
 3. **An existing benchmark or named baseline** where possible, so we are not
    also building the measurement apparatus.
 4. **A venue that fits**, identified before the work starts.
+5. **PhD-level rigour**, which is not the same as scale. A four-page workshop
+   paper can clear this bar and a long paper can fail it. Operationally it
+   means all five of:
+   - a claim stated precisely enough to be **falsifiable**, with the
+     falsification condition written down;
+   - **controls** that separate the claimed effect from the obvious
+     alternative explanations;
+   - a **pre-registered** analysis plan where results could otherwise be
+     fished for, as P2 does;
+   - **released code and data** sufficient for someone else to re-run it;
+   - **threats to validity stated by us**, before a reviewer finds them.
+
+Gate 5 is the one that decides whether a paper is worth writing at all. If an
+idea cannot clear it, it is either a short-form piece or a section of a paper
+that can.
 
 Anything failing 1 is a section of an existing paper. Anything failing 2 gets
 re-checked before effort goes in. Anything failing 3 is more expensive than it
@@ -111,15 +130,49 @@ None of S1 to S6 touch the double-blind paper, so none are blocked.
 ## How to use this file
 
 - **Adding an idea:** put it in the inbox. No gate check needed to add.
-- **Promoting an idea:** run the four gates, record the answers, move it up.
+- **Promoting an idea:** run the five gates, record the answers, move it up.
 - **Finishing something:** update the status here in the same commit as the work.
 - **Disagreeing with a gate result:** say so. The gates are a default, not a
   verdict.
 
-## Open question for Roshan
+## Where things live, resolved 2026-09-25
 
-`llm-architects-planning` (private) and `llm-architecture-eval` (public) hold
-diverged copies of the same planning documents. The public one is newer; the
-private one stops at the venue decision. Two repos with the same files and
-different contents will cause a wrong-version error eventually. Worth deciding
-which is canonical and retiring or re-syncing the other.
+| Repo | Visibility | Holds |
+|---|---|---|
+| `roshanaryal1/llm-architects` | public | the P1 paper artifact, data, analysis |
+| `roshanaryal1/llm-architects-planning` | private | strategy: `paper/portfolio.md`, `paper/venue-strategy.md`, DMLR package, submission logistics |
+| `roshanaryal1/home-lab` | private | the build, which is paper P3 |
+| `roshanaryal1/the-rater-is-stale` | private | paper P2 |
+| `roshanaryal1/writing` | private | short-form drafts, see below |
+
+The earlier open question about which repo was canonical is resolved. The local
+directory `llm-architecture-eval` turned out to have an **orphaned git history**
+with no common ancestor with the live public repo, so nothing committed there
+could ever have merged. It is archived at
+`_archive-orphaned-llm-architecture-eval-2026-09-25`; the live repo is cloned at
+`~/RnD/llm-architects/llm-architects`, matching its repo name. All ten files
+unique to the orphan were verified byte-identical in the planning repo first.
+
+## How short-form gets written
+
+A dedicated private repo, `roshanaryal1/writing`, rather than drafting inside a
+project repo. Reasons:
+
+1. **Writing spans projects.** A post about the queue defect and a post about
+   judge staleness come from different repos. Burying drafts in one of them
+   makes the other awkward.
+2. **Drafts should stay private until posted**, but the repo history is worth
+   keeping afterwards: it is a dated record of the writing cadence.
+3. **Cross-posting needs one canonical source.** Personal site, LinkedIn, X and
+   Medium all render from the same file rather than three drifting copies.
+
+Structure:
+
+```
+drafts/     work in progress
+published/  posted, with date, canonical URL, and where it was cross-posted
+assets/     images and diagrams
+```
+
+Each published piece carries front matter recording where it went and when, so
+the cadence is measurable rather than remembered.
