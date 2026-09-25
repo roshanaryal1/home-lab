@@ -15,8 +15,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lab.queue import Task, TaskQueue  # noqa: E402
-from lab.supervisor import Supervisor, SupervisorConfig  # noqa: E402
+from lab.queue import Task, TaskQueue
+from lab.supervisor import Supervisor, SupervisorConfig
 
 
 def make_supervisor(tmp_path: Path, **kwargs) -> Supervisor:

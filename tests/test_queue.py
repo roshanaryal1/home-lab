@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lab.queue import TaskQueue, TransitionError  # noqa: E402
+from lab.queue import TaskQueue, TransitionError
 
 
 @pytest.fixture()
