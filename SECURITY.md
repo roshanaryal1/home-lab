@@ -27,20 +27,50 @@ In scope, and taken seriously:
 - Any path by which a model output becomes an executed instruction without
   passing policy.
 
-Out of scope for now, because the component does not exist yet:
+## What exists, as of 2026-09-25
 
-- The execution broker, policy enforcement and sandboxing are **not
-  implemented** as of 2026-09-25. See "Confirmed defects" in `docs/PLAN.md`.
-  Do not deploy this with real credentials until Phase 1 is complete.
+Implemented and tested:
 
-## Known unfixed issues
+- **Policy enforcement** (`lab/policy.py`, issue #9). Four capability
+  tiers enforced between leasing a task and executing it. Approvals are
+  bound to a hash of the exact normalised parameters, are single use, and
+  expire. Everything fails closed.
+- **Execution broker** (`lab/broker.py`, issue #10). Workers submit typed
+  tool requests instead of touching the filesystem directly. Per-task
+  workspaces, path confinement by resolved path so symlinks are caught as
+  well as `..`, default-deny tool allowlists per task, byte and file-count
+  ceilings, and an artifact manifest per execution.
+- **Durable task state** with bounded dispatch, lease renewal and a
+  fencing check, so a crash cannot cause duplicate execution.
 
-Tracked honestly rather than quietly. As of 2026-09-25:
+## What does NOT exist yet
 
-1. Unbounded task leasing (confirmed, reproducible).
-2. No lease renewal, which permits duplicate execution (confirmed,
-   reproducible).
-3. Approvals exist in the schema and are not enforced.
-4. Isolation is documented but not implemented.
+Stated plainly, because a security policy implying protections that are
+absent is worse than no policy:
 
-Reproduction for 1 and 2: `tests/manual_confirm_defects.py`.
+- **No network egress control.** Nothing restricts outbound connections.
+  There is no network tool yet, so nothing makes them either, but that is
+  an absence of opportunity, not a control.
+- **No CPU or memory ceilings.** Workspace size and file count are
+  capped; compute is not. Arrives with the model adapter.
+- **No secret broker.** There is nowhere to inject secrets yet, so there
+  is nothing to leak, but credential handling is unimplemented.
+- **No process isolation.** The broker confines filesystem access by
+  path. It does not sandbox the process itself. A dedicated non-admin
+  account is the deployment-level control and is documented in
+  `ops/mac-mini-setup.md`, not enforced in code.
+
+**Do not connect real credentials or a real executor until the three
+absences above are closed.**
+
+## Fixed
+
+1. Unbounded task leasing. Measured at 19 leased against 1 running slot;
+   now bounded by a worker pool. Issue #7.
+2. No lease renewal, permitting duplicate execution of live work.
+   Issue #8.
+3. Approvals defined but not enforced. Issue #9.
+4. Isolation documented but not implemented. Issue #10, filesystem
+   portion.
+
+Regression checks: `tests/manual_confirm_defects.py`.
