@@ -1,0 +1,29 @@
+name: Research question
+description: Something to find out, possibly a paper
+labels: ["research"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: The question
+      description: Stated so an answer could be wrong.
+    validations: {required: true}
+  - type: textarea
+    id: gate
+    attributes:
+      label: Gate check
+      description: >
+        The five gates from docs/PIPELINE.md. Anything going to a journal or
+        conference must clear all five.
+      value: |
+        1. Own new data or experiment: 
+        2. Verified gap (cite what you checked): 
+        3. Existing benchmark or named baseline: 
+        4. Venue: 
+        5. PhD-level rigour, all of:
+           - [ ] falsifiable claim with the falsification condition written down
+           - [ ] controls against the obvious alternative explanations
+           - [ ] pre-registered analysis plan where results could be fished for
+           - [ ] released code and data
+           - [ ] threats to validity stated by us first
+    validations: {required: true}

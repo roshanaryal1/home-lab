@@ -1,0 +1,55 @@
+name: Bug
+description: Something behaves incorrectly
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Critical - breaks a stated safety guarantee
+        - High - correctness or data loss risk
+        - Medium - wrong behaviour, contained
+        - Low - cosmetic or inconvenient
+    validations: {required: true}
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed
+      description: What happens. Describe the behaviour, not your theory about it.
+    validations: {required: true}
+  - type: textarea
+    id: measured
+    attributes:
+      label: Measured
+      description: >
+        Numbers and a reproduction. "Confirmed by inspection" is allowed but
+        say so explicitly, because an unverified claim and a measured one are
+        not the same evidence.
+      placeholder: |
+        light_slots=1, 20 queued, sampled after 100ms
+        -> 19 leased, 1 running
+        Reproduction: tests/...
+    validations: {required: true}
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What goes wrong for a real user or a real run.
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: >
+        Checkboxes that decide when this is done. Include the failure cases,
+        not only the happy path.
+      value: |
+        - [ ] 
+        - [ ] a regression test fails before the fix and passes after
+    validations: {required: true}
