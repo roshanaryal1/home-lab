@@ -7,6 +7,38 @@ that was adjudicated from a controlled study, not invented ad hoc. Changes that
 contradict the architecture need to argue with the architecture, not route
 around it.
 
+## The workflow, in order
+
+**Issue first. Always. No exceptions for "small" or "obvious".**
+
+```
+issue  ->  branch  ->  PR  ->  CI  ->  merge  ->  issue closes
+```
+
+1. **Open an issue before writing code.** Bug, task or research question.
+   The template forces the parts that are easy to skip: measured evidence
+   rather than a theory, and acceptance criteria that decide when it is done.
+2. **Branch from the issue.** `fix/`, `feat/`, `docs/`, `chore/`.
+3. **PR links the issue** with `Closes #N`, and shows evidence: what was run
+   and what it printed, not "should work".
+4. **CI must pass.** Lint, tests, and the safety-coverage guard.
+5. **Merge squashes**, so `main` reads one commit per issue.
+
+### Why this is not bureaucracy
+
+Three concrete reasons, each learned here rather than imported:
+
+- **An issue makes you state the evidence before the fix.** Two defects were
+  filed on 2026-09-25 as "observations from reading the source". Testing them
+  turned one from a theory into a measured 19-against-1, and revealed the
+  second was worse than described. Writing the issue is where that happens.
+- **Acceptance criteria stop a fix from being declared done too early.** The
+  lease fix passed its unit tests while the heartbeat silently did nothing;
+  the regression criterion caught it.
+- **A closed issue is the only durable record of why.** Six months on, the
+  commit says what changed. The issue says what was broken, how it was
+  measured, and what was ruled out.
+
 ## Ground rules
 
 1. **Every change goes through a pull request.** `main` is protected.

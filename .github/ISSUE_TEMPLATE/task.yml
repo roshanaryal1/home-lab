@@ -1,0 +1,32 @@
+name: Task
+description: Work to be done that is not a bug
+labels: ["task"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should be true afterwards that is not true now.
+    validations: {required: true}
+  - type: textarea
+    id: why
+    attributes:
+      label: Why now
+      description: >
+        What this unblocks, or what it costs to defer. If nothing, it goes in
+        the backlog rather than being started.
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ] 
+        - [ ] tests cover the behaviour change
+        - [ ] docs updated in the same PR
+    validations: {required: true}
+  - type: input
+    id: blocked
+    attributes:
+      label: Blocked by
+      placeholder: "#N, or: nothing"
