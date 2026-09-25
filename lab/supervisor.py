@@ -18,12 +18,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import socket
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Self
 
-from lab.queue import Task, TaskQueue
+from lab.queue import LeaseLost, Task, TaskQueue
 
 log = logging.getLogger("lab.supervisor")
 
@@ -48,7 +49,18 @@ class SupervisorConfig:
     # responsive, long enough not to spin the CPU on an idle machine
     # that is meant to run 24/7.
     idle_poll_seconds: float = 1.0
+    # Renew a lease at this fraction of its TTL. A third leaves two
+    # chances to renew before a lease would expire.
+    renew_fraction: float = 1 / 3
+    # Owner is deliberately STABLE across restarts rather than a fresh
+    # random id. Recovery reclaims leases owned by this same name, so a
+    # supervisor that crashes and restarts can pick its own work back up
+    # immediately instead of waiting out the TTL. A different supervisor
+    # still cannot touch it until the lease actually expires.
     owner: str | None = None
+
+    def resolved_owner(self) -> str:
+        return self.owner or f"supervisor@{socket.gethostname()}"
 
 
 @dataclass
@@ -64,13 +76,11 @@ class Supervisor:
 
     def __init__(self, config: SupervisorConfig) -> None:
         self.config = config
-        self.queue = TaskQueue(config.db_path, owner=config.owner)
+        self.queue = TaskQueue(config.db_path, owner=config.resolved_owner())
         self.stats = SupervisorStats()
         self._handlers: dict[str, Handler] = {}
-        self._heavy = asyncio.Semaphore(config.heavy_slots)
-        self._light = asyncio.Semaphore(config.light_slots)
         self._stopping = asyncio.Event()
-        self._in_flight: set[asyncio.Task] = set()
+        self._max_tasks: int | None = None
 
     # --------------------------------------------------------- handlers
 
@@ -80,15 +90,18 @@ class Supervisor:
     def _handler_for(self, task: Task) -> Handler | None:
         return self._handlers.get(task.agent_kind or "", None)
 
-    def _slot_for(self, task: Task) -> asyncio.Semaphore:
-        """Heavy tasks contend for the single inference slot."""
-        weight = task.payload.get("weight", "light")
-        return self._heavy if weight == "heavy" else self._light
-
     # ------------------------------------------------------------- loop
 
     async def run(self, *, max_tasks: int | None = None) -> SupervisorStats:
-        """Run until stopped, or until ``max_tasks`` have been leased.
+        """Run a bounded worker pool until stopped or ``max_tasks`` leased.
+
+        One coroutine per slot, each leasing only work of its own weight
+        class. The pool size *is* the concurrency bound, so a task is never
+        leased unless a worker is already free to run it. The previous
+        design leased in a loop and spawned a coroutine per lease, which
+        let the queue fill with leased-but-not-started work: measured at 19
+        leased against 1 running slot, all of it needlessly exposed to a
+        crash.
 
         ``max_tasks`` exists so tests and one-shot runs terminate; the
         always-on deployment leaves it None and relies on stop().
@@ -98,30 +111,67 @@ class Supervisor:
             log.warning("recovered from unclean shutdown: %s",
                         self.stats.recovered)
 
-        while not self._stopping.is_set():
-            if max_tasks is not None and self.stats.leased >= max_tasks:
-                break
+        self._max_tasks = max_tasks
+        workers = [
+            asyncio.create_task(self._worker("heavy"))
+            for _ in range(self.config.heavy_slots)
+        ] + [
+            asyncio.create_task(self._worker("light"))
+            for _ in range(self.config.light_slots)
+        ]
+        await asyncio.gather(*workers, return_exceptions=True)
+        return self.stats
 
-            task = self.queue.lease(ttl_seconds=self.config.lease_ttl_seconds)
+    def _may_lease(self) -> bool:
+        """Budget check, shared across workers so max_tasks is a total."""
+        if self._max_tasks is None:
+            return True
+        return self.stats.leased < self._max_tasks
+
+    async def _worker(self, weight: str) -> None:
+        """One slot. Leases only work it can run, then runs it."""
+        while not self._stopping.is_set():
+            if not self._may_lease():
+                return
+
+            task = self.queue.lease(
+                ttl_seconds=self.config.lease_ttl_seconds, weight=weight
+            )
             if task is None:
-                if max_tasks is not None and not self._in_flight:
-                    break
+                if self._max_tasks is not None and self.stats.leased == 0:
+                    # One-shot run with nothing to do; do not spin.
+                    await self._sleep_or_stop(self.config.idle_poll_seconds)
+                    if self.queue.counts().get("queued", 0) == 0:
+                        return
+                    continue
+                if self._max_tasks is not None:
+                    return
                 await self._sleep_or_stop(self.config.idle_poll_seconds)
                 continue
 
             self.stats.leased += 1
-            runner = asyncio.create_task(self._run_task(task))
-            self._in_flight.add(runner)
-            runner.add_done_callback(self._in_flight.discard)
-
-        if self._in_flight:
-            await asyncio.gather(*self._in_flight, return_exceptions=True)
-        return self.stats
+            await self._run_task(task)
 
     async def _sleep_or_stop(self, seconds: float) -> None:
         """Sleep, but wake immediately if asked to stop."""
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._stopping.wait(), timeout=seconds)
+
+    async def _renew_while_running(self, task_id: str) -> None:
+        """Heartbeat the lease until cancelled.
+
+        Without this a task that outlives its TTL looks abandoned, and
+        another supervisor reclaims and re-runs work that is still in
+        progress. That was a measured duplicate-execution bug, not a
+        theoretical one.
+        """
+        ttl = self.config.lease_ttl_seconds
+        interval = max(0.05, ttl * self.config.renew_fraction)
+        while True:
+            await asyncio.sleep(interval)
+            if not self.queue.renew_lease(task_id, ttl_seconds=ttl):
+                log.error("lost lease on %s while still running it", task_id)
+                return
 
     async def _run_task(self, task: Task) -> None:
         handler = self._handler_for(task)
@@ -134,21 +184,33 @@ class Supervisor:
                       task.id, task.agent_kind)
             return
 
-        async with self._slot_for(task):
-            self.queue.start(task.id)
+        self.queue.start(task.id)
+        heartbeat = asyncio.create_task(self._renew_while_running(task.id))
+        try:
+            result = await handler(task)
+        except asyncio.CancelledError:
+            # Shutdown mid-task. Leave it leased so recovery decides,
+            # rather than guessing here whether it is safe to replay.
+            raise
+        except Exception as exc:
             try:
-                result = await handler(task)
-            except asyncio.CancelledError:
-                # Shutdown mid-task. Leave it leased so recovery decides,
-                # rather than guessing here whether it is safe to replay.
-                raise
-            except Exception as exc:
                 self.queue.fail(task.id, f"{type(exc).__name__}: {exc}")
                 self.stats.failed += 1
-                log.exception("task %s failed", task.id)
-            else:
+            except LeaseLost:
+                log.error("cannot record failure of %s: lease lost", task.id)
+            log.exception("task %s failed", task.id)
+        else:
+            try:
                 self.queue.succeed(task.id, result)
                 self.stats.succeeded += 1
+            except LeaseLost:
+                # Another supervisor may already have re-run this. Do not
+                # write a result we no longer have the right to write.
+                log.error("cannot record success of %s: lease lost", task.id)
+        finally:
+            heartbeat.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat
 
     def stop(self) -> None:
         self._stopping.set()

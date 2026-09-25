@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lab.queue import TaskQueue, TransitionError
+from lab.queue import LeaseLost, TaskQueue, TransitionError
 
 
 @pytest.fixture()
@@ -165,20 +165,100 @@ def test_recovery_releases_the_lease(q: TaskQueue) -> None:
     assert live == 0, "recovery must not leave a live lease behind"
 
 
-def test_recovery_survives_across_process_restart(tmp_path: Path) -> None:
-    """The real scenario: a new supervisor opens an existing database."""
+def test_restart_reclaims_its_own_stranded_work(tmp_path: Path) -> None:
+    """A restart of the same supervisor picks its own work back up at once."""
     db = tmp_path / "lab.db"
+    owner = "supervisor-main"
 
-    with TaskQueue(db, owner="supervisor-a") as first:
+    with TaskQueue(db, owner=owner) as first:
         task_id = first.add_task("interrupted work", idempotent=True)
         first.lease()
         first.start(task_id)
 
-    with TaskQueue(db, owner="supervisor-b") as second:
-        assert second.get(task_id).state == "running"
-        stats = second.recover()
+    with TaskQueue(db, owner=owner) as restarted:
+        assert restarted.get(task_id).state == "running"
+        stats = restarted.recover()
         assert stats["requeued"] == 1
-        assert second.lease().id == task_id
+        assert restarted.lease().id == task_id
+
+
+def test_a_different_supervisor_will_not_steal_live_work(
+    tmp_path: Path,
+) -> None:
+    """The duplicate-execution fix, stated as a test.
+
+    Supervisor A is still working. Supervisor B must not decide the task is
+    abandoned and re-run it. Before the fix, B reclaimed and requeued it.
+    """
+    db = tmp_path / "lab.db"
+
+    with TaskQueue(db, owner="supervisor-a") as a:
+        task_id = a.add_task("long running work", idempotent=True)
+        a.lease(ttl_seconds=300)
+        a.start(task_id)
+
+        with TaskQueue(db, owner="supervisor-b") as b:
+            stats = b.recover()
+            assert stats == {"interrupted": 0, "requeued": 0,
+                             "held_for_review": 0}
+            assert b.get(task_id).state == "running"
+            assert b.lease() is None, "B must not be handed A's live task"
+
+
+def test_expired_lease_is_reclaimed_by_another_supervisor(
+    tmp_path: Path,
+) -> None:
+    """Genuinely abandoned work is still recovered, just not prematurely."""
+    db = tmp_path / "lab.db"
+
+    with TaskQueue(db, owner="supervisor-a") as a:
+        task_id = a.add_task("abandoned", idempotent=True)
+        a.lease(ttl_seconds=300)
+        a.start(task_id)
+        # The worker dies here. Nothing renews the lease, so it expires.
+        a._conn.execute(
+            "UPDATE leases SET expires_at = datetime('now', '-1 second') "
+            "WHERE task_id = ?", (task_id,)
+        )
+
+    with TaskQueue(db, owner="supervisor-b") as b:
+        stats = b.recover()
+        assert stats["requeued"] == 1
+        assert b.lease().id == task_id
+
+
+def test_renewal_keeps_a_long_task_alive(tmp_path: Path) -> None:
+    """Renewal is what stops a slow task from looking abandoned."""
+    db = tmp_path / "lab.db"
+
+    with TaskQueue(db, owner="supervisor-a") as a:
+        task_id = a.add_task("slow", idempotent=True)
+        a.lease(ttl_seconds=1)
+        a.start(task_id)
+        assert a.renew_lease(task_id, ttl_seconds=300) is True
+
+        with TaskQueue(db, owner="supervisor-b") as b:
+            assert b.recover()["interrupted"] == 0, "renewed lease is alive"
+
+
+def test_worker_cannot_commit_after_losing_its_lease(tmp_path: Path) -> None:
+    """Fencing: losing the race is fine, both workers committing is not."""
+    db = tmp_path / "lab.db"
+
+    with TaskQueue(db, owner="supervisor-a") as a:
+        task_id = a.add_task("contended", idempotent=True)
+        a.lease(ttl_seconds=300)
+        a.start(task_id)
+        a._conn.execute(
+            "UPDATE leases SET expires_at = datetime('now', '-1 second') "
+            "WHERE task_id = ?", (task_id,)
+        )
+        # A is still working, unaware. B reclaims and requeues.
+        with TaskQueue(db, owner="supervisor-b") as b:
+            b.recover()
+
+        with pytest.raises(LeaseLost):
+            a.succeed(task_id, {"written": "by the wrong worker"})
 
 
 # -------------------------------------------------------------- audit

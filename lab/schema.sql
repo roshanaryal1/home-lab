@@ -47,6 +47,12 @@ CREATE TABLE IF NOT EXISTS tasks (
                                    'interrupted', 'cancelled')),
     priority      INTEGER NOT NULL DEFAULT 100, -- lower runs first
     agent_kind    TEXT,                         -- routing hint, nullable
+    -- Weight decides which worker pool may lease this task. It is a column
+    -- rather than a payload key because the dispatch loop has to filter on
+    -- it: a worker must be able to ask for work it has capacity to run,
+    -- instead of leasing blindly and discovering the weight afterwards.
+    weight        TEXT NOT NULL DEFAULT 'light'
+                  CHECK (weight IN ('heavy', 'light')),
     -- Only idempotent tasks may be auto-requeued after an interrupted
     -- run. Anything with side effects must be re-approved by a human.
     idempotent    INTEGER NOT NULL DEFAULT 0 CHECK (idempotent IN (0, 1)),
@@ -61,7 +67,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 -- The hot path is "find the next runnable task", so index exactly that.
 CREATE INDEX IF NOT EXISTS idx_tasks_runnable
-    ON tasks (state, available_at, priority, created_at);
+    ON tasks (state, weight, available_at, priority, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_id);
 
