@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Self
 
+from lab.policy import Decision, PolicyEngine
 from lab.queue import LeaseLost, Task, TaskQueue
 
 log = logging.getLogger("lab.supervisor")
@@ -68,6 +69,8 @@ class SupervisorStats:
     leased: int = 0
     succeeded: int = 0
     failed: int = 0
+    denied: int = 0
+    awaiting_approval: int = 0
     recovered: dict[str, int] = field(default_factory=dict)
 
 
@@ -77,6 +80,7 @@ class Supervisor:
     def __init__(self, config: SupervisorConfig) -> None:
         self.config = config
         self.queue = TaskQueue(config.db_path, owner=config.resolved_owner())
+        self.policy = PolicyEngine(self.queue._conn)
         self.stats = SupervisorStats()
         self._handlers: dict[str, Handler] = {}
         self._stopping = asyncio.Event()
@@ -182,6 +186,23 @@ class Supervisor:
             self.stats.failed += 1
             log.error("no handler for task %s (kind=%s)",
                       task.id, task.agent_kind)
+            return
+
+        # The gate. Between lease and execute, never skipped, and it runs
+        # before the handler is given anything. A model's output reaches
+        # this code only as parameters to hash, never as instruction.
+        verdict = self.policy.authorize(task)
+        if not verdict.allowed:
+            if verdict.decision is Decision.NEEDS_APPROVAL:
+                self.policy.request_approval(task, verdict.reason)
+                # Park it rather than failing: a human may yet approve.
+                self.queue.cancel(task.id, f"awaiting approval: {verdict.reason}")
+                self.stats.awaiting_approval += 1
+                log.info("task %s parked, %s", task.id, verdict.reason)
+            else:
+                self.queue.cancel(task.id, f"denied by policy: {verdict.reason}")
+                self.stats.denied += 1
+                log.warning("task %s DENIED: %s", task.id, verdict.reason)
             return
 
         self.queue.start(task.id)

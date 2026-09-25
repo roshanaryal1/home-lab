@@ -53,6 +53,12 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- instead of leasing blindly and discovering the weight afterwards.
     weight        TEXT NOT NULL DEFAULT 'light'
                   CHECK (weight IN ('heavy', 'light')),
+    -- What authority this task needs. Declared on the task for now; once
+    -- the execution broker exists (#10) the tier will be derived from the
+    -- tools actually called, and a task will never be able to under-declare.
+    capability_tier TEXT NOT NULL DEFAULT 'autonomous'
+                  CHECK (capability_tier IN
+                         ('autonomous', 'notify', 'approve', 'never')),
     -- Only idempotent tasks may be auto-requeued after an interrupted
     -- run. Anything with side effects must be re-approved by a human.
     idempotent    INTEGER NOT NULL DEFAULT 0 CHECK (idempotent IN (0, 1)),
@@ -103,10 +109,21 @@ CREATE TABLE IF NOT EXISTS approvals (
     reason      TEXT NOT NULL,
     state       TEXT NOT NULL DEFAULT 'pending'
                 CHECK (state IN ('pending', 'granted', 'denied', 'expired')),
+    -- An approval authorises ONE action, not a capability. The hash binds
+    -- it to the exact normalised parameters that were shown to the human,
+    -- so approving "email alice about X" cannot be reused to email bob.
+    action_hash TEXT NOT NULL,
+    -- Single use. Set the moment the approval is spent, so a replay of the
+    -- same token finds it already consumed.
+    consumed_at TEXT,
+    expires_at  TEXT NOT NULL,
     requested_at TEXT NOT NULL DEFAULT (datetime('now')),
     decided_at  TEXT,
     decided_by  TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_approvals_lookup
+    ON approvals (task_id, action_hash, state);
 
 CREATE INDEX IF NOT EXISTS idx_approvals_pending
     ON approvals (state, requested_at);
