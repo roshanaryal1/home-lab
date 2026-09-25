@@ -105,8 +105,9 @@ if [ "${SKIP_MEMORY:-0}" != "1" ] && [ -d "${SRC}/projects" ]; then
   echo "  included project memory directories"
 fi
 
-cp "$(dirname "$0")/restore-claude-setup.sh" "${STAGE}/claude-setup/" \
-  2>/dev/null || true
+for script in restore-claude-setup.sh install-plugins.sh; do
+  cp "$(dirname "$0")/${script}" "${STAGE}/claude-setup/" 2>/dev/null || true
+done
 
 tar -czf "${OUT}" -C "${STAGE}" claude-setup
 echo

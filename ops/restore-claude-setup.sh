@@ -93,10 +93,10 @@ travel in a tarball:
      Credentials live in the macOS Keychain on the source machine, not
      in ~/.claude, so they do not transfer. This is a good thing.
 
-  2. Install plugins:   start `claude`, then run  /plugin
-     settings.json already lists the marketplaces and which plugins
-     were enabled, so Claude Code knows what to fetch. It downloads
-     them fresh rather than copying ~1 GB of cache across.
+  2. Install plugins:   bash install-plugins.sh
+     Adds all 9 marketplaces and installs all 16 plugins, generated
+     from the source machine's real manifest. Downloads them fresh
+     rather than copying ~1 GB of cache across. Safe to re-run.
 
   3. Check the MCP servers start:  claude mcp list
      They are all npx-based, so the first run downloads each server.
