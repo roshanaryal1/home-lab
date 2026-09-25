@@ -30,12 +30,12 @@ import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
-from enum import Enum
+from enum import StrEnum
 
 from lab.queue import NOW_MS, Task, _ts, _utcnow
 
 
-class Tier(str, Enum):
+class Tier(StrEnum):
     """What authority an action needs. Ordered least to most dangerous."""
 
     AUTONOMOUS = "autonomous"
@@ -44,7 +44,7 @@ class Tier(str, Enum):
     NEVER = "never"
 
 
-class Decision(str, Enum):
+class Decision(StrEnum):
     ALLOW = "allow"
     DENY = "deny"
     NEEDS_APPROVAL = "needs_approval"
