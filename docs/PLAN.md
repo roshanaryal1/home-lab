@@ -196,124 +196,128 @@ design depends on.
 
 ## 3. Paper strategy
 
-### 3.1 Where the portfolio actually stands
+### 3.1 Correction: the roadmap already exists
 
-You said "we finished one paper, we are working on the second." The record says
-otherwise, and it is better news:
+An earlier draft of this section was wrong. It reconstructed the portfolio from
+a memory summary instead of reading `paper/portfolio.md` in the llm-architects
+repo, which is the actual roadmap and has been since 2026-09-01. The lesson is
+the one already written into the standing rules: a summary is a hypothesis, the
+repo is the source of truth.
+
+The real roadmap, and its live status:
 
 | # | Paper | Status |
 |---|---|---|
-| 1 | A Serialisation Ceiling in Browser-Native Semantic Retrieval | under review, double-blind |
-| 2 | Adverse Weather, Darkness and Injury Severity in NZ Road Crashes | under review, *Journal of Road Safety* |
-| 3 | LLMs as Systems Architects | *Cureus J. Comp. Sci.* art. 21832, Step 5 of 7 |
-| 4 | The Rater Is Stale | in progress, TMLR target, Senaka co-author |
+| P1 | *LLMs as Systems Architects* | in peer review, Cureus art. 21832 |
+| P2 | *The Rater Is Stale* | in progress, dataset done, harness pending |
+| P3 | *We Asked the Models, Then We Built It* | **was blocked on hardware. The M6 arrived 2026-09-22. Now unblocked.** |
+| P4 | *Reasoning Mode Beats Model Identity* | ready to run, needs no hardware |
+| P5? | architecture-from-spec benchmark | conditional, gated on the v2 rubric proving portable |
 
-**You have four, not two.** Reaching five needs one more; the home-lab work can
-credibly support three.
+Plus two unrelated papers under review: the browser-retrieval serialisation
+ceiling, and the NZ road-crash severity analysis.
 
-### 3.2 Proposed papers 5 to 7
+So the portfolio is six to seven papers, not four, and it was planned before I
+arrived.
 
-Each is chosen because it (a) falls out of work the build requires anyway,
-(b) has a gap I verified rather than assumed, and (c) has an existing public
-benchmark or baseline so we are not also building measurement apparatus.
+### 3.2 The thing that changes today's priorities
 
----
+**P3 is the home-lab paper, and its clock has started.**
 
-**P5: typed decision models as the authorization gate**
+`portfolio.md` defines P3 as: build the P1-synthesised reference architecture on
+a real 32 GB M6 and run it 24/7, reporting measurements nobody currently has.
+Its definition of done requires:
 
-*Question.* Does replacing the LLM that authorizes a tool call with a small
-typed decision model reduce prompt-injection-driven unauthorized actions?
+- **at least 6 weekly eval runs**, so at least six weeks after the system works
+- a failure taxonomy with **at least 20 real incidents** from real logs
+- `memory_budget.py` predictions **checked against measured RSS**
+- cheap A/Bs: MLX vs llama.cpp, 32K vs 64K context, speculative decoding on and
+  off, one resident model vs swap-per-task
 
-*Why it is novel.* Jev is from 2026-09-15 and Laya from 2026-09-18. This is a
-ten-day-old capability. The hypothesis, that a typed output space resists
-injection structurally rather than by instruction, is plausible and untested.
+Three consequences worth being explicit about:
 
-*Why it is cheap.* The 97-task / 629-security-test injection environment already
-exists. Laya and Kev-9B are Apache-2.0. The experiment is a swap plus a
-measurement.
+1. **The Phase 0 defect fixes are on a paper's critical path**, not just
+   engineering hygiene. Six weekly runs cannot start until the supervisor stops
+   duplicate-executing tasks.
+2. **Instrumentation has to be in place before the first run, not retrofitted.**
+   A failure taxonomy needs the logs that produced it. Incidents that happen
+   before instrumentation exists are lost data.
+3. **P3 was always the long pole.** `portfolio.md` said so on 2026-09-01 and
+   told you to start procurement early. The hardware is here; the pole is now
+   the build.
 
-*Risk.* Fast-moving area; someone else may do it. This argues for doing it
-first and fast, and it is a small experiment.
+### 3.3 My three proposals, re-scored against the existing roadmap
 
-*Venue.* A security or eval workshop for the short version, then a full paper.
+`portfolio.md` carries an explicit **anti-salami-slicing rule**: every spin-off
+must stand on its own new data or experiment. Re-checking my proposals against
+it:
 
----
+**Dropped. My "P7, what breaks in thirty days" was P3.** Silent failure
+accumulation, recovery across restarts, intervention frequency: those are P3's
+reliability measurements, already specified. Proposing it separately was exactly
+the least-publishable-unit split the rule forbids. It is one section of P3.
 
-**P6: does external policy enforcement prevent skill misevolution?**
+**Survives: typed decision models as the authorization gate.** New experiment
+(swap the authorizer, measure against the public 97-task / 629-security-test
+injection environment), new data, no overlap with P1 to P4. Ten-day-old
+technology, so it is the most time-sensitive thing on the list.
 
-*Question.* SafeEvolve wraps the skill system. Our architecture puts authority
-entirely outside the model. Does out-of-model enforcement prevent skill
-misevolution better than an in-band wrapper?
+**Survives: does external policy enforcement prevent skill misevolution?** New
+experiment on a public benchmark (SkillMisevo-Bench) against a named baseline
+(SafeEvolve). No overlap. This is also the honest answer to the self-improving
+agents request.
 
-*Why it is novel.* *Practice Makes Unsafe* establishes the failure and proposes
-a wrapper mitigation. Nobody has tested capability-tier enforcement as the
-control. It is a direct, comparable follow-up with a named baseline.
+Both are candidates for the P5/P6 slots alongside the conditional
+architecture-from-spec benchmark already noted in `portfolio.md`.
 
-*Why it is cheap.* SkillMisevo-Bench and SkillMisevo-Gym are public. Baseline
-numbers are published: unsafe carryover 16.0% to 35.3%, SafeEvolve recovering
-26.7 and 17.3 points.
+### 3.4 Recommended order
 
-*This is also the honest answer to your self-improving-agents request*: build
-it, gate it, and measure whether the gate works.
+1. **Finish P2.** Dataset is done and twice-verified; it needs the harness,
+   which is Senaka's half, or yours if Wednesday passes with no reply.
+2. **Start P3 instrumentation now.** Not the writing, the logging. Every hour
+   the machine runs uninstrumented is an hour of P3 data not collected.
+3. **Slot in P4 whenever.** It needs no hardware, the v2 rubric anchors and
+   prompt-v2/v3 already exist, and it is explicitly described as cheap. It is
+   the best candidate for a fast output while P3's six weeks elapse.
+4. **Typed decision models, in parallel with Phase 2.** Time-sensitive, and the
+   experiment is a swap plus a measurement.
+5. **Skill misevolution, after the policy plane exists**, since the intervention
+   being tested is the policy plane.
 
----
+### 3.5 The "publish something small every two weeks" question
 
-**P7: what breaks in thirty days, unattended operation of a local agent platform**
-
-*Question.* What actually degrades when an agent platform runs unattended for
-weeks? Silent failure accumulation, state drift, intervention frequency,
-recovery success across real restarts.
-
-*Why it is novel.* Verified gap. Existing work measures sessions and injected
-faults, not duration.
-
-*Why it is defensible.* It requires a dedicated always-on machine for a month.
-Most researchers will not do this. You are doing it anyway.
-
-*Baseline to compare against.* OpenClaw 31% / NanoBot 25% completion, 2.98x time
-and 19.44x memory, from arXiv 2608.27886.
-
-*Caveat to state up front.* n=1 machine. Frame as a longitudinal case study with
-full instrumentation, not a general claim.
-
----
-
-### 3.3 The "publish something small every two weeks" question
-
-I have to be straight with you: **peer-reviewed publication in under two weeks
-essentially does not exist in computer science.** Verified figures:
+Peer-reviewed publication in under two weeks essentially does not exist in
+computer science. Verified:
 
 | Venue | Realistic time |
 |---|---|
-| MDPI journals | ~2-4 weeks review, ~1-2 weeks to publish, ~4-6 weeks total |
-| IEEE Access | 6-8 weeks, described as the gold standard for rigorous-fast |
+| MDPI journals | ~2-4 weeks review, ~1-2 weeks publish, ~4-6 weeks total |
+| IEEE Access | 6-8 weeks, the rigorous-fast gold standard |
 | JOSS (software) | median **32 days**, fastest recorded 2 days |
-| arXiv preprint | announced Sun-Thu; **1-3 days** allowing for moderation |
+| arXiv preprint | announced Sun-Thu, **1-3 days** allowing moderation |
 | Zenodo artifact | **immediate** DOI |
 
-So the two-week goal is achievable, but only if we stop equating *output* with
-*peer-reviewed publication*. Run two tracks:
+The goal is reachable only by separating *output* from *peer-reviewed
+publication*:
 
-**Track A, fast, every 2 to 3 weeks.** A citable artifact. An arXiv preprint, or
-a Zenodo release with a DOI, or a dataset descriptor. Real, citable, countable
-on a PhD application as a preprint or artifact. This is where the "small thing"
-cadence lives.
+**Track A, fast, every 2 to 3 weeks.** A citable artifact: an arXiv preprint, a
+Zenodo release with a DOI, or a dataset descriptor. Counts on a PhD application
+as a preprint or released artifact, and establishes priority, which matters most
+for the decision-model work.
 
-**Track B, slow, months.** The peer-reviewed version of the same work, submitted
-once Track A has already established the claim and the date.
+**Track B, slow, months.** The peer-reviewed version of the same work.
 
-Track A also **establishes priority**, which matters a lot for P5 given the
-ten-day-old technology.
+`venue-strategy.md` already commits P2 to TMLR plus a NeurIPS-2026 eval-workshop
+4-page short, and explicitly notes the workshop is non-archival so the full
+paper can still go to TMLR. **That two-shot pattern is the template.** Apply it
+to P4 and to the decision-model work as well.
 
-Additional fast formats worth using:
-- **JOSS software paper** for home-lab itself once it is real. Review happens in
-  the open on GitHub and rewards exactly the engineering rigour we are
-  committing to anyway.
-- **Dataset descriptors** on Zenodo for the entity dataset, benchmark fixtures,
-  and the 30-day telemetry from P7.
-- **Registered reports** for P5 to P7. In-principle acceptance before results
-  exist, which removes the risk of a null result being unpublishable. Worth
-  considering given P7's n=1 exposure.
+Two additional fast formats worth adding:
+
+- **JOSS software paper** for home-lab once it is real. Review happens openly on
+  GitHub and rewards exactly the engineering rigour Phase 0 commits to.
+- **Zenodo dataset descriptors** for the entity dataset, benchmark fixtures, and
+  P3's telemetry. Immediate DOI, genuinely citable.
 
 ---
 
@@ -363,10 +367,16 @@ no account actions.
 
 Isolated workspace, tests must pass, patch output, approval required to push.
 
-### Phase 5: 24/7 and the P7 study
+### Phase 5: 24/7 operation, and P3's measurement window opens
 
 launchd, independent watchdog, backups with a tested restore, dashboard,
-emergency stop. Then the instrumented 30-day run.
+emergency stop.
+
+**This is where P3's six-week clock starts**, so the instrumentation has to be
+working before the first eval run, not added afterwards. Weekly eval suite,
+failure taxonomy from real logs (target: 20+ incidents), `memory_budget.py`
+predictions checked against measured RSS, and the four A/Bs named in
+`portfolio.md`.
 
 ### On "uncensored"
 
@@ -381,9 +391,10 @@ fully open. The gate is what makes leaving it running overnight reasonable.
 
 ## 5. Decisions needed from you
 
-1. **Papers 5 to 7: approve, replace, or reorder?** My ranking is P5 first
-   (most time-sensitive), P6 second (strongest baseline), P7 last (needs the
-   machine running anyway).
+1. **Paper order.** P3 is unblocked and is the long pole; P4 is cheap and
+   needs no hardware. My recommendation: finish P2, start P3 instrumentation
+   immediately, slot P4 in during P3's six weeks, and run the decision-model
+   experiment in parallel with Phase 2 because it is time-sensitive.
 2. **Two-track publishing: agreed?** Specifically, are preprints and DOI'd
    artifacts acceptable as the fast-cadence output?
 3. **Registered reports for P5 to P7?** Slower to start, removes null-result
