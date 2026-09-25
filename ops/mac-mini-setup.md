@@ -116,8 +116,8 @@ Once steps 1 to 5 are done:
 # from the laptop
 ssh <admin>@<tailnet-host>
 sudo -u lab -i
-git clone <this repo> ~/autonomous-lab
-cd ~/autonomous-lab
+git clone <this repo> ~/home-lab
+cd ~/home-lab
 python3 -m pytest tests/ -q     # expect all green before going further
 ```
 

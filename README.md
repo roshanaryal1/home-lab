@@ -1,4 +1,4 @@
-# autonomous-lab
+# home-lab
 
 A 24/7 local autonomous AI workstation for an Apple M6 Mac mini
 (32 GB unified, 512 GB internal + 1 TB external SSD).

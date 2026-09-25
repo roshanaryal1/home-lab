@@ -1,5 +1,5 @@
 [project]
-name = "autonomous-lab"
+name = "home-lab"
 version = "0.1.0"
 description = "24/7 local autonomous AI workstation, built to the reference architecture from the llm-architects study"
 requires-python = ">=3.13"
