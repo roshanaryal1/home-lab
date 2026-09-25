@@ -1,0 +1,41 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest ruff
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: python -m pytest tests/ -q
+      - name: Safety properties must still be covered
+        # The two load-bearing guarantees are that a crash never blindly
+        # replays a non-idempotent task, and that the heavy inference slot is
+        # never breached. Deleting the tests that prove those would otherwise
+        # be a silent green build, so assert the coverage still exists.
+        run: |
+          SAFETY="idempotent or destructive or heavy_task"
+          python -m pytest tests/ -q -k "$SAFETY" --no-header
+          FOUND=$(python -m pytest tests/ --collect-only -q -k "$SAFETY" 2>/dev/null | grep -c "::")
+          echo "safety tests found: $FOUND"
+          if [ "$FOUND" -lt 6 ]; then
+            echo "expected at least 6 safety tests, found $FOUND"
+            exit 1
+          fi
