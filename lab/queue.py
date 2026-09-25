@@ -19,8 +19,9 @@ import json
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Self
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
@@ -45,12 +46,12 @@ class TransitionError(RuntimeError):
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _ts(moment: datetime) -> str:
     """Format as the same UTC string SQLite's datetime('now') produces."""
-    return moment.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    return moment.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,7 @@ class Task:
     last_error: str | None = None
 
     @classmethod
-    def from_row(cls, row: sqlite3.Row) -> "Task":
+    def from_row(cls, row: sqlite3.Row) -> Task:
         return cls(
             id=row["id"],
             title=row["title"],
@@ -99,7 +100,7 @@ class TaskQueue:
     def close(self) -> None:
         self._conn.close()
 
-    def __enter__(self) -> "TaskQueue":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc_info: object) -> None:

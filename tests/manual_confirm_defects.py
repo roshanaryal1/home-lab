@@ -1,9 +1,12 @@
 """Confirm (or refute) the two reviewer claims that are testable."""
-import asyncio, sys
+import asyncio
+import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path.home() / "RnD/llm-architects/home-lab"))
 from lab.queue import Task, TaskQueue
 from lab.supervisor import Supervisor, SupervisorConfig
+
 
 async def test_unbounded_leasing(tmp):
     """Claim: supervisor leases far more tasks than it can run."""
@@ -44,7 +47,8 @@ async def test_lease_expiry(tmp):
     print(f"  recover() while s1 still 'working': {stats}")
     state = q2.get(tid).state
     print(f"  task state now: {state}")
-    q.close(); q2.close()
+    q.close()
+    q2.close()
     return stats
 
 async def main():

@@ -16,10 +16,12 @@ semaphores rather than left to convention.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Self
 
 from lab.queue import Task, TaskQueue
 
@@ -118,10 +120,8 @@ class Supervisor:
 
     async def _sleep_or_stop(self, seconds: float) -> None:
         """Sleep, but wake immediately if asked to stop."""
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._stopping.wait(), timeout=seconds)
-        except asyncio.TimeoutError:
-            pass
 
     async def _run_task(self, task: Task) -> None:
         handler = self._handler_for(task)
@@ -142,7 +142,7 @@ class Supervisor:
                 # Shutdown mid-task. Leave it leased so recovery decides,
                 # rather than guessing here whether it is safe to replay.
                 raise
-            except Exception as exc:  # noqa: BLE001 - boundary, log and retry
+            except Exception as exc:
                 self.queue.fail(task.id, f"{type(exc).__name__}: {exc}")
                 self.stats.failed += 1
                 log.exception("task %s failed", task.id)
@@ -156,7 +156,7 @@ class Supervisor:
     def close(self) -> None:
         self.queue.close()
 
-    def __enter__(self) -> "Supervisor":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc_info: object) -> None:

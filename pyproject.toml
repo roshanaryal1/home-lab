@@ -10,6 +10,17 @@ dev = ["pytest>=8", "ruff>=0.6"]
 
 [tool.ruff]
 line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+# Pinned explicitly so a local run and a CI run cannot disagree, which is
+# exactly how the first CI run failed on rules that were never checked here.
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "PYI"]
+ignore = [
+    # Tests prepend to sys.path before importing the package under test, so
+    # module-level imports legitimately follow executable code there.
+    "E402",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
