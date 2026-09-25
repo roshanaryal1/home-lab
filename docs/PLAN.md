@@ -319,6 +319,68 @@ Two additional fast formats worth adding:
 - **Zenodo dataset descriptors** for the entity dataset, benchmark fixtures, and
   P3's telemetry. Immediate DOI, genuinely citable.
 
+### 3.6 Extending four papers to six
+
+`portfolio.md` plans P1 to P4 and names one conditional fifth. Two additions
+reach six without violating the anti-salami rule, because each needs its own new
+experiment rather than a re-cut of the existing corpus:
+
+**P5, architecture-from-spec benchmark and leaderboard.** Already named in
+`portfolio.md` as conditional. Its gate is that the v2 rubric proves portable,
+which P1's v2/v3 runs and P4 both test. So P4 is not only cheap, it is the thing
+that unlocks P5. Worth knowing when scheduling P4.
+
+**P6, typed decision models as the authorization gate.** New experiment, new
+data, and it plugs directly into P3's policy plane rather than competing with
+it: the thing being measured is a component P3 needs anyway. Most
+time-sensitive item in the whole portfolio, since the technology is ten days
+old.
+
+**Reserve, P7, skill misevolution under external enforcement.** Equally
+legitimate, but it needs the policy plane to exist first, so it naturally
+follows P6 rather than running beside it.
+
+That gives six firm plus one reserve, all from the same line of work, each with
+its own experiment.
+
+### 3.7 Short-form writing: the actual fast track
+
+This is the right answer to the two-week question, and better than chasing fast
+journals. Public writing is same-day, compounds, and reaches the PIs being
+emailed far more reliably than a workshop paper does.
+
+**What can be written now, from work already finished:**
+
+| Piece | Source | Ready |
+|---|---|---|
+| Eleven LLMs designed the same system. Here is what they agreed on. | P1 consensus matrix | now |
+| An LLM flagged 14 real tools as hallucinations. Zero were fake. | P2 seed finding | now |
+| I tested my own task queue and found it leases 19 jobs when it can run 1. | the defect confirmation above | now |
+| OpenClaw uses 19x the memory of NanoBot for no completion advantage. | arXiv 2608.27886 | now |
+| Every self-improving skill variant we have measured produced unsafe artifacts. | arXiv 2608.12851 | now |
+| Build log, weekly | P3 in progress | from Phase 0 |
+
+The build-log series is the highest-value one, because **it doubles as P3's raw
+material.** P3 needs a failure taxonomy with 20+ real incidents from real logs.
+Writing up each week's incidents as they happen produces both the blog post and
+the paper's evidence, from the same work, with dates attached.
+
+**Suggested cadence:** one short piece per two weeks, alternating between a
+finding and a build-log entry. Cross-post the same text: personal site as
+canonical, LinkedIn and X as distribution, Medium or dev.to optional.
+
+**One real constraint to respect.** The browser-retrieval serialisation-ceiling
+paper is under **double-blind review**. Posting identifiable content about it
+during review can breach anonymity policy at some venues. Two rules:
+
+1. Nothing public about the serialisation-ceiling paper until it is decided.
+2. For everything else, check the venue's preprint and publicity policy before
+   posting. TMLR explicitly permits preprints; conference policies vary and some
+   restrict publicity during review windows.
+
+Neither rule blocks any of the six pieces listed above, since none of them
+touch the double-blind paper.
+
 ---
 
 ## 4. Build plan
