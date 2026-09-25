@@ -84,6 +84,7 @@ class Task:
     idempotent: bool
     payload: dict
     weight: str = "light"
+    capability_tier: str = "autonomous"
     agent_kind: str | None = None
     last_error: str | None = None
 
@@ -99,6 +100,7 @@ class Task:
             idempotent=bool(row["idempotent"]),
             payload=json.loads(row["payload"] or "{}"),
             weight=row["weight"],
+            capability_tier=row["capability_tier"],
             agent_kind=row["agent_kind"],
             last_error=row["last_error"],
         )
@@ -157,14 +159,16 @@ class TaskQueue:
         max_attempts: int = 3,
         parent_id: str | None = None,
         weight: str = "light",
+        capability_tier: str = "autonomous",
     ) -> str:
         task_id = uuid.uuid4().hex
         self._conn.execute(
             "INSERT INTO tasks (id, parent_id, title, payload, priority, "
-            "agent_kind, idempotent, max_attempts, weight) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "agent_kind, idempotent, max_attempts, weight, capability_tier) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (task_id, parent_id, title, json.dumps(payload or {}), priority,
-             agent_kind, int(idempotent), max_attempts, weight),
+             agent_kind, int(idempotent), max_attempts, weight,
+             capability_tier),
         )
         self._record(task_id, "created", None, "queued",
                      {"title": title, "priority": priority})
