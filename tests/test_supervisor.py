@@ -96,8 +96,7 @@ async def test_only_one_heavy_task_runs_at_a_time(tmp_path: Path) -> None:
 
     sup.register("infer", heavy)
     for i in range(4):
-        sup.queue.add_task(f"heavy-{i}", agent_kind="infer",
-                           payload={"weight": "heavy"})
+        sup.queue.add_task(f"heavy-{i}", agent_kind="infer", weight="heavy")
 
     await sup.run(max_tasks=4)
     assert peak == 1, f"heavy slot breached: {peak} concurrent heavy tasks"
@@ -152,12 +151,16 @@ async def test_startup_recovers_interrupted_idempotent_task(
     tmp_path: Path,
 ) -> None:
     db = tmp_path / "lab.db"
-    with TaskQueue(db, owner="crashed") as q:
+    owner = "supervisor-under-test"
+    with TaskQueue(db, owner=owner) as q:
         task_id = q.add_task("was running", agent_kind="demo", idempotent=True)
         q.lease()
         q.start(task_id)  # process dies here
 
-    sup = Supervisor(SupervisorConfig(db_path=db, idle_poll_seconds=0.01))
+    # A restart is the same logical supervisor, so it carries the same owner
+    # name and may reclaim its own stranded work immediately.
+    sup = Supervisor(SupervisorConfig(db_path=db, idle_poll_seconds=0.01,
+                                      owner=owner))
     ran: list[str] = []
 
     async def handler(task: Task) -> dict:
@@ -179,13 +182,15 @@ async def test_startup_does_not_rerun_interrupted_destructive_task(
 ) -> None:
     """The safety property that matters most: no blind replay."""
     db = tmp_path / "lab.db"
-    with TaskQueue(db, owner="crashed") as q:
+    owner = "supervisor-under-test"
+    with TaskQueue(db, owner=owner) as q:
         task_id = q.add_task("charge the card", agent_kind="demo",
                              idempotent=False)
         q.lease()
         q.start(task_id)
 
-    sup = Supervisor(SupervisorConfig(db_path=db, idle_poll_seconds=0.01))
+    sup = Supervisor(SupervisorConfig(db_path=db, idle_poll_seconds=0.01,
+                                      owner=owner))
     ran: list[str] = []
 
     async def handler(task: Task) -> dict:

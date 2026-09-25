@@ -45,13 +45,32 @@ class TransitionError(RuntimeError):
     """Raised when a caller attempts an illegal state transition."""
 
 
+class LeaseLost(RuntimeError):
+    """Raised when a worker tries to commit a result it no longer owns.
+
+    This is the fencing check. A worker whose lease expired while it was
+    still working must not be able to write a result, because another
+    supervisor may already have reclaimed and re-run the task. Losing the
+    race is recoverable; two workers both committing is not.
+    """
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+# SQLite's datetime('now') is second-resolution, which is too coarse for
+# lease arithmetic: with a short TTL the truncation can put an expiry in
+# the past the instant it is written, so a renewal comparison never
+# passes and a live worker looks abandoned. Both sides of every
+# lease comparison therefore use millisecond precision.
+NOW_MS = "strftime('%Y-%m-%d %H:%M:%f', 'now')"
+
+
 def _ts(moment: datetime) -> str:
-    """Format as the same UTC string SQLite's datetime('now') produces."""
-    return moment.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
+    """Format to match SQLite's strftime('%Y-%m-%d %H:%M:%f', 'now')."""
+    utc = moment.astimezone(UTC)
+    return f"{utc.strftime('%Y-%m-%d %H:%M:%S')}.{utc.microsecond // 1000:03d}"
 
 
 @dataclass(frozen=True)
@@ -64,6 +83,7 @@ class Task:
     max_attempts: int
     idempotent: bool
     payload: dict
+    weight: str = "light"
     agent_kind: str | None = None
     last_error: str | None = None
 
@@ -78,6 +98,7 @@ class Task:
             max_attempts=row["max_attempts"],
             idempotent=bool(row["idempotent"]),
             payload=json.loads(row["payload"] or "{}"),
+            weight=row["weight"],
             agent_kind=row["agent_kind"],
             last_error=row["last_error"],
         )
@@ -135,14 +156,15 @@ class TaskQueue:
         idempotent: bool = False,
         max_attempts: int = 3,
         parent_id: str | None = None,
+        weight: str = "light",
     ) -> str:
         task_id = uuid.uuid4().hex
         self._conn.execute(
             "INSERT INTO tasks (id, parent_id, title, payload, priority, "
-            "agent_kind, idempotent, max_attempts) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "agent_kind, idempotent, max_attempts, weight) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (task_id, parent_id, title, json.dumps(payload or {}), priority,
-             agent_kind, int(idempotent), max_attempts),
+             agent_kind, int(idempotent), max_attempts, weight),
         )
         self._record(task_id, "created", None, "queued",
                      {"title": title, "priority": priority})
@@ -180,19 +202,32 @@ class TaskQueue:
         self._record(task_id, to_state, from_state, to_state,
                      {"error": error} if error else None)
 
-    def lease(self, ttl_seconds: int = 300) -> Task | None:
+    def lease(self, ttl_seconds: int = 300,
+              weight: str | None = None) -> Task | None:
         """Claim the next runnable task, or return None if there is none.
+
+        ``weight`` restricts the claim to one worker class. A worker only
+        leases work it already has capacity to run, which is what keeps the
+        number of leased-but-not-started tasks bounded.
 
         Runs in a single IMMEDIATE transaction so two supervisors racing
         for the same task cannot both win.
         """
         self._conn.execute("BEGIN IMMEDIATE")
         try:
-            row = self._conn.execute(
-                "SELECT * FROM tasks WHERE state = 'queued' "
-                "AND available_at <= datetime('now') "
-                "ORDER BY priority ASC, created_at ASC LIMIT 1"
-            ).fetchone()
+            if weight is None:
+                row = self._conn.execute(
+                    "SELECT * FROM tasks WHERE state = 'queued' "
+                    f"AND available_at <= {NOW_MS} "
+                    "ORDER BY priority ASC, created_at ASC LIMIT 1"
+                ).fetchone()
+            else:
+                row = self._conn.execute(
+                    "SELECT * FROM tasks WHERE state = 'queued' "
+                    f"AND weight = ? AND available_at <= {NOW_MS} "
+                    "ORDER BY priority ASC, created_at ASC LIMIT 1",
+                    (weight,),
+                ).fetchone()
             if row is None:
                 self._conn.execute("COMMIT")
                 return None
@@ -218,16 +253,70 @@ class TaskQueue:
 
         return self.get(task_id)
 
+    # ------------------------------------------------- lease ownership
+
+    def owns_lease(self, task_id: str) -> bool:
+        """True if this instance holds a live, unexpired lease on the task."""
+        row = self._conn.execute(
+            "SELECT 1 FROM leases WHERE task_id = ? AND owner = ? "
+            f"AND released_at IS NULL AND expires_at > {NOW_MS}",
+            (task_id, self.owner),
+        ).fetchone()
+        return row is not None
+
+    def renew_lease(self, task_id: str, ttl_seconds: int = 300) -> bool:
+        """Push the lease expiry out. Returns False if the lease is gone.
+
+        A worker calls this periodically while a long task runs. Without it
+        a task that outlives its TTL looks abandoned to any other
+        supervisor, which then reclaims and re-runs work that was never
+        actually abandoned.
+        """
+        expires_at = _ts(_utcnow() + timedelta(seconds=ttl_seconds))
+        cur = self._conn.execute(
+            "UPDATE leases SET expires_at = ? WHERE task_id = ? AND owner = ? "
+            f"AND released_at IS NULL AND expires_at > {NOW_MS}",
+            (expires_at, task_id, self.owner),
+        )
+        return cur.rowcount > 0
+
+    def _require_lease(self, task_id: str) -> None:
+        """Fencing check. Refuse to commit a result we no longer own.
+
+        Only applies to tasks that are actually leased or running. For a
+        task in any other state the problem is an illegal transition, and
+        that is a more useful error than a missing lease, so defer to
+        ``_transition``.
+        """
+        ever = self._conn.execute(
+            "SELECT 1 FROM leases WHERE task_id = ? AND owner = ? LIMIT 1",
+            (task_id, self.owner),
+        ).fetchone()
+        if ever is None:
+            # This caller never held a lease on this task, so the real
+            # problem is an illegal transition. Let _transition say so,
+            # which is the more useful message.
+            return
+        if not self.owns_lease(task_id):
+            self._record(task_id, "lease_lost", detail={"owner": self.owner})
+            raise LeaseLost(
+                f"lease on {task_id} is no longer held by {self.owner}; "
+                "refusing to commit a result that another worker may own"
+            )
+
     def start(self, task_id: str) -> None:
+        self._require_lease(task_id)
         self._transition(task_id, "running")
 
     def succeed(self, task_id: str, result: dict | None = None) -> None:
+        self._require_lease(task_id)
         self._transition(task_id, "succeeded", result=result)
         self._release_lease(task_id)
 
     def fail(self, task_id: str, error: str,
              retry_in: timedelta | None = None) -> None:
         """Fail a task, retrying it if attempts remain."""
+        self._require_lease(task_id)
         row = self._conn.execute(
             "SELECT attempts, max_attempts FROM tasks WHERE id = ?", (task_id,)
         ).fetchone()
@@ -249,6 +338,8 @@ class TaskQueue:
         self._release_lease(task_id)
 
     def _release_lease(self, task_id: str) -> None:
+        # Not owner-scoped on purpose: recovery releases an expired lease
+        # that belonged to a supervisor which is no longer running.
         self._conn.execute(
             "UPDATE leases SET released_at = datetime('now') "
             "WHERE task_id = ? AND released_at IS NULL",
@@ -260,25 +351,33 @@ class TaskQueue:
     def recover(self) -> dict[str, int]:
         """Reconcile state after a crash or restart.
 
-        Any task left ``leased`` or ``running``, and any task whose lease
-        has expired, is moved to ``interrupted``. Idempotent tasks with
-        attempts remaining are then requeued; everything else is left
-        interrupted for a human to look at, because replaying a
-        side-effecting task after a crash is exactly the thing the spec
-        forbids.
+        This is the method that previously caused duplicate execution. The
+        old rule reclaimed anything in ``leased`` or ``running``, which
+        meant a second supervisor would take work that the first was still
+        actively doing. A task is only genuinely abandoned when:
+
+        * its lease has **expired**, meaning nobody renewed it, or
+        * the live lease belongs to **this owner**, which on startup can
+          only mean a previous life of this same supervisor.
+
+        Anything else belongs to a live worker and is left alone. The cost
+        is that recovering another supervisor's crashed work waits for the
+        lease TTL. That delay is the price of never double-running a task,
+        and it is the right trade.
         """
         stranded = self._conn.execute(
             "SELECT t.id, t.idempotent, t.attempts, t.max_attempts "
             "FROM tasks t "
-            "LEFT JOIN leases l ON l.task_id = t.id AND l.released_at IS NULL "
+            "JOIN leases l ON l.task_id = t.id AND l.released_at IS NULL "
             "WHERE t.state IN ('leased', 'running') "
-            "   OR (l.id IS NOT NULL AND l.expires_at <= datetime('now'))"
+            f"  AND (l.expires_at <= {NOW_MS} OR l.owner = ?)",
+            (self.owner,),
         ).fetchall()
 
         interrupted = requeued = held = 0
         for row in stranded:
             self._transition(row["id"], "interrupted",
-                             error="supervisor restart or lease expiry")
+                             error="lease expired or owner restarted")
             self._release_lease(row["id"])
             interrupted += 1
 
@@ -293,6 +392,7 @@ class TaskQueue:
                 "interrupted": interrupted,
                 "requeued": requeued,
                 "held_for_review": held,
+                "owner": self.owner,
             })
         return {"interrupted": interrupted, "requeued": requeued,
                 "held_for_review": held}
