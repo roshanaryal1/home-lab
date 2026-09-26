@@ -221,6 +221,29 @@ def test_resolved_path_is_enforced_not_merely_generated(tmp_path) -> None:
         assert "reachable" in result.stdout
 
 
+def test_account_enumeration_is_NOT_prevented(workspace) -> None:
+    """Documents a known gap, so nobody assumes it is closed.
+
+    Measured on macOS 27 by the mini: with /etc fully denied, `id -un`
+    and `dscl . -list /Users` still work, because they reach
+    opendirectoryd over a mach port rather than reading /etc/passwd.
+
+    This test asserts the gap EXISTS. If it starts failing, the sandbox
+    got stronger and SECURITY.md should be updated to match, which is a
+    better problem than believing a protection we do not have.
+    """
+    result = sandbox.run(["/usr/bin/id", "-un"], workspace)
+    assert result.ok, (
+        "account enumeration is expected to still work; if this now "
+        "fails, update SECURITY.md, the gap has closed"
+    )
+
+
+def test_home_directories_still_cannot_be_walked(workspace) -> None:
+    """The confinement that IS intact, alongside the gap above."""
+    assert not sandbox.run(["/bin/ls", "/Users"], workspace).ok
+
+
 def test_etc_is_denied_despite_the_bsd_import(workspace) -> None:
     """bsd.sb permits /etc; we deny it back.
 
@@ -231,6 +254,8 @@ def test_etc_is_denied_despite_the_bsd_import(workspace) -> None:
     broken.
     """
     assert not sandbox.run(["/bin/cat", "/etc/passwd"], workspace).ok
+    # The resolved path too, not only the symlink.
+    assert not sandbox.run(["/bin/cat", "/private/etc/passwd"], workspace).ok
     assert sandbox.run(["/bin/echo", "ok"], workspace).ok
     assert sandbox.run(["/bin/sh", "-c", "echo ok"], workspace).ok
 
