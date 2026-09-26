@@ -16,11 +16,18 @@ A handler that submits a request the broker resolves against a workspace
 root cannot be talked into escaping, because the confinement is applied
 after the model has stopped being involved.
 
+Process isolation (issue #17) is provided by `lab.sandbox`: anything that
+executes code runs under a Seatbelt profile so that a subprocess cannot
+escape the workspace by making its own syscalls. Python-level path
+confinement binds only the caller; kernel enforcement binds the whole
+process tree.
+
 What is deliberately NOT here yet, and is tracked rather than pretended:
 
-* Network egress control. Needs a real tool that makes requests first.
-* Resource ceilings on CPU and memory. Needs the model adapter.
-* Secret injection. Needs somewhere to inject secrets into.
+* Network egress control per host. Seatbelt denies network outright by
+  default; per-host allowlisting is #14.
+* Resource ceilings on CPU and memory. Needs the model adapter. #16.
+* Secret injection. Needs somewhere to inject secrets into. #15.
 
 `SECURITY.md` says this plainly rather than implying protection that
 does not exist.
@@ -34,6 +41,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from lab import sandbox
 from lab.policy import PolicyEngine, Tier
 
 
@@ -61,6 +69,9 @@ TOOL_TIERS: dict[str, Tier] = {
     "fs.list": Tier.AUTONOMOUS,
     "fs.write": Tier.NOTIFY,
     "fs.delete": Tier.APPROVE,
+    # Runs a command. Requires OS-level isolation, never Python-level,
+    # because a subprocess makes its own syscalls.
+    "shell.run": Tier.APPROVE,
 }
 
 
@@ -213,6 +224,34 @@ class ExecutionBroker:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         return ToolResult(True, request.tool, {"bytes": len(content)})
+
+    def _tool_shell_run(self, request: ToolRequest, ws: Workspace) -> ToolResult:
+        """Run a command, confined by the kernel rather than by us.
+
+        Refuses outright if OS-level isolation is unavailable. Running a
+        command unconfined because the sandbox was missing would be the
+        exact failure this tool exists to prevent.
+        """
+        argv = request.params["argv"]
+        if not isinstance(argv, list) or not argv:
+            raise BrokerError("argv must be a non-empty list")
+
+        try:
+            result = sandbox.run(
+                argv, ws.root,
+                timeout=float(request.params.get("timeout", 30.0)),
+            )
+        except sandbox.SandboxUnavailable as exc:
+            raise BrokerError(f"refusing to run unconfined: {exc}") from exc
+
+        return ToolResult(
+            ok=result.ok,
+            tool=request.tool,
+            detail={"stdout": result.stdout, "stderr": result.stderr,
+                    "returncode": result.returncode,
+                    "sandbox_denied": result.denied},
+            error=None if result.ok else result.stderr.strip() or "failed",
+        )
 
     def _tool_fs_delete(self, request: ToolRequest, ws: Workspace) -> ToolResult:
         target = ws.resolve(request.params["path"])

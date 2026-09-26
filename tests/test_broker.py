@@ -199,3 +199,40 @@ def test_every_tool_declares_a_tier(broker) -> None:
     """A tool with no tier would be an ungated hole."""
     for name, tier in TOOL_TIERS.items():
         assert isinstance(tier, Tier), f"{name} has no valid tier"
+
+
+# ------------------------------------------------- brokered shell, #17
+
+
+def test_shell_run_is_confined_to_the_workspace(broker, tmp_path) -> None:
+    """A brokered command cannot read outside, even via a subprocess."""
+    secret = tmp_path / "secret.txt"
+    secret.write_text("do not read me")
+
+    broker.open_workspace("t1", {"shell.run"})
+    result = broker.submit(
+        req("t1", "shell.run", argv=["/bin/cat", str(secret)])
+    )
+    assert not result.ok
+    assert "do not read me" not in str(result.detail)
+
+
+def test_shell_run_works_inside_the_workspace(broker) -> None:
+    ws = broker.open_workspace("t1", {"shell.run"})
+    (ws.root / "hello.txt").write_text("world")
+
+    result = broker.submit(
+        req("t1", "shell.run", argv=["/bin/cat", "hello.txt"])
+    )
+    assert result.ok
+    assert "world" in result.detail["stdout"]
+
+
+def test_shell_run_requires_the_approve_tier(broker) -> None:
+    """Running a command is never autonomous."""
+    assert TOOL_TIERS["shell.run"] is Tier.APPROVE
+
+
+def test_shell_run_rejects_a_malformed_argv(broker) -> None:
+    broker.open_workspace("t1", {"shell.run"})
+    assert not broker.submit(req("t1", "shell.run", argv="rm -rf /")).ok
