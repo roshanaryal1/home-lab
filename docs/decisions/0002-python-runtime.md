@@ -80,6 +80,15 @@ therefore part of maintaining the machine, not an optional nicety.
 Record the exact version in the repo so the pin is auditable, and treat
 keeping uv itself current as a maintenance task.
 
+**Amendment, 2026-09-26, found on the deployment target.** `uv python
+pin 3.13` writes the **minor** version, not the patch: `.python-version`
+contains literally `3.13`. That pins nothing about the patch release, so
+a rebuild resolves to whatever 3.13.x the uv of the day ships, which is
+precisely the rebuildability property this ADR claimed and would not
+have delivered. The pin must name the patch, `uv python pin 3.13.15`.
+Recorded rather than quietly corrected, because the ADR asserted a
+property the command did not provide.
+
 ## What would change this
 
 - uv proving unreliable in practice, in which case the python.org

@@ -10,11 +10,8 @@ Run directly: python3 tests/manual_confirm_defects.py
 from __future__ import annotations
 
 import asyncio
-import sys
 import tempfile
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lab.queue import Task, TaskQueue
 from lab.supervisor import Supervisor, SupervisorConfig
