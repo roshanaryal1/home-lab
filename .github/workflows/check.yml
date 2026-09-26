@@ -11,7 +11,15 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Both platforms on purpose. Linux is where the fail-closed path is
+    # exercised, since Seatbelt does not exist there and the sandbox must
+    # refuse rather than downgrade. macOS is the actual deployment
+    # target, and the only place real confinement can be tested at all.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

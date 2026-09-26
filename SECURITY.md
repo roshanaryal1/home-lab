@@ -55,13 +55,26 @@ absent is worse than no policy:
   capped; compute is not. Arrives with the model adapter.
 - **No secret broker.** There is nowhere to inject secrets yet, so there
   is nothing to leak, but credential handling is unimplemented.
-- **No process isolation.** The broker confines filesystem access by
-  path. It does not sandbox the process itself. A dedicated non-admin
-  account is the deployment-level control and is documented in
-  `ops/mac-mini-setup.md`, not enforced in code.
+**Do not connect real credentials until the three absences above are
+closed.**
 
-**Do not connect real credentials or a real executor until the three
-absences above are closed.**
+## Process isolation
+
+Implemented (issue #17). Anything that executes code runs under a macOS
+Seatbelt profile via `sandbox-exec`, applied by `lab/sandbox.py`. The
+kernel intercepts file opens, network connects and forks at the syscall
+boundary, and **child processes inherit the restrictions**, so a
+subprocess cannot escape by spawning another.
+
+If OS-level isolation is unavailable, execution is **refused** rather
+than downgraded. A caller that asked for confinement and silently did not
+get it would be trusted with work it cannot safely run.
+
+Known limitation: `sandbox-exec` is deprecated by Apple. It remains
+functional, macOS's own daemons use Seatbelt internally, and Apple has
+published no replacement covering headless process sandboxing, since App
+Sandbox requires code signing and an Xcode project. Tracked as a risk
+with Apple's container framework as the fallback if it is ever removed.
 
 ## Fixed
 
@@ -71,6 +84,6 @@ absences above are closed.**
    Issue #8.
 3. Approvals defined but not enforced. Issue #9.
 4. Isolation documented but not implemented. Issue #10, filesystem
-   portion.
+   portion; issue #17, process isolation.
 
 Regression checks: `tests/manual_confirm_defects.py`.
