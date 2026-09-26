@@ -32,7 +32,12 @@ TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
 # invalid transition is a loud error rather than silent corruption.
 LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
     "queued": frozenset({"leased", "cancelled"}),
-    "leased": frozenset({"running", "queued", "interrupted", "cancelled"}),
+    "leased": frozenset({"running", "queued", "awaiting_approval",
+                         "interrupted", "cancelled"}),
+    # Parking is not cancelling. A task waiting on a human decision is
+    # paused, and must be able to return to the queue once that decision
+    # arrives. Routing it through 'cancelled' made approving it a no-op.
+    "awaiting_approval": frozenset({"queued", "cancelled", "interrupted"}),
     "running": frozenset({"succeeded", "failed", "interrupted", "cancelled"}),
     "succeeded": frozenset(),
     "failed": frozenset({"queued"}),        # retry
@@ -336,6 +341,21 @@ class TaskQueue:
             backoff = (retry_in if retry_in is not None
                        else timedelta(seconds=2 ** row["attempts"]))
             self._transition(task_id, "queued", available_in=backoff)
+
+    def park_for_approval(self, task_id: str, reason: str) -> None:
+        """Pause a task until a human decides. Releases the lease.
+
+        The lease goes back because the task is not being worked on: a
+        human may take minutes or days, and holding a lease that long
+        would block recovery and mislead every other supervisor.
+        """
+        self._require_lease(task_id)
+        self._transition(task_id, "awaiting_approval", error=reason)
+        self._release_lease(task_id)
+
+    def resume_after_approval(self, task_id: str) -> None:
+        """Return an approved task to the queue so a worker can pick it up."""
+        self._transition(task_id, "queued")
 
     def cancel(self, task_id: str, reason: str = "cancelled") -> None:
         self._transition(task_id, "cancelled", error=reason)

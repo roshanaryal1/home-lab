@@ -191,25 +191,72 @@ class PolicyEngine:
         approval_id: str,
         decided_by: str,
         valid_for: timedelta = timedelta(minutes=15),
-    ) -> None:
+    ) -> str | None:
         """Approve a pending request, for a bounded window.
 
         The window is deliberately short. An approval is permission to do
         one thing now, not a standing grant.
+
+        Returns the task id if a task was released back to the queue, so
+        the caller can report that something will actually happen.
         """
-        self._conn.execute(
+        cur = self._conn.execute(
             "UPDATE approvals SET state = 'granted', decided_by = ?, "
             f"decided_at = {NOW_MS}, expires_at = ? "
             "WHERE id = ? AND state = 'pending'",
             (decided_by, _ts(_utcnow() + valid_for), approval_id),
         )
+        if cur.rowcount == 0:
+            return None
+        return self._release_task(approval_id, "queued")
 
-    def deny(self, approval_id: str, decided_by: str) -> None:
-        self._conn.execute(
+    def deny(self, approval_id: str, decided_by: str,
+             reason: str = "denied") -> str | None:
+        cur = self._conn.execute(
             "UPDATE approvals SET state = 'denied', decided_by = ?, "
             f"decided_at = {NOW_MS} WHERE id = ? AND state = 'pending'",
             (decided_by, approval_id),
         )
+        if cur.rowcount == 0:
+            return None
+        return self._release_task(approval_id, "cancelled", reason)
+
+    def _release_task(self, approval_id: str, to_state: str,
+                      reason: str | None = None) -> str | None:
+        """Move the parked task on, now that a human has decided.
+
+        Without this, granting an approval updated a row and nothing
+        else: the task stayed parked forever and the approval looked
+        successful. That was issue #19.
+        """
+        row = self._conn.execute(
+            "SELECT task_id FROM approvals WHERE id = ?", (approval_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        task_id = row["task_id"]
+
+        state = self._conn.execute(
+            "SELECT state FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+        if state is None or state["state"] != "awaiting_approval":
+            # Nothing parked, so nothing to release. A pre-emptive
+            # approval granted before the task ran is still valid; it
+            # will simply be consumed when the task reaches the gate.
+            return None
+
+        self._conn.execute(
+            "UPDATE tasks SET state = ?, last_error = COALESCE(?, last_error), "
+            f"updated_at = {NOW_MS}, available_at = {NOW_MS} WHERE id = ?",
+            (to_state, reason, task_id),
+        )
+        self._conn.execute(
+            "INSERT INTO events (task_id, kind, from_state, to_state, detail) "
+            "VALUES (?, ?, 'awaiting_approval', ?, ?)",
+            (task_id, to_state, to_state,
+             json.dumps({"approval_id": approval_id, "reason": reason})),
+        )
+        return task_id
 
     def pending(self) -> list[sqlite3.Row]:
         return self._conn.execute(

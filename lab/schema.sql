@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     payload       TEXT NOT NULL DEFAULT '{}',   -- JSON
     state         TEXT NOT NULL DEFAULT 'queued'
                   CHECK (state IN ('queued', 'leased', 'running',
+                                   'awaiting_approval',
                                    'succeeded', 'failed',
                                    'interrupted', 'cancelled')),
     priority      INTEGER NOT NULL DEFAULT 100, -- lower runs first
