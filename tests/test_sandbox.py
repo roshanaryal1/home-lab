@@ -174,3 +174,75 @@ def test_unavailable_sandbox_refuses_rather_than_downgrading(
     monkeypatch.setattr(sandbox, "available", lambda: False)
     with pytest.raises(sandbox.SandboxUnavailable):
         sandbox.run(["/bin/echo", "hi"], workspace)
+
+
+# ------------------------- macOS 27 findings, issue #24
+
+
+def test_profile_grants_read_on_the_root_entry(tmp_path) -> None:
+    """Without this, dyld can abort the process before main on macOS 27.
+
+    Found on the deployment target by bisecting a profile that worked on
+    26.5.1 and aborted with SIGABRT on 27. Granting subpaths of /usr,
+    /bin and /System is not sufficient; the root entry itself is needed.
+    """
+    ws = tmp_path / "work"
+    ws.mkdir()
+    assert '(allow file-read* (literal "/"))' in sandbox.build_profile(ws)
+
+
+def test_root_entry_access_does_not_weaken_confinement(workspace) -> None:
+    """The clause above grants the directory entry, not its contents.
+
+    Worth asserting rather than trusting, since a clause added to stop a
+    crash is exactly the kind of thing that quietly opens a hole.
+    """
+    for target in ("/etc/hosts", "/etc/passwd", "/etc/ssh/sshd_config"):
+        result = sandbox.run(["/bin/cat", target], workspace)
+        assert not result.ok, f"{target} should not be readable"
+
+    listing = sandbox.run(["/bin/ls", str(Path.home())], workspace)
+    assert "Documents" not in listing.stdout
+
+
+def test_resolved_path_is_enforced_not_merely_generated(tmp_path) -> None:
+    """The symlink trap, asserted by behaviour rather than by string.
+
+    The existing test checks the profile text. This one checks that the
+    sandbox actually permits the workspace when reached through the
+    symlinked /tmp path, which is what the trap really breaks.
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory(dir="/tmp") as raw:
+        ws = Path(raw)
+        (ws / "f.txt").write_text("reachable")
+        result = sandbox.run(["/bin/cat", str((ws / "f.txt").resolve())], ws)
+        assert result.ok, "resolved workspace path must be readable"
+        assert "reachable" in result.stdout
+
+
+def test_etc_is_denied_despite_the_bsd_import(workspace) -> None:
+    """bsd.sb permits /etc; we deny it back.
+
+    Apple's base profile allows /etc so processes can do user lookups.
+    For a sandboxed agent that leaks usernames, home directories and
+    shells. Later SBPL rules win, so the deny is applied after the
+    import. Startup still works, which is the thing that could have
+    broken.
+    """
+    assert not sandbox.run(["/bin/cat", "/etc/passwd"], workspace).ok
+    assert sandbox.run(["/bin/echo", "ok"], workspace).ok
+    assert sandbox.run(["/bin/sh", "-c", "echo ok"], workspace).ok
+
+
+def test_output_is_captured_through_pipes(workspace) -> None:
+    """Under deny-default a controlling tty is not writable.
+
+    A blanket file-write* does not cover it, and the failure blames
+    stdout rather than the sandbox. run() always captures, so stdout
+    must arrive intact rather than being refused.
+    """
+    result = sandbox.run(["/bin/echo", "captured"], workspace)
+    assert result.ok
+    assert "captured" in result.stdout
+    assert "Operation not permitted" not in result.stderr

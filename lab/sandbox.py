@@ -35,15 +35,27 @@ code signing and an Xcode project, which does not apply to a background
 worker. The deprecation is tracked as a risk with Apple's container
 framework as the fallback, rather than pretended away.
 
-One implementation detail that is easy to get wrong
----------------------------------------------------
+Three implementation details that are easy to get wrong
+-------------------------------------------------------
 
-Profile paths must be **fully resolved**. On macOS `/tmp` is a symlink to
+**Paths must be fully resolved.** On macOS `/tmp` is a symlink to
 `/private/tmp`, so a profile granting access to `/tmp/work` matches
 nothing at all and every operation is denied, including the ones meant to
 be allowed. That failure looks like a broken sandbox rather than a
 misconfigured one, so `resolve()` is applied before a path is ever
-written into a profile.
+written into a profile. Confirmed still true on macOS 27.
+
+**A deny-default profile needs read access to `/` itself.** Granting
+subpaths of `/usr`, `/bin` and `/System` is not sufficient: on macOS 27
+dyld can fail during image loading and the process dies with SIGABRT
+before `main`, with no useful message. Adding `(literal "/")` fixes it,
+and grants only the root directory entry, not its contents.
+
+**Output must be captured through pipes, never an inherited terminal.**
+Under deny-default, writing to a controlling tty is refused even with a
+blanket `file-write*`, and the error blames `stdout` rather than the
+sandbox. `run()` always uses `capture_output=True`, so this is handled,
+but a caller that reaches for `subprocess` directly will hit it.
 """
 
 from __future__ import annotations
@@ -103,7 +115,23 @@ def build_profile(
         f'(import "{BSD_PROFILE}")',
         "(allow process-exec)",
         "(allow process-fork)",
+        # Read access to the root directory ENTRY, not its contents.
+        # Without it, dyld can fail during image loading on macOS 27 and
+        # the process dies with SIGABRT before reaching main, producing
+        # no useful message. It presents as "the sandbox is broken"
+        # when the profile is merely missing one clause.
+        #
+        # Verified not to weaken confinement: with this clause present,
+        # reads of /etc/hosts, ~/.ssh and any path outside the workspace
+        # are still denied. It permits stat and readdir on "/" alone.
+        '(allow file-read* (literal "/"))',
         f'(allow file-read* file-write* (subpath "{root}"))',
+        # bsd.sb permits /etc so ordinary processes can do user lookups,
+        # which leaks usernames, home directories and shells to a
+        # sandboxed agent. Later rules win in SBPL, so denying it after
+        # the import closes that without breaking process startup.
+        # Verified: /bin/echo, /bin/cat and /bin/sh -c all still run.
+        '(deny file-read* (subpath "/etc") (subpath "/private/etc"))',
     ]
     for path in extra_readable:
         lines.append(f'(allow file-read* (subpath "{path.resolve()}"))')
