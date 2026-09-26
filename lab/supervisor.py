@@ -195,8 +195,9 @@ class Supervisor:
         if not verdict.allowed:
             if verdict.decision is Decision.NEEDS_APPROVAL:
                 self.policy.request_approval(task, verdict.reason)
-                # Park it rather than failing: a human may yet approve.
-                self.queue.cancel(task.id, f"awaiting approval: {verdict.reason}")
+                # Park, do not cancel. Cancelling is terminal, which made
+                # granting an approval a silent no-op (issue #19).
+                self.queue.park_for_approval(task.id, verdict.reason)
                 self.stats.awaiting_approval += 1
                 log.info("task %s parked, %s", task.id, verdict.reason)
             else:
