@@ -6,12 +6,9 @@ file proves nothing; the value is entirely in what it refuses.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lab.broker import (
     TOOL_TIERS,

@@ -1,3 +1,11 @@
+# Declared explicitly. Without it setuptools' legacy backend runs
+# auto-discovery, finds lab/ and ops/ at the top level, and refuses to
+# guess, so the project could not be installed at all. ops/ is shell
+# scripts and a checklist, not a package.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "home-lab"
 version = "0.1.0"
@@ -8,6 +16,12 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
 
+[tool.setuptools]
+packages = ["lab"]
+
+[tool.setuptools.package-data]
+lab = ["schema.sql"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py313"
@@ -16,11 +30,9 @@ target-version = "py313"
 # Pinned explicitly so a local run and a CI run cannot disagree, which is
 # exactly how the first CI run failed on rules that were never checked here.
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "PYI"]
-ignore = [
-    # Tests prepend to sys.path before importing the package under test, so
-    # module-level imports legitimately follow executable code there.
-    "E402",
-]
+# E402 was ignored because tests prepended to sys.path before importing
+# the package. With the package installable (issue #29) that bootstrap is
+# gone, so the exemption is gone with it.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

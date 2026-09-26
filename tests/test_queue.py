@@ -8,13 +8,10 @@ lease is detected rather than silently held forever.
 from __future__ import annotations
 
 import sqlite3
-import sys
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lab.queue import LeaseLost, TaskQueue, TransitionError
 

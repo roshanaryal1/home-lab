@@ -8,14 +8,11 @@ what it refuses.
 from __future__ import annotations
 
 import sqlite3
-import sys
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lab.policy import Decision, PolicyEngine, Tier, action_hash
 from lab.queue import TaskQueue
