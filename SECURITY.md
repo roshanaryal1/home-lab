@@ -70,6 +70,30 @@ If OS-level isolation is unavailable, execution is **refused** rather
 than downgraded. A caller that asked for confinement and silently did not
 get it would be trusted with work it cannot safely run.
 
+### What the sandbox does NOT stop
+
+**Local account enumeration.** Measured on macOS 27 with `/etc` and
+`/private/etc` fully denied:
+
+```
+/usr/bin/id -un                    -> the operator's username
+/usr/bin/dscl . -list /Users       -> all 133 accounts
+/usr/bin/dscl . -read /Users/<u>   -> home directory and shell
+```
+
+These reach `opendirectoryd` over a mach port, not through
+`/etc/passwd`, so denying `/etc` does not affect them. Narrowing
+`mach-lookup` would very likely break dyld, Python and the model
+runtime, so it stays open deliberately.
+
+Filesystem confinement itself is intact: `ls /Users` is refused. A
+sandboxed agent cannot walk home directories, but it **can** enumerate
+every account on the machine and learn the operator's home path and
+shell.
+
+**Do not describe this sandbox as preventing username or home-directory
+disclosure.** It does not.
+
 Known limitation: `sandbox-exec` is deprecated by Apple. It remains
 functional, macOS's own daemons use Seatbelt internally, and Apple has
 published no replacement covering headless process sandboxing, since App

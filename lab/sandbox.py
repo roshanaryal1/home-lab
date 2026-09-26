@@ -126,11 +126,19 @@ def build_profile(
         # are still denied. It permits stat and readdir on "/" alone.
         '(allow file-read* (literal "/"))',
         f'(allow file-read* file-write* (subpath "{root}"))',
-        # bsd.sb permits /etc so ordinary processes can do user lookups,
-        # which leaks usernames, home directories and shells to a
-        # sandboxed agent. Later rules win in SBPL, so denying it after
-        # the import closes that without breaking process startup.
-        # Verified: /bin/echo, /bin/cat and /bin/sh -c all still run.
+        # bsd.sb permits /etc so ordinary processes can do user lookups.
+        # Later rules win in SBPL, so denying it after the import works,
+        # and does not break startup. Verified on macOS 27: /bin/echo,
+        # /bin/cat and /bin/sh -c all still run, and both /etc/passwd
+        # and the resolved /private/etc/passwd are refused.
+        #
+        # This does NOT stop account enumeration. Measured on macOS 27
+        # with /etc fully denied: `id -un` returns the username and
+        # `dscl . -list /Users` returns all 133 accounts, because those
+        # go to opendirectoryd over a mach port rather than through
+        # /etc/passwd. Narrowing mach-lookup would break dyld and the
+        # model runtime, so it is a deliberate open gap, tracked as its
+        # own issue rather than papered over here.
         '(deny file-read* (subpath "/etc") (subpath "/private/etc"))',
     ]
     for path in extra_readable:
