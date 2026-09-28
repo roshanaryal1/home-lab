@@ -66,8 +66,8 @@ class Response:
 
 
 Resolver = Callable[[str, int], list[str]]
-Transport = Callable[[str, int, str, str, float, int], Response]
-"""(pinned ip, port, hostname for TLS/Host, path+query, timeout, max bytes) -> Response"""
+Transport = Callable[..., Response]
+"""(pinned ip, port, host, path+query, timeout, max bytes, *, method, headers, body) -> Response"""
 
 
 def system_resolver(host: str, port: int) -> list[str]:
@@ -76,7 +76,9 @@ def system_resolver(host: str, port: int) -> list[str]:
 
 
 def socket_transport(ip: str, port: int, host: str, target: str, timeout: float,
-                     max_bytes: int, *, tls: bool = True) -> Response:
+                     max_bytes: int, *, tls: bool = True, method: str = "GET",
+                     headers: dict[str, str] | None = None,
+                     body: bytes | None = None) -> Response:
     """Connect to ``ip`` itself; the name is used only for TLS and Host."""
     family = socket.AF_INET6 if ":" in ip else socket.AF_INET
     raw = socket.socket(family, socket.SOCK_STREAM)
@@ -88,9 +90,9 @@ def socket_transport(ip: str, port: int, host: str, target: str, timeout: float,
             stream = ssl.create_default_context().wrap_socket(raw, server_hostname=host)
         conn = http.client.HTTPConnection(host, port, timeout=timeout)
         conn.sock = stream
-        conn.request("GET", target, headers={
+        conn.request(method, target, body=body, headers={
             "Host": host, "Accept-Encoding": "identity", "Connection": "close",
-            "User-Agent": "home-lab-fetch/1"})
+            "User-Agent": "home-lab-fetch/1", **(headers or {})})
         resp = conn.getresponse()
         body = resp.read(max_bytes + 1)
         if len(body) > max_bytes:
@@ -193,7 +195,14 @@ class EgressGateway:
         self._transport = transport
         self._audit = audit or (lambda kind, detail: None)
 
-    def fetch(self, url: str, allowed: frozenset[str], task_id: str = "") -> FetchResult:
+    def fetch(self, url: str, allowed: frozenset[str], task_id: str = "", *,
+              method: str = "GET", headers: dict[str, str] | None = None,
+              body: bytes | None = None, follow_redirects: bool = True) -> FetchResult:
+        """One bounded request. ``headers`` may carry a credential, so a
+        request with headers or a body never follows a redirect: the
+        credential must not leave the host it was meant for."""
+        if headers or body is not None:
+            follow_redirects = False
         current = url
         for hop in range(MAX_REDIRECTS + 1):
             try:
@@ -203,8 +212,13 @@ class EgressGateway:
                 raise
             self._record("egress_allow", current, task_id, "on the allowed list", hop)
             response = self._transport(v.ip, 443, v.host, v.target, TIMEOUT_SECONDS,
-                                       MAX_RESPONSE_BYTES)
+                                       MAX_RESPONSE_BYTES, method=method,
+                                       headers=headers, body=body)
             if response.status in _REDIRECT_CODES:
+                if not follow_redirects:
+                    self._record("egress_deny", current, task_id,
+                                 "redirect not followed for a credentialed request", hop)
+                    raise EgressDenied("redirect not followed for a credentialed request")
                 location = response.headers.get("location")
                 if not location:
                     raise EgressDenied("redirect without a location")

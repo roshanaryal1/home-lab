@@ -44,7 +44,8 @@ class FakeTransport:
         self.responses = responses
         self.connected: list[tuple[str, str, str]] = []
 
-    def __call__(self, ip, port, host, target, timeout, max_bytes) -> Response:
+    def __call__(self, ip, port, host, target, timeout, max_bytes, **kw) -> Response:
+        self.kw = kw
         self.connected.append((ip, host, target))
         return self.responses[(host, target)]
 

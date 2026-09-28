@@ -41,6 +41,7 @@ from lab.journal import OperationJournal
 from lab.operator import load_public
 from lab.policy import Decision, PolicyEngine
 from lab.queue import LeaseLost, LeaseToken, PayloadTooLarge, Task, TaskQueue
+from lab.vault import Vault
 from lab.worker import check_reference, run_in_worker
 
 log = logging.getLogger("lab.supervisor")
@@ -155,7 +156,8 @@ class Supervisor:
     """Runs tasks from the queue under explicit concurrency limits."""
 
     def __init__(self, config: SupervisorConfig, *, egress_resolver: Any = system_resolver,
-                 egress_transport: Any = socket_transport) -> None:
+                 egress_transport: Any = socket_transport,
+                 vault: Vault | None = None) -> None:
         # The two egress hooks exist so tests can supply a fake resolver
         # and transport. Production uses the defaults.
         self.config = config
@@ -174,13 +176,14 @@ class Supervisor:
                                                          kind, detail))
         self.broker = ExecutionBroker(Path(root), policy=self.policy,
                                       leases=self.queue.owns_lease, journal=self.journal,
-                                      egress=self.egress)
+                                      egress=self.egress, vault=vault or Vault())
         self.artifacts = ArtifactStore(
             config.artifact_root or Path(config.db_path).parent / "artifacts",
             self.queue._conn)
         self._tools: dict[str, frozenset[str]] = {}
         self._capabilities: dict[str, AgentCapability] = {}
         self._egress_hosts: dict[str, frozenset[str]] = {}
+        self._connector_grants: dict[str, frozenset[str]] = {}
         self.stats = SupervisorStats()
         self._handlers: dict[str, Handler] = {}
         self._stopping = asyncio.Event()
@@ -200,7 +203,8 @@ class Supervisor:
     def register(self, agent_kind: str, handler: Handler,
                  tools: frozenset[str] | set[str] = frozenset(), *,
                  sensitive_data: bool = False, external_action: bool = False,
-                 egress_hosts: frozenset[str] | set[str] = frozenset()) -> None:
+                 egress_hosts: frozenset[str] | set[str] = frozenset(),
+                 connectors: frozenset[str] | set[str] = frozenset()) -> None:
         """Register reviewed handler code and the tools it may request.
 
         The allowlist lives here, in trusted registration, not on the
@@ -213,12 +217,14 @@ class Supervisor:
         self._tools[agent_kind] = frozenset(tools)
         self._capabilities[agent_kind] = AgentCapability(sensitive_data, external_action)
         self._egress_hosts[agent_kind] = parse_allowlist(egress_hosts)
+        self._connector_grants[agent_kind] = frozenset(connectors)
 
     def register_reviewed(self, agent_kind: str, ref: str,
                           tools: frozenset[str] | set[str] = frozenset(), *,
                           sensitive_data: bool = False,
                           external_action: bool = False,
-                          egress_hosts: frozenset[str] | set[str] = frozenset()) -> None:
+                          egress_hosts: frozenset[str] | set[str] = frozenset(),
+                          connectors: frozenset[str] | set[str] = frozenset()) -> None:
         """Register a reviewed handler that runs in its own worker process.
 
         ``ref`` is ``lab.handlers.<module>:<function>``; anything else is
@@ -236,7 +242,8 @@ class Supervisor:
             return await run_in_worker(ref, task, session, workspace=workspace)
 
         self.register(agent_kind, in_worker, tools, sensitive_data=sensitive_data,
-                      external_action=external_action, egress_hosts=egress_hosts)
+                      external_action=external_action, egress_hosts=egress_hosts,
+                      connectors=connectors)
 
     def _handler_for(self, task: Task) -> Handler | None:
         return self._handlers.get(task.agent_kind or "", None)
@@ -459,7 +466,8 @@ class Supervisor:
             # Kept across a park, so a resumed task finds its files.
             self.broker.open_workspace(
                 task.id, set(self._tools.get(task.agent_kind or "", ())),
-                self._egress_hosts.get(task.agent_kind or "", frozenset()))
+                self._egress_hosts.get(task.agent_kind or "", frozenset()),
+                self._connector_grants.get(task.agent_kind or "", frozenset()))
         ctx = ExecutionContext(task_id=task.id, agent_kind=task.agent_kind or "",
                                attempt=task.attempts, lease=token)
         ceiling = asyncio.timeout(self.config.task_timeout_seconds)
