@@ -21,6 +21,8 @@ Usage:
     python3 -m lab.cli audit verify
     python3 -m lab.cli audit checkpoint --key KEYFILE --out DIR
     python3 -m lab.cli audit check --key KEYFILE --checkpoint FILE
+    python3 -m lab.cli artifacts list <task-id>
+    python3 -m lab.cli artifacts verify
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from lab import audit, skills
+from lab.artifacts import ArtifactStore
 from lab.journal import OperationJournal
 from lab.policy import PolicyEngine, task_intent
 from lab.queue import TaskQueue
@@ -274,6 +277,14 @@ def build_parser() -> argparse.ArgumentParser:
     inventory.add_argument("--root", type=Path, required=True)
     inventory.add_argument("--json", action="store_true")
 
+    art = sub.add_parser("artifacts", help="list and verify stored task outputs")
+    art.add_argument("--store", type=Path, default=None,
+                     help="artifact store (default: 'artifacts' next to the database)")
+    art_sub = art.add_subparsers(dest="artifacts_command", required=True)
+    art_list = art_sub.add_parser("list", help="the files a task left behind")
+    art_list.add_argument("task_id")
+    art_sub.add_parser("verify", help="re-hash every stored artifact; exit 1 on any problem")
+
     audit_cmd = sub.add_parser("audit", help="verify the audit log and its signed checkpoints")
     audit_sub = audit_cmd.add_subparsers(dest="audit_command", required=True)
     audit_sub.add_parser("verify", help="walk the hash chain; exit 1 if it is broken")
@@ -339,7 +350,23 @@ def cmd_skills(args: argparse.Namespace) -> int:
     return 1 if result.problems else 0
 
 
+def cmd_artifacts(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    store = ArtifactStore(args.store or args.db.parent / "artifacts", queue._conn)
+    if args.artifacts_command == "list":
+        rows = store.for_task(args.task_id)
+        for r in rows:
+            print(f"attempt {r['attempt']}  {r['sha256'][:12]}  {r['size']:>10}  {r['path']}")
+        print(f"{len(rows)} artifact(s)")
+        return 0
+    problems = store.verify_all()
+    for p in problems:
+        print(f"{p.problem}: {p.sha256[:12]} {p.path} (task {p.task_id})")
+    print(f"{len(problems)} problem(s)")
+    return 1 if problems else 0
+
+
 COMMANDS = {
+    "artifacts": cmd_artifacts,
     "approvals": cmd_approvals,
     "show": cmd_show,
     "approve": cmd_approve,

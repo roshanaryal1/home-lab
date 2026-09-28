@@ -94,6 +94,19 @@ Implemented and tested:
   checkpoint directory. Until the separate operator account exists
   (#70) the key and checkpoints must be kept off the lab account by
   hand. Events from before migration 3 are kept but not chained.
+- **Content-addressed artifacts** (`lab/artifacts.py`, item 3.3, #66).
+  Before a task can be recorded as succeeded, every regular file in its
+  workspace is copied into an immutable store keyed by SHA-256 (temp file,
+  fsync, rename to a read-only blob, deduplicated) and described in
+  `artifacts` (path, hash, size, type, task, attempt, producing build,
+  lineage). Symlinks, devices, sockets and FIFOs are found by `lstat`,
+  opened only with `O_NOFOLLOW` and re-checked with `fstat`, so a file
+  swapped for a link between listing and reading reads nothing; they are
+  refused, audited, and do not fail the task. A file over 64 MiB, more
+  than 2000 files, or any I/O error fails the task instead of dropping
+  output silently. `lab artifacts verify` re-hashes every blob and is what
+  a restore drill runs (`tests/test_artifacts.py`). Artifacts are not yet
+  encrypted or size-quota'd across tasks.
 
 ## Known gaps in what exists
 
