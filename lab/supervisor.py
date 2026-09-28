@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import fcntl
 import logging
+import os
 import socket
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -25,7 +27,7 @@ from pathlib import Path
 from typing import Self
 
 from lab.policy import Decision, PolicyEngine
-from lab.queue import LeaseLost, Task, TaskQueue
+from lab.queue import LeaseLost, LeaseToken, Task, TaskQueue
 
 log = logging.getLogger("lab.supervisor")
 
@@ -35,6 +37,38 @@ Handler = Callable[[Task], Awaitable[dict]]
 
 class HandlerError(RuntimeError):
     """Raised by a handler to signal an ordinary, retryable failure."""
+
+
+class AlreadyRunning(RuntimeError):
+    """Another supervisor on this host already holds the database."""
+
+
+def acquire_singleton(db_path: str | Path) -> int:
+    """Take the host-wide supervisor lock for ``db_path``, or refuse.
+
+    Recovery reclaims leases by the stable owner name, which is only safe
+    if no other live supervisor shares that name. Two supervisors started
+    on one host would, so the second must refuse before it recovers
+    anything (item 1.3, #55). flock is released by the kernel when the
+    process dies, so a crash never leaves a stale lock behind.
+
+    Returns the open descriptor; pass it to ``release_singleton``.
+    """
+    lock_path = f"{db_path}.supervisor.lock"
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise AlreadyRunning(
+            f"another supervisor holds {lock_path}; refusing to start"
+        ) from None
+    return fd
+
+
+def release_singleton(fd: int) -> None:
+    fcntl.flock(fd, fcntl.LOCK_UN)
+    os.close(fd)
 
 
 @dataclass
@@ -110,6 +144,13 @@ class Supervisor:
         ``max_tasks`` exists so tests and one-shot runs terminate; the
         always-on deployment leaves it None and relies on stop().
         """
+        lock = acquire_singleton(self.config.db_path)
+        try:
+            return await self._run_locked(max_tasks)
+        finally:
+            release_singleton(lock)
+
+    async def _run_locked(self, max_tasks: int | None) -> SupervisorStats:
         self.stats.recovered = self.queue.recover()
         if any(self.stats.recovered.values()):
             log.warning("recovered from unclean shutdown: %s",
@@ -161,7 +202,7 @@ class Supervisor:
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._stopping.wait(), timeout=seconds)
 
-    async def _renew_while_running(self, task_id: str) -> None:
+    async def _renew_while_running(self, token: LeaseToken) -> None:
         """Heartbeat the lease until cancelled.
 
         Without this a task that outlives its TTL looks abandoned, and
@@ -173,11 +214,13 @@ class Supervisor:
         interval = max(0.05, ttl * self.config.renew_fraction)
         while True:
             await asyncio.sleep(interval)
-            if not self.queue.renew_lease(task_id, ttl_seconds=ttl):
-                log.error("lost lease on %s while still running it", task_id)
+            if not self.queue.renew_lease(token, ttl_seconds=ttl):
+                log.error("lost lease on %s while still running it", token.task_id)
                 return
 
     async def _run_task(self, task: Task) -> None:
+        token = task.lease
+        assert token is not None, "_run_task needs a Task returned by lease()"
         handler = self._handler_for(task)
         if handler is None:
             # Not retryable: no amount of waiting grows a handler.
@@ -197,7 +240,7 @@ class Supervisor:
                 self.policy.request_approval(task, verdict.reason)
                 # Park, do not cancel. Cancelling is terminal, which made
                 # granting an approval a silent no-op (issue #19).
-                self.queue.park_for_approval(task.id, verdict.reason)
+                self.queue.park_for_approval(token, verdict.reason)
                 self.stats.awaiting_approval += 1
                 log.info("task %s parked, %s", task.id, verdict.reason)
             else:
@@ -206,8 +249,12 @@ class Supervisor:
                 log.warning("task %s DENIED: %s", task.id, verdict.reason)
             return
 
-        self.queue.start(task.id)
-        heartbeat = asyncio.create_task(self._renew_while_running(task.id))
+        try:
+            self.queue.start(token)
+        except LeaseLost:
+            log.error("lease on %s lost before start; not running it", task.id)
+            return
+        heartbeat = asyncio.create_task(self._renew_while_running(token))
         try:
             result = await handler(task)
         except asyncio.CancelledError:
@@ -216,14 +263,14 @@ class Supervisor:
             raise
         except Exception as exc:
             try:
-                self.queue.fail(task.id, f"{type(exc).__name__}: {exc}")
+                self.queue.fail(token, f"{type(exc).__name__}: {exc}")
                 self.stats.failed += 1
             except LeaseLost:
                 log.error("cannot record failure of %s: lease lost", task.id)
             log.exception("task %s failed", task.id)
         else:
             try:
-                self.queue.succeed(task.id, result)
+                self.queue.succeed(token, result)
                 self.stats.succeeded += 1
             except LeaseLost:
                 # Another supervisor may already have re-run this. Do not

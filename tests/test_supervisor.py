@@ -154,8 +154,8 @@ async def test_startup_recovers_interrupted_idempotent_task(
     owner = "supervisor-under-test"
     with TaskQueue(db, owner=owner) as q:
         task_id = q.add_task("was running", agent_kind="demo", idempotent=True)
-        q.lease()
-        q.start(task_id)  # process dies here
+        tok = q.lease().lease
+        q.start(tok)  # process dies here
 
     # A restart is the same logical supervisor, so it carries the same owner
     # name and may reclaim its own stranded work immediately.
@@ -186,8 +186,8 @@ async def test_startup_does_not_rerun_interrupted_destructive_task(
     with TaskQueue(db, owner=owner) as q:
         task_id = q.add_task("charge the card", agent_kind="demo",
                              idempotent=False)
-        q.lease()
-        q.start(task_id)
+        tok = q.lease().lease
+        q.start(tok)
 
     sup = Supervisor(SupervisorConfig(db_path=db, idle_poll_seconds=0.01,
                                       owner=owner))
@@ -226,3 +226,33 @@ async def test_empty_queue_with_max_tasks_terminates(tmp_path: Path) -> None:
     stats = await asyncio.wait_for(sup.run(max_tasks=5), timeout=2.0)
     assert stats.leased == 0
     sup.close()
+
+
+@pytest.mark.asyncio
+async def test_a_second_supervisor_refuses_to_start(tmp_path: Path) -> None:
+    """Item 1.3: recovery reclaims by owner name, so two supervisors on one
+    host must not both run. The second refuses before recovering."""
+    from lab.supervisor import AlreadyRunning, acquire_singleton, release_singleton
+
+    first = make_supervisor(tmp_path)
+    second = make_supervisor(tmp_path)
+    started = asyncio.Event()
+
+    async def hold(task: Task) -> dict:
+        started.set()
+        await asyncio.sleep(0.2)
+        return {}
+
+    first.register("demo", hold)
+    first.queue.add_task("long", agent_kind="demo")
+    run = asyncio.create_task(first.run(max_tasks=1))
+    await started.wait()
+    with pytest.raises(AlreadyRunning):
+        await second.run(max_tasks=1)
+    await run
+
+    # Released on exit, so the next start succeeds.
+    fd = acquire_singleton(tmp_path / "lab.db")
+    release_singleton(fd)
+    first.close()
+    second.close()

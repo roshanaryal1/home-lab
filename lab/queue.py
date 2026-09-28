@@ -16,6 +16,7 @@ actions must not be replayed blindly after recovery.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import json
 import sqlite3
 import uuid
@@ -104,6 +105,25 @@ def _ts(moment: datetime) -> str:
 
 
 @dataclass(frozen=True)
+class LeaseToken:
+    """Proof of one specific claim on one task. Improvement plan item 1.3.
+
+    Returned by ``TaskQueue.lease()`` and required by every call that
+    acts under a lease: start, renew, succeed, fail and park. Fencing
+    compares the whole token against the live lease row, so a result
+    from an older claim is refused even when it comes from the same
+    TaskQueue instance that holds the newer one (a worker coroutine
+    that outlived its lease, for example). ``generation`` rises on
+    every claim of the task and orders the claims in the audit log.
+    """
+
+    task_id: str
+    lease_id: str
+    generation: int
+    instance_id: str
+
+
+@dataclass(frozen=True)
 class Task:
     id: str
     title: str
@@ -117,6 +137,8 @@ class Task:
     capability_tier: str = "autonomous"
     agent_kind: str | None = None
     last_error: str | None = None
+    # Set only on the Task returned by lease(); None everywhere else.
+    lease: LeaseToken | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> Task:
@@ -159,6 +181,14 @@ class TaskQueue:
 
     def _apply_schema(self) -> None:
         self._conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        # CREATE TABLE IF NOT EXISTS never alters an existing table. Until
+        # versioned migrations land (item 3.1, #64), add the one column a
+        # pre-1.3 database is missing so it can still be opened.
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(leases)")}
+        if "generation" not in cols:
+            self._conn.execute(
+                "ALTER TABLE leases ADD COLUMN generation INTEGER NOT NULL DEFAULT 0"
+            )
 
     def _apply_durability(self) -> None:
         """Per-connection settings; SQLite does not persist any of these.
@@ -200,11 +230,52 @@ class TaskQueue:
         even after a human granted the approval.
 
         Callers must not nest this: SQLite does not support nested
-        ``BEGIN``. Preconditions that should survive a rollback (like
-        ``_require_lease``'s own audit record on failure) must run
-        before entering this block, not inside it.
+        ``BEGIN``. Operations acting under a lease use ``_fenced()``
+        instead, which adds the lease check to the same transaction.
         """
         self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        else:
+            self._conn.execute("COMMIT")
+
+    @contextlib.contextmanager
+    def _fenced(self, token: LeaseToken) -> Iterator[None]:
+        """One transaction that first proves ``token`` is the live lease.
+
+        The check and the write it guards commit together. Checking in
+        one statement and writing in a later one left a window in which
+        another connection could reclaim the task in between, so the
+        check proved nothing about the moment of the write.
+
+        On failure nothing guarded is written; the ``lease_lost`` audit
+        record is written after the rollback, in its own statement.
+        """
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            live = self._conn.execute(
+                "SELECT 1 FROM leases WHERE id = ? AND task_id = ? AND holder = ? "
+                f"AND released_at IS NULL AND expires_at > {NOW_MS}",
+                (token.lease_id, token.task_id, token.instance_id),
+            ).fetchone()
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        if live is None or token.instance_id != self._holder:
+            self._conn.execute("ROLLBACK")
+            self._record(token.task_id, "lease_lost", detail={
+                "owner": self.owner,
+                "lease_id": token.lease_id,
+                "generation": token.generation,
+            })
+            raise LeaseLost(
+                f"lease {token.lease_id} (generation {token.generation}) on "
+                f"{token.task_id} is not live for this instance; "
+                "refusing to act on it"
+            )
         try:
             yield
         except BaseException:
@@ -322,10 +393,15 @@ class TaskQueue:
 
             task_id = row["id"]
             expires_at = _ts(_utcnow() + timedelta(seconds=ttl_seconds))
+            generation = self._conn.execute(
+                "SELECT COALESCE(MAX(generation), 0) + 1 FROM leases WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()[0]
+            lease_id = uuid.uuid4().hex
             self._conn.execute(
-                "INSERT INTO leases (id, task_id, owner, holder, expires_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (uuid.uuid4().hex, task_id, self.owner, self._holder, expires_at),
+                "INSERT INTO leases (id, task_id, owner, holder, generation, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (lease_id, task_id, self.owner, self._holder, generation, expires_at),
             )
             self._conn.execute(
                 "UPDATE tasks SET state = 'leased', attempts = attempts + 1, "
@@ -333,33 +409,41 @@ class TaskQueue:
                 (task_id,),
             )
             self._record(task_id, "leased", "queued", "leased",
-                         {"owner": self.owner, "expires_at": expires_at})
+                         {"owner": self.owner, "expires_at": expires_at,
+                          "lease_id": lease_id, "generation": generation})
             self._conn.execute("COMMIT")
         except Exception:
             self._conn.execute("ROLLBACK")
             raise
 
-        return self.get(task_id)
+        task = self.get(task_id)
+        assert task is not None
+        return dataclasses.replace(task, lease=LeaseToken(
+            task_id=task_id, lease_id=lease_id,
+            generation=generation, instance_id=self._holder,
+        ))
 
     # ------------------------------------------------- lease ownership
 
-    def owns_lease(self, task_id: str) -> bool:
-        """True if this instance holds a live, unexpired lease on the task.
+    def owns_lease(self, token: LeaseToken) -> bool:
+        """True if ``token`` is this instance's live, unexpired lease.
 
-        Keyed on ``holder``, not ``owner``. ``owner`` is a stable name
-        shared across a process restart on purpose (recover() uses it);
-        two live instances can share it. ``holder`` is unique per
-        TaskQueue construction, which is what makes this check mean
-        "this specific instance", not "some instance with this name".
+        Keyed on the lease id and ``holder``, not ``owner``. ``owner`` is
+        a stable name shared across a process restart on purpose
+        (recover() uses it); two live instances can share it. ``holder``
+        is unique per TaskQueue construction, and the lease id is unique
+        per claim, so an older claim by this same instance does not pass.
         """
+        if token.instance_id != self._holder:
+            return False
         row = self._conn.execute(
-            "SELECT 1 FROM leases WHERE task_id = ? AND holder = ? "
+            "SELECT 1 FROM leases WHERE id = ? AND task_id = ? AND holder = ? "
             f"AND released_at IS NULL AND expires_at > {NOW_MS}",
-            (task_id, self._holder),
+            (token.lease_id, token.task_id, self._holder),
         ).fetchone()
         return row is not None
 
-    def renew_lease(self, task_id: str, ttl_seconds: int = 300) -> bool:
+    def renew_lease(self, token: LeaseToken, ttl_seconds: int = 300) -> bool:
         """Push the lease expiry out. Returns False if the lease is gone.
 
         A worker calls this periodically while a long task runs. Without it
@@ -367,48 +451,26 @@ class TaskQueue:
         supervisor, which then reclaims and re-runs work that was never
         actually abandoned.
         """
+        if token.instance_id != self._holder:
+            return False
         expires_at = _ts(_utcnow() + timedelta(seconds=ttl_seconds))
         cur = self._conn.execute(
-            "UPDATE leases SET expires_at = ? WHERE task_id = ? AND holder = ? "
-            f"AND released_at IS NULL AND expires_at > {NOW_MS}",
-            (expires_at, task_id, self._holder),
+            "UPDATE leases SET expires_at = ? WHERE id = ? AND task_id = ? "
+            f"AND holder = ? AND released_at IS NULL AND expires_at > {NOW_MS}",
+            (expires_at, token.lease_id, token.task_id, self._holder),
         )
         return cur.rowcount > 0
 
-    def _require_lease(self, task_id: str) -> None:
-        """Fencing check. Refuse to commit a result this holder does not
-        currently, live, own. Unconditionally: no shortcut.
+    def start(self, token: LeaseToken) -> None:
+        with self._fenced(token):
+            self._transition(token.task_id, "running")
 
-        Issue #47 (HL03). The previous version skipped this check
-        entirely whenever this caller had never held any lease row at
-        all for the task, on the theory that the task was probably
-        still ``queued`` and ``_transition`` would give a clearer error.
-        That reasoning only holds when nobody else has a live lease on
-        it either. If a *different* holder's live lease already put
-        the task in ``running``, the shortcut let this caller, with no
-        relationship to the task whatsoever, walk straight through to
-        ``_transition`` and succeed, since running -> succeeded is a
-        legal transition on its own. There is no safe shortcut for
-        this check; it must always hold.
-        """
-        if not self.owns_lease(task_id):
-            self._record(task_id, "lease_lost", detail={"owner": self.owner})
-            raise LeaseLost(
-                f"no live lease on {task_id} is held by this instance "
-                f"(owner {self.owner}); refusing to commit a result"
-            )
+    def succeed(self, token: LeaseToken, result: dict | None = None) -> None:
+        with self._fenced(token):
+            self._transition(token.task_id, "succeeded", result=result)
+            self._release_lease(token.task_id)
 
-    def start(self, task_id: str) -> None:
-        self._require_lease(task_id)
-        self._transition(task_id, "running")
-
-    def succeed(self, task_id: str, result: dict | None = None) -> None:
-        self._require_lease(task_id)
-        with self._tx():
-            self._transition(task_id, "succeeded", result=result)
-            self._release_lease(task_id)
-
-    def fail(self, task_id: str, error: str,
+    def fail(self, token: LeaseToken, error: str,
              retry_in: timedelta | None = None) -> None:
         """Fail a task, retrying it if attempts remain and it is safe to.
 
@@ -422,15 +484,14 @@ class TaskQueue:
         requeued, the same "hold for review" outcome ``recover()``
         already gives a non-idempotent task that ran out of attempts.
         """
-        self._require_lease(task_id)
-        row = self._conn.execute(
-            "SELECT attempts, max_attempts, idempotent FROM tasks WHERE id = ?",
-            (task_id,),
-        ).fetchone()
-        if row is None:
-            raise TransitionError(f"no such task: {task_id}")
-
-        with self._tx():
+        task_id = token.task_id
+        with self._fenced(token):
+            row = self._conn.execute(
+                "SELECT attempts, max_attempts, idempotent FROM tasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise TransitionError(f"no such task: {task_id}")
             self._transition(task_id, "failed", error=error)
             self._release_lease(task_id)
             if row["idempotent"] and row["attempts"] < row["max_attempts"]:
@@ -441,17 +502,16 @@ class TaskQueue:
                            else timedelta(seconds=2 ** row["attempts"]))
                 self._transition(task_id, "queued", available_in=backoff)
 
-    def park_for_approval(self, task_id: str, reason: str) -> None:
+    def park_for_approval(self, token: LeaseToken, reason: str) -> None:
         """Pause a task until a human decides. Releases the lease.
 
         The lease goes back because the task is not being worked on: a
         human may take minutes or days, and holding a lease that long
         would block recovery and mislead every other supervisor.
         """
-        self._require_lease(task_id)
-        with self._tx():
-            self._transition(task_id, "awaiting_approval", error=reason)
-            self._release_lease(task_id)
+        with self._fenced(token):
+            self._transition(token.task_id, "awaiting_approval", error=reason)
+            self._release_lease(token.task_id)
 
     def resume_after_approval(self, task_id: str) -> None:
         """Return an approved task to the queue so a worker can pick it up."""
@@ -463,8 +523,10 @@ class TaskQueue:
             self._release_lease(task_id)
 
     def _release_lease(self, task_id: str) -> None:
-        # Not owner-scoped on purpose: recovery releases an expired lease
-        # that belonged to a supervisor which is no longer running.
+        # Not holder-scoped on purpose: recovery and admin cancel release
+        # a lease that belonged to a supervisor which is no longer
+        # running. Worker paths only reach this inside _fenced(), which
+        # has already proved the caller holds the live lease.
         self._conn.execute(
             "UPDATE leases SET released_at = datetime('now') "
             "WHERE task_id = ? AND released_at IS NULL",

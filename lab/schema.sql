@@ -99,6 +99,9 @@ CREATE TABLE IF NOT EXISTS leases (
     -- pass as the one that actually holds this lease. Issue #47.
     owner      TEXT NOT NULL,
     holder     TEXT NOT NULL,
+    -- 1, 2, 3... per task, one per claim. With the lease id it makes up
+    -- the LeaseToken every worker call must present (item 1.3, #55).
+    generation INTEGER NOT NULL DEFAULT 0,
     acquired_at TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at TEXT NOT NULL,
     released_at TEXT                    -- NULL while live
