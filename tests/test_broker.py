@@ -309,20 +309,20 @@ def test_r01_allowed_delete_without_approval_does_not_run(broker, queue) -> None
 
     assert (ws.root / "keep.txt").read_text() == "x", "the effect must not happen"
     row = queue._conn.execute(
-        "SELECT state, reason FROM approvals WHERE id = ?",
+        "SELECT state, intent FROM approvals WHERE id = ?",
         (asked.value.approval_id,),
     ).fetchone()
     assert row["state"] == "pending"
-    assert '"tool":"fs.delete"' in row["reason"] and "keep.txt" in row["reason"]
+    assert '"tool":"fs.delete"' in row["intent"] and "keep.txt" in row["intent"]
 
 
 def test_policy_is_consulted_on_every_call(broker, monkeypatch) -> None:
     calls: list[tuple[str, Tier]] = []
     real = broker.policy.authorize_tool
 
-    def spy(task_id, tool, params, tier):
+    def spy(task_id, tool, params, tier, preconditions=None):
         calls.append((tool, tier))
-        return real(task_id, tool, params, tier)
+        return real(task_id, tool, params, tier, preconditions)
 
     monkeypatch.setattr(broker.policy, "authorize_tool", spy)
     broker.open_workspace("t1", {"fs.write", "fs.read", "fs.list"})
@@ -403,3 +403,87 @@ def test_every_decision_is_audited(broker, queue) -> None:
     kinds = [r[0] for r in queue._conn.execute(
         "SELECT kind FROM events WHERE task_id = 't1' AND kind LIKE 'tool_%' ORDER BY id")]
     assert kinds == ["tool_allow", "tool_needs_approval"]
+
+
+# ------------------------------------------------ item 1.4 (#49)
+#
+# An approval binds an immutable intent: task, tool, arguments, the
+# workspace state it will act on, and the policy version. Consumption is
+# one UPDATE that re-checks grant state, expiry and the intent hash.
+
+
+def _grant_pending(broker, task_id: str, tool: str, **params) -> str:
+    with pytest.raises(ApprovalRequired) as asked:
+        call(broker, task_id, tool, **params)
+    broker.policy.grant(asked.value.approval_id, decided_by="operator")
+    return asked.value.approval_id
+
+
+def _consumed(queue, approval_id: str) -> bool:
+    return queue._conn.execute("SELECT consumed_at FROM approvals WHERE id = ?",
+                               (approval_id,)).fetchone()[0] is not None
+
+
+def test_workspace_change_after_review_voids_the_grant(broker, queue) -> None:
+    ws = broker.open_workspace("t1", {"fs.write", "fs.delete"})
+    call(broker, "t1", "fs.write", path="a.txt", content="reviewed")
+    approval_id = _grant_pending(broker, "t1", "fs.delete", path="a.txt")
+
+    call(broker, "t1", "fs.write", path="a.txt", content="swapped after review")
+    with pytest.raises(ApprovalRequired) as again:
+        call(broker, "t1", "fs.delete", path="a.txt")
+    assert again.value.approval_id != approval_id
+    assert not _consumed(queue, approval_id)
+    assert (ws.root / "a.txt").exists()
+
+
+def test_policy_version_change_voids_the_grant(broker, queue, monkeypatch) -> None:
+    from lab import policy as policy_mod
+    broker.open_workspace("t1", {"fs.write", "fs.delete"})
+    call(broker, "t1", "fs.write", path="a.txt", content="x")
+    approval_id = _grant_pending(broker, "t1", "fs.delete", path="a.txt")
+    monkeypatch.setattr(policy_mod, "POLICY_VERSION", "next")
+    with pytest.raises(ApprovalRequired):
+        call(broker, "t1", "fs.delete", path="a.txt")
+    assert not _consumed(queue, approval_id)
+
+
+def test_expiry_at_the_moment_of_use_is_refused(broker, queue) -> None:
+    ws = broker.open_workspace("t1", {"fs.write", "fs.delete"})
+    call(broker, "t1", "fs.write", path="a.txt", content="x")
+    approval_id = _grant_pending(broker, "t1", "fs.delete", path="a.txt")
+    queue._conn.execute("UPDATE approvals SET expires_at = datetime('now', '-1 second') "
+                        "WHERE id = ?", (approval_id,))
+    with pytest.raises(ApprovalRequired):
+        call(broker, "t1", "fs.delete", path="a.txt")
+    assert not _consumed(queue, approval_id)
+    assert (ws.root / "a.txt").exists()
+
+
+def test_two_consumers_cannot_reserve_one_intent(tmp_path, broker, queue) -> None:
+    broker.open_workspace("t1", {"fs.write", "fs.delete"})
+    call(broker, "t1", "fs.write", path="a.txt", content="x")
+    approval_id = _grant_pending(broker, "t1", "fs.delete", path="a.txt")
+    wanted = queue._conn.execute("SELECT action_hash FROM approvals WHERE id = ?",
+                                 (approval_id,)).fetchone()[0]
+    with TaskQueue(tmp_path / "lab.db") as other:
+        rival = PolicyEngine(other._conn)
+        results = [broker.policy._consume(approval_id, wanted),
+                   rival._consume(approval_id, wanted)]
+    assert results == [True, False]
+
+
+def test_the_stored_intent_is_what_was_hashed(broker, queue) -> None:
+    import json
+
+    from lab.policy import POLICY_VERSION, intent_hash
+    broker.open_workspace("t1", {"fs.delete"})
+    with pytest.raises(ApprovalRequired) as asked:
+        call(broker, "t1", "fs.delete", path="a.txt")
+    row = queue._conn.execute("SELECT intent, action_hash FROM approvals WHERE id = ?",
+                              (asked.value.approval_id,)).fetchone()
+    intent = json.loads(row["intent"])
+    assert intent_hash(intent) == row["action_hash"]
+    assert intent["tool"] == "fs.delete" and intent["params"] == {"path": "a.txt"}
+    assert intent["policy_version"] == POLICY_VERSION
+    assert set(intent["preconditions"]) == {"workspace_sha256"}

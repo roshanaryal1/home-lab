@@ -26,7 +26,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from lab.policy import PolicyEngine
+from lab.policy import PolicyEngine, task_intent
 from lab.queue import TaskQueue
 
 DEFAULT_DB = Path.home() / ".local" / "share" / "home-lab" / "lab.db"
@@ -115,11 +115,15 @@ def cmd_show(queue: TaskQueue, policy: PolicyEngine, args) -> int:
     print(f"Tier       {task.capability_tier}")
     print(f"State      {task.state}")
     print()
-    print("This approval authorises EXACTLY these parameters:")
-    print(json.dumps(_redact(task.payload), indent=2, sort_keys=True))
+    # The stored intent is the object the hash was computed over (item
+    # 1.4). Rows from before intents were stored fall back to the task.
+    intent = json.loads(row["intent"]) if row["intent"] else task_intent(task)
+    print("This approval authorises EXACTLY this intent:")
+    print(json.dumps(_redact(intent), indent=2, sort_keys=True))
     print()
     print(f"Bound to   {row['action_hash'][:16]}...")
-    print("Changing any parameter invalidates this approval.")
+    print("Changing any parameter, the state it acts on, or the policy "
+          "version invalidates this approval.")
     return 0
 
 

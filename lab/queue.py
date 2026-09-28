@@ -186,12 +186,14 @@ class TaskQueue:
         self._conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         # CREATE TABLE IF NOT EXISTS never alters an existing table. Until
         # versioned migrations land (item 3.1, #64), add the one column a
-        # pre-1.3 database is missing so it can still be opened.
-        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(leases)")}
-        if "generation" not in cols:
-            self._conn.execute(
-                "ALTER TABLE leases ADD COLUMN generation INTEGER NOT NULL DEFAULT 0"
-            )
+        # older database is missing so it can still be opened.
+        for table, column, ddl in (
+            ("leases", "generation", "INTEGER NOT NULL DEFAULT 0"),
+            ("approvals", "intent", "TEXT"),
+        ):
+            cols = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            if column not in cols:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
     def _apply_durability(self) -> None:
         """Per-connection settings; SQLite does not persist any of these.

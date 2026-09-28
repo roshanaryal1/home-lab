@@ -47,6 +47,7 @@ does not exist.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import uuid
@@ -173,6 +174,26 @@ class Workspace:
             )
         return candidate
 
+    def state_hash(self) -> str:
+        """Hash of every name and file content under the root.
+
+        Content, not timestamps, so a rerun that rewrites a file with the
+        same bytes keeps the same hash. Symlinks are hashed by their
+        target text and never followed.
+        """
+        digest = hashlib.sha256()
+        for path in sorted(self.root.rglob("*")):
+            rel = str(path.relative_to(self.root))
+            if path.is_symlink():
+                digest.update(f"L {rel} -> {path.readlink()}\n".encode())
+            elif path.is_file():
+                digest.update(f"F {rel} ".encode())
+                digest.update(hashlib.sha256(path.read_bytes()).digest())
+                digest.update(b"\n")
+            elif path.is_dir():
+                digest.update(f"D {rel}\n".encode())
+        return digest.hexdigest()
+
     def usage(self) -> tuple[int, int]:
         files = [p for p in self.root.rglob("*") if p.is_file()]
         return len(files), sum(p.stat().st_size for p in files)
@@ -261,7 +282,7 @@ class ExecutionBroker:
                 raise ToolNotAllowed(f"no such tool: {request.tool}")
             self._check_grant(request)
             ws = self._workspace_for(request.task_id)
-            self._authorize(request)
+            self._authorize(request, ws)
             return handler(request, ws)
         except ApprovalRequired:
             raise
@@ -278,13 +299,17 @@ class ExecutionBroker:
                 "this session can no longer act"
             )
 
-    def _authorize(self, request: ToolRequest) -> None:
+    def _authorize(self, request: ToolRequest, ws: Workspace) -> None:
         if self.policy is None:
             raise PolicyUnavailable("no policy engine; refusing every call")
+        tier = TOOL_TIERS[request.tool]
         try:
+            # An approve-tier intent names the workspace state it will act
+            # on, so a file changed after review voids the grant (1.4).
+            preconditions = ({"workspace_sha256": ws.state_hash()}
+                             if tier is Tier.APPROVE else None)
             verdict = self.policy.authorize_tool(
-                request.task_id, request.tool, request.params,
-                TOOL_TIERS[request.tool],
+                request.task_id, request.tool, request.params, tier, preconditions,
             )
         except Exception as exc:
             # Includes a failed audit write: an unrecorded allow is not an allow.
