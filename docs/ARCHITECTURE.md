@@ -72,7 +72,7 @@ re-losing.
 
 | Component | File / doc | Status | Owner |
 |---|---|---|---|
-| Queue | `lab/queue.py`, `lab/schema.sql` | Built, tested | n/a |
+| Queue | `lab/queue.py`, `lab/schema.sql` | Built, tested. Commits are durable (synchronous=FULL, fullfsync) and start-up refuses a SQLite with the WAL-reset bug, `tests/test_durability.py` | n/a |
 | Supervisor | `lab/supervisor.py` | Built, tested | n/a |
 | Capability gate | `lab/policy.py`, `lab/broker.py` | Task-level: built, tested. Per-tool-call: **not enforced**, [#43](https://github.com/roshanaryal1/home-lab/issues/43) | n/a |
 | Sandbox | `lab/sandbox.py` | Built, tested on macOS 26.5.1 and 27 | n/a |
