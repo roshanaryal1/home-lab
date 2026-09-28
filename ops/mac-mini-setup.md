@@ -259,7 +259,11 @@ the paths, then:
       watchdog kills it and launchd restarts it. Log the result as a drill
       (`ops/drills/`).
 - [ ] `lab watchdog --dry-run` prints `healthy` when idle and running.
-
+- [ ] The loop: install `com.homelab.tick.plist` the same way, with
+      `LAB_MODEL_URL`, `LAB_MODEL_NAME` and `LAB_MODEL_REVISION` in its
+      environment (and in the supervisor's, so the daemon registers the
+      summarizer). Run `lab tick` once by hand first and read the
+      `proposal_routed` events with `lab audit verify`.
 
 ## 17. Power and disk encryption (item 6.1, #77)
 
@@ -323,13 +327,7 @@ the paths, then:
 - [ ] 8.8: after section 14, measure queue wait, tasks per hour, tail latency,
       peak memory, throttling and energy on the fixed task set; tune only with
       a measured gain.
-- [ ] #16: per-task memory and CPU ceilings need the real inference workload.
-      Wall-clock ceilings are built (1.10). Measure peak RSS of the heavy
-      model, set the ceiling with headroom under 32 GB, and add the test that
-      a deliberate overrun fails the task with a recorded reason.
-- [ ] The loop: install `com.homelab.tick.plist` the same way, with
-      `LAB_MODEL_URL`, `LAB_MODEL_NAME` and `LAB_MODEL_REVISION` in its
-      environment (and in the supervisor's, so the daemon registers the
-      summarizer). Run `lab tick` once by hand first and read the
-      `proposal_routed` events with `lab audit verify`.
-
+- [ ] #16: the ceiling mechanism is built (wall clock, RSS and CPU for reviewed
+      handlers). Set `task_max_rss_mb` and `task_max_cpu_seconds` from measured
+      peaks of the real handlers with headroom, and check the model server's
+      own footprint stays inside the 32 GB admission budget.

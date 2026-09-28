@@ -31,6 +31,7 @@ import importlib
 import json
 import os
 import signal
+import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -48,6 +49,41 @@ MAX_LINE = 1024 * 1024
 
 # How much of the worker's stderr to keep for an error report.
 STDERR_TAIL = 8192
+
+
+class CeilingExceeded(PermanentFailure):
+    """A worker went over its memory or CPU ceiling and was killed (H2, #16).
+
+    Permanent: the same input would do it again, so the task is not retried.
+    """
+
+    def __init__(self, resource: str, limit: float, observed: float | None = None) -> None:
+        self.resource, self.limit, self.observed = resource, limit, observed
+        if resource == "memory":
+            text = (f"memory ceiling of {limit:g} MB exceeded"
+                    + (f" (observed {observed:.0f} MB)" if observed is not None else ""))
+        else:
+            text = f"cpu ceiling of {limit:g}s exceeded"
+        super().__init__(text)
+
+
+def group_rss_mb(pgid: int) -> float:
+    """Resident memory of every process in a process group, in MB (0 if none).
+
+    ``ps -axo pgid=,rss=`` behaves the same on Linux and macOS, unlike
+    RLIMIT_AS, which macOS does not enforce usefully.
+    """
+    try:
+        out = subprocess.run(["ps", "-axo", "pgid=,rss="], capture_output=True, text=True,
+                             timeout=5, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return 0.0
+    total_kb = 0
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == str(pgid) and parts[1].isdigit():
+            total_kb += int(parts[1])
+    return total_kb / 1024
 
 
 class WorkerError(RuntimeError):
@@ -79,7 +115,9 @@ def worker_environment(workspace: Path) -> dict[str, str]:
 
 
 async def run_in_worker(ref: str, task: Task, tools: ToolSession, *,
-                        workspace: Path) -> dict[str, Any]:
+                        workspace: Path, max_rss_mb: float | None = None,
+                        max_cpu_seconds: float | None = None,
+                        poll_seconds: float = 0.5) -> dict[str, Any]:
     """Run ``ref`` for ``task`` in a fresh process; broker its tool calls.
 
     Raises ``ApprovalRequired`` when a call needs a human (after ending
@@ -108,6 +146,20 @@ async def run_in_worker(ref: str, task: Task, tools: ToolSession, *,
             del stderr_tail[:-STDERR_TAIL]
 
     drainer = asyncio.create_task(drain_stderr())
+    breach: list[float] = []
+
+    async def watch_memory() -> None:
+        assert max_rss_mb is not None
+        while True:
+            await asyncio.sleep(poll_seconds)
+            used = await asyncio.to_thread(group_rss_mb, proc.pid)
+            if used > max_rss_mb:
+                breach.append(used)
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, signal.SIGKILL)
+                return
+
+    watcher = asyncio.create_task(watch_memory()) if max_rss_mb else None
 
     async def send(message: dict[str, Any]) -> None:
         stdin.write(json.dumps(message).encode() + b"\n")
@@ -127,6 +179,7 @@ async def run_in_worker(ref: str, task: Task, tools: ToolSession, *,
             # Never the lease token: that is the supervisor's credential.
             "context": {"task_id": ctx.task_id, "agent_kind": ctx.agent_kind,
                         "attempt": ctx.attempt},
+            "limits": {"cpu_seconds": max_cpu_seconds},
         })
         while True:
             try:
@@ -135,6 +188,10 @@ async def run_in_worker(ref: str, task: Task, tools: ToolSession, *,
                 raise WorkerError(f"worker sent an oversized message: {exc}") from exc
             if not line:
                 await proc.wait()
+                if breach and max_rss_mb:
+                    raise CeilingExceeded("memory", max_rss_mb, breach[0])
+                if max_cpu_seconds and proc.returncode == -signal.SIGXCPU:
+                    raise CeilingExceeded("cpu", max_cpu_seconds)
                 tail = bytes(stderr_tail).decode(errors="replace").strip()[-500:]
                 raise WorkerError(
                     f"worker exited ({proc.returncode}) without a result: {tail}"
@@ -165,6 +222,8 @@ async def run_in_worker(ref: str, task: Task, tools: ToolSession, *,
             else:
                 raise WorkerError(f"unknown message type {kind!r}")
     finally:
+        if watcher is not None:
+            watcher.cancel()
         if proc.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(proc.pid, signal.SIGKILL)
@@ -219,6 +278,11 @@ def main() -> None:
 
     try:
         start = json.loads(reader.readline())
+        cpu = (start.get("limits") or {}).get("cpu_seconds")
+        if cpu:
+            import resource
+            seconds = max(1, int(cpu))
+            resource.setrlimit(resource.RLIMIT_CPU, (seconds, seconds + 2))
         module_name, func_name = check_reference(start["handler"])
         handler = getattr(importlib.import_module(module_name), func_name)
         task = Task(**start["task"])

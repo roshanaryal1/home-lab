@@ -412,13 +412,21 @@ absent is worse than no policy:
   is the only outbound path: see "What exists". Shell commands still run
   with the sandbox's network rules, and nothing else in the lab opens
   sockets.
-- **No memory ceiling per task.** Commands get only PATH, HOME, TMPDIR
+- **Memory and CPU ceilings cover reviewed handlers only, and their values
+  are unmeasured.** A reviewed handler's worker process is sampled every
+  half second (`ps` over its process group) and killed with the group above
+  `task_max_rss_mb` (default 2048), and gets `RLIMIT_CPU` from
+  `task_max_cpu_seconds` (default 900). A breach fails the task without
+  retry, records `resource_ceiling_exceeded` and counts in `lab status`
+  (H2, `tests/test_ceilings.py`). In-process handlers and shell commands are
+  not covered by these, and inference memory is the model server's, bounded
+  only by the admission controller. Commands get only PATH, HOME, TMPDIR
   and LANG; parameters are schema-checked; timeouts are clamped to 300 s;
   output is capped at 256 KiB per stream; the command's whole process
   group is killed at the deadline and on exit; tool calls, child tasks
   and each run's wall-clock time are capped (item 1.10,
-  `tests/test_limits.py`). Memory is not, and arrives with the model
-  adapter (#16, #74). A fork bomb inside the deadline is contained by the
+  `tests/test_limits.py`). Sampling has a half-second gap, so a burst can
+  overshoot before the kill. A fork bomb inside the deadline is contained by the
   group kill, not prevented.
 - **The secret broker and publishing have only been run against a dummy provider.**
   Built (`lab/vault.py`, `lab/connectors.py`, item 4.4, #15) and tested
@@ -427,7 +435,7 @@ absent is worse than no policy:
   called.
 
 **Do not connect real credentials until the separate operator account
-exists (#70), the memory ceiling exists (#16), and the Keychain path has
+exists (#70), the memory ceiling has been sized on the mini (#16), and the Keychain path has
 been exercised on the mini (`ops/mac-mini-setup.md` section 6).** The
 egress gateway and the secret broker are the other two of the original
 three absences and are now built.

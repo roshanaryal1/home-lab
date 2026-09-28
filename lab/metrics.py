@@ -48,7 +48,8 @@ COUNTERS: dict[str, tuple[str, ...]] = {
     "approvals_rejected": ("approval_rejected",),
     "egress_denials": ("egress_deny",),
     "lease_losses": ("lease_lost",),
-    "forced_terminations": ("stopped", "stopped_on_lease_loss", "wall_clock_exceeded"),
+    "forced_terminations": ("stopped", "stopped_on_lease_loss", "wall_clock_exceeded",
+                            "resource_ceiling_exceeded"),
     "worker_errors": ("worker_error",),
     "tasks_tainted": ("task_tainted",),
 }
