@@ -32,7 +32,7 @@ than quietly resolved.
 | 4. Concurrency semaphores (heavy=1, light=2-3) | done, in the supervisor |
 | 5. Model swap manager with RAM/headroom policy | needs the M6 |
 | 6. Aider/OpenHands executor adapters | not started |
-| 7. Research evidence ledger and verification pipeline | not started, [#90](https://github.com/roshanaryal1/home-lab/issues/90) |
+| 7. Research evidence ledger and verification pipeline | ledger built: claim status is separate from task status, every claim opens its exact source ([#90](https://github.com/roshanaryal1/home-lab/issues/90)); the automated verification pipeline is not |
 | 8. Dedicated-user permissions and task workspaces | code done (operator-signed approvals); account setup is a checklist for the mini, [#70](https://github.com/roshanaryal1/home-lab/issues/70) |
 | 9. launchd + watchdog + queue-aware caffeinate | checklist written |
 | 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status` and the emergency stop exist; dashboard and operator controls not started, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
@@ -126,6 +126,7 @@ uv run python -m lab.cli artifacts verify         # re-hash every stored output
 uv run python -m lab.cli backup --to DIR          # online snapshot, then restore-check to prove it
 uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything
 uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
+uv run python -m lab.cli ledger show <task>       # claims, their evidence and status; review, verify
 uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record
 uv run python -m lab.cli eval rerun <record>      # repeat a run from its record alone, then compare
 uv run python -m lab.attacks                      # benign-plus-hostile scenarios against a stub model
@@ -153,6 +154,7 @@ lab/artifacts.py     content-addressed task outputs
 lab/backup.py, drills.py      verifying backup and logged recovery drills
 lab/metrics.py       `lab status`, derived from the event log
 lab/model.py         bounded model adapter: pinned revisions, admission, strict tool calls
+lab/ledger.py        research claims with statuses separate from task state, evidence snapshots
 lab/evals.py         fixed task set run against any endpoint, sealed provenance records
 lab/attacks.py       injection harness
 evals/tasks.jsonl    the 24 tasks (arithmetic, extraction, format, code, tool calls, injection)

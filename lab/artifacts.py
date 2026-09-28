@@ -165,6 +165,15 @@ class ArtifactStore:
         finally:
             os.close(fd)
 
+    def put_bytes(self, data: bytes) -> tuple[str, int]:
+        """Store bytes that did not come from a workspace (a fetched page, a
+        snapshot). Same immutable, deduplicated blob; returns (sha256, size)."""
+        with tempfile.TemporaryFile() as scratch:
+            scratch.write(data)
+            scratch.flush()
+            scratch.seek(0)
+            return self._store_blob(scratch.fileno())
+
     # ------------------------------------------------------------- ingest
 
     def _stage_file(self, ws: Workspace, parts: list[str], task_id: str, attempt: int,

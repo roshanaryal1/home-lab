@@ -92,6 +92,21 @@ def test_a_corrupted_backup_fails_the_restore(tmp_path: Path, live) -> None:
 
 
 @pytest.mark.safety
+def test_a_snapshot_too_damaged_to_open_is_a_failed_restore_not_a_crash(
+        tmp_path: Path, live) -> None:
+    _q, db, store = live
+    manifest = backup.backup(db, tmp_path / "bk", store.root)
+    snapshot = manifest.parent / json.loads(manifest.read_text())["database"]
+    snapshot.write_bytes(b"SQLite format 3\x00" + os.urandom(8192))
+    data = json.loads(manifest.read_text())
+    data["database_sha256"] = backup._sha256_file(snapshot)
+    data["database_bytes"] = snapshot.stat().st_size
+    manifest.write_text(json.dumps(data))
+    report = backup.restore_check(manifest, tmp_path / "restored")
+    assert not report.ok and any("cannot be read" in p for p in report.problems)
+
+
+@pytest.mark.safety
 def test_a_tampered_audit_log_in_the_backup_fails_the_restore(tmp_path: Path, live) -> None:
     _q, db, store = live
     manifest = backup.backup(db, tmp_path / "bk", store.root)
