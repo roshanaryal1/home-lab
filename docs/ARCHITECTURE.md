@@ -28,8 +28,8 @@ flowchart TB
         heavy["Qwen3-Coder-30B-A3B, MLX 4-bit<br/>~16.7 GB, ONE heavy inference slot"]
     end
 
-    subgraph memory["Memory: ADR 0003, design only, not built"]
-        mem["SQLite + sqlite-vec + FTS<br/>no runtime code yet"]
+    subgraph memory["Memory: ADR 0003, FTS5 baseline built"]
+        mem["SQLite FTS5 (built)<br/>sqlite-vec later, only if it beats FTS5"]
     end
 
     subgraph planes["Three planes ADR 0004 names as missing"]
@@ -79,7 +79,7 @@ re-losing.
 | Model adapter | `lab/model.py` | Built against a mock and a stub loopback server: pinned revisions, admission control (tokens, time, residency, one heavy slot), strict tool-call parsing. Real model and measured budget wait for the M6 | [#74](https://github.com/roshanaryal1/home-lab/issues/74) |
 | Heavy model | Qwen3-Coder-30B-A3B, MLX 4-bit | Chosen, **unbenchmarked** on the M6 | [ADR 0001](decisions/0001-heavy-model.md) |
 | Python runtime | uv-managed | Chosen; mini needs patch-version pin | [ADR 0002](decisions/0002-python-runtime.md) |
-| Memory | SQLite + `sqlite-vec` + FTS | Designed, no runtime code | [ADR 0003](decisions/0003-memory.md) |
+| Memory | `lab/memory.py` (SQLite FTS5) | FTS5 baseline built: provenance, trust, expiry, inspect, correct, revoke (reaches the ledger), delete. `sqlite-vec` embeddings not built and must beat this baseline first | [ADR 0003](decisions/0003-memory.md) |
 | Observation plane | `lab/observe.py`, `lab/slice.py` | First slice only (#39, #46): this repo's closed issues and merged PRs become queued proposals. General service not started | [#32](https://github.com/roshanaryal1/home-lab/issues/32) |
 | Artifact router | `lab/rubric.py`, `lab/route.py` | Rubric built (7.2): routes a research task by evidence weight over the ledger, refuses thin evidence upward, states conflicts, bounded stop rule. The single-signal v0 in `route.py` remains for the vertical slice. Human review of every route | [#33](https://github.com/roshanaryal1/home-lab/issues/33) |
 | Secret broker and connectors | `lab/vault.py`, `lab/connectors.py` | Built and tested with dummy credentials and a fake transport; Keychain path unexercised until the mini | [#15](https://github.com/roshanaryal1/home-lab/issues/15) |

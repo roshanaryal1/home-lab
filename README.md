@@ -36,7 +36,7 @@ than quietly resolved.
 | 8. Dedicated-user permissions and task workspaces | code done (operator-signed approvals); account setup is a checklist for the mini, [#70](https://github.com/roshanaryal1/home-lab/issues/70) |
 | 9. launchd + watchdog + queue-aware caffeinate | checklist written |
 | 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status` and the emergency stop exist; dashboard and operator controls not started, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
-| 11. sqlite-vec / FTS retrieval | not started, [#85](https://github.com/roshanaryal1/home-lab/issues/85) |
+| 11. sqlite-vec / FTS retrieval | FTS5 baseline built with inspect, correct, revoke and delete ([#85](https://github.com/roshanaryal1/home-lab/issues/85)); embeddings must beat it on a measured task first |
 | 12. Benchmark and tune before adding anything else | not started, needs the M6 |
 
 Steps 1, 2 and 4 are machine-independent and run anywhere. Everything
@@ -126,6 +126,7 @@ uv run python -m lab.cli artifacts verify         # re-hash every stored output
 uv run python -m lab.cli backup --to DIR          # online snapshot, then restore-check to prove it
 uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything
 uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
+uv run python -m lab.cli memory search|inspect|add-evidence|correct|revoke|delete   # inspectable FTS5 memory
 uv run python -m lab.cli route <task> [--want paper]   # post, blog, paper or nothing, by evidence weight; thin evidence refused upward
 uv run python -m lab.cli ledger show <task>       # claims, their evidence and status; review, verify
 uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record
@@ -155,6 +156,7 @@ lab/artifacts.py     content-addressed task outputs
 lab/backup.py, drills.py      verifying backup and logged recovery drills
 lab/metrics.py       `lab status`, derived from the event log
 lab/model.py         bounded model adapter: pinned revisions, admission, strict tool calls
+lab/memory.py        inspectable memory: FTS5, provenance, expiry, revoke that reaches drafts
 lab/rubric.py        the router's rules: evidence weight to post, blog, paper or nothing
 lab/ledger.py        research claims with statuses separate from task state, evidence snapshots
 lab/evals.py         fixed task set run against any endpoint, sealed provenance records
