@@ -49,7 +49,7 @@ a task runner:
 
 | Plane | Issue | State |
 |---|---|---|
-| Observation: notice work from the event stream, emit proposals | [#32](https://github.com/roshanaryal1/home-lab/issues/32) | first slice only: this repo's closed issues and merged PRs become proposals |
+| Observation: notice work from the event stream, emit proposals | [#32](https://github.com/roshanaryal1/home-lab/issues/32) | this repo's closed issues and merged PRs become proposals; the event log yields a proposal when tasks of one kind keep failing alike |
 | Router: post / blog / paper by evidence weight | [#33](https://github.com/roshanaryal1/home-lab/issues/33) | rubric built over the evidence ledger: deterministic rules, refuses thin evidence upward, inspectable chain; still needs a human to review every route |
 | Publish: post/email on your behalf | [#86](https://github.com/roshanaryal1/home-lab/issues/86) | reviewed publishing built and tested against a dummy provider: approval bound to destination and draft hash, write-ahead receipts, idempotency keys, reconciliation of lost responses; no real destination has been used |
 
@@ -118,6 +118,8 @@ uv run python -m lab.cli approve <id> --by you --key operator.key --expect-hash 
 uv run python -m lab.cli operator init --dir ~/.lab-operator   # create the approval signing key
 uv run python -m lab.cli deny <id> --by you       # refuse it; the parked task is cancelled
 uv run python -m lab.cli tasks                    # task counts by state
+uv run python -m lab.cli emit [--min-failures 3]  # queue proposals from patterns in the event log
+uv run python -m lab.cli chain <task>             # the events that produced a proposal
 uv run python -m lab.cli ops                      # operations of unknown outcome
 uv run python -m lab.cli resolve <op> --happened|--not-happened --by you   # reconcile one
 uv run python -m lab.cli audit verify             # walk the hash-chained event log
@@ -157,6 +159,7 @@ lab/audit.py         append-only hash chain and signed checkpoints
 lab/artifacts.py     content-addressed task outputs
 lab/backup.py, drills.py      verifying backup and logged recovery drills
 lab/metrics.py       `lab status`, derived from the event log
+lab/emitter.py       proposals emitted from the event log, each with its event chain
 lab/model.py         bounded model adapter: pinned revisions, admission, strict tool calls
 lab/memory.py        inspectable memory: FTS5, provenance, expiry, revoke that reaches drafts
 lab/rubric.py        the router's rules: evidence weight to post, blog, paper or nothing
