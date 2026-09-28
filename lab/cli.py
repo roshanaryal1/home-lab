@@ -127,6 +127,11 @@ def cmd_show(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -
     print(f"Kind       {task.agent_kind}")
     print(f"Tier       {task.capability_tier}")
     print(f"State      {task.state}")
+    print(f"Origin     {task.origin_type} {task.origin_id or ''}".rstrip())
+    trust = ("UNTRUSTED INPUT: approving one effect does not make it trusted"
+             if task.tainted else "operator")
+    print(f"Trust      {trust}")
+    print(f"Sensitivity {task.sensitivity}")
     print()
     # The stored intent is the object the hash was computed over (item
     # 1.4). Rows from before intents were stored fall back to the task.

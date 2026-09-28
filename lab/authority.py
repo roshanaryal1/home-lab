@@ -17,12 +17,13 @@ Where each property comes from, and why none of it is the task's say-so:
 * ``sensitive_data`` and ``external_action`` are declared where a handler
   is registered (trusted code) and by the tools it is granted
   (``TOOL_LEGS``, a fixed table). A task cannot remove either.
-* ``untrusted_input`` defaults to true. Only a task marked
-  ``payload["origin"] == "operator"`` counts as trusted, which anyone who
-  can enqueue can write; carrying real origin and lineage, so the mark
-  can be checked, is item 4.2 (#69). Until then the rule is a floor
-  against mistakes and against a handler wired with too much, not a
-  defence against someone who controls the queue.
+* ``untrusted_input`` is the task's ``tainted`` flag (item 4.2, #69):
+  derived from its recorded origin and its parent's, never from anything
+  in the payload. Only a task whose source is the operator is untainted,
+  and a child of a tainted task is tainted. Whoever can call ``add_task``
+  with an operator origin still decides that, so the rule guards against
+  mis-wiring and against untrusted text, not against someone who controls
+  the queue's code path.
 
 A model or classifier may suggest a route. It never widens the
 intersection this module computes.
@@ -33,7 +34,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
 
 
 class Leg(StrEnum):
@@ -70,15 +70,10 @@ class AgentCapability:
     external_action: bool = False
 
 
-def is_trusted_origin(payload: dict[str, Any]) -> bool:
-    """Only an explicit operator mark counts. Anything else is untrusted."""
-    return payload.get("origin") == "operator"
-
-
-def held_legs(payload: dict[str, Any], tools: Iterable[str],
+def held_legs(tainted: bool, tools: Iterable[str],
               capability: AgentCapability) -> frozenset[Leg]:
     legs: set[Leg] = set()
-    if not is_trusted_origin(payload):
+    if tainted:
         legs.add(Leg.UNTRUSTED_INPUT)
     if capability.sensitive_data:
         legs.add(Leg.SENSITIVE_DATA)

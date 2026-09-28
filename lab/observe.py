@@ -22,6 +22,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any
 
+from lab.origin import Origin, SourceType, content_sha256
 from lab.queue import TaskQueue
 
 log = logging.getLogger("lab.observe")
@@ -158,6 +159,8 @@ def observe_and_propose(queue: TaskQueue, repo: str) -> list[str]:
             agent_kind="proposal",
             capability_tier="notify",
             idempotent=True,
+            origin=Origin(SourceType.EVENT, signal.source_url,
+                          content_sha256(f"{signal.title}\n{signal.body}")),
         )
         log.info("proposed %s from %s", task_id, signal.source_url)
         created.append(task_id)
