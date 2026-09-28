@@ -35,6 +35,12 @@ from datetime import timedelta
 from enum import StrEnum
 from typing import Any
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
+
+from lab import operator as operator_keys
 from lab.audit import append_event
 from lab.queue import NOW_MS, Task, _ts, _utcnow
 
@@ -115,8 +121,17 @@ def action_hash(task: Task) -> str:
 class PolicyEngine:
     """Decides whether a leased task may execute, and each tool call in it."""
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn: sqlite3.Connection,
+                 operator_public_key: Ed25519PublicKey | None = None) -> None:
         self._conn = conn
+        # When set, only approvals signed by the operator are honoured
+        # (item 4.5). None means signatures are not checked: development
+        # on dummy data, and the state every test starts in.
+        self._operator_key = operator_public_key
+
+    @property
+    def enforces_operator_signatures(self) -> bool:
+        return self._operator_key is not None
 
     def audit(self, task_id: str | None, kind: str, detail: dict[str, Any]) -> None:
         """Append a non-transition event to the hash-chained audit log."""
@@ -173,25 +188,14 @@ class PolicyEngine:
         # and use is not spent (R08).
         wanted = action_hash(task)
         with self._tx():
-            row = self._conn.execute(
-                "SELECT id FROM approvals "
-                "WHERE task_id = ? AND action_hash = ? AND state = 'granted' "
-                f"AND consumed_at IS NULL AND expires_at > {NOW_MS} "
-                "ORDER BY requested_at LIMIT 1",
-                (task.id, wanted),
-            ).fetchone()
-            if row is None:
+            taken = self._take_granted(task.id, wanted)
+            if taken is None:
                 return self._record(
                     task, tier, Decision.NEEDS_APPROVAL,
                     "no valid, unexpired, unconsumed approval for this exact action",
                 )
-            if not self._consume(row["id"], wanted):
-                return self._record(
-                    task, tier, Decision.NEEDS_APPROVAL,
-                    "approval was consumed, expired or changed before use",
-                )
             return self._record(
-                task, tier, Decision.ALLOW, "approval consumed", row["id"]
+                task, tier, Decision.ALLOW, "approval consumed", taken
             )
 
     def authorize_tool(self, task_id: str, tool: str, params: dict[str, Any],
@@ -224,14 +228,9 @@ class PolicyEngine:
             return record(Decision.ALLOW, f"{tier.value} tier proceeds")
 
         with self._tx():
-            row = self._conn.execute(
-                "SELECT id FROM approvals WHERE task_id = ? AND action_hash = ? "
-                f"AND state = 'granted' AND consumed_at IS NULL AND expires_at > {NOW_MS} "
-                "ORDER BY requested_at LIMIT 1",
-                (task_id, wanted),
-            ).fetchone()
-            if row is not None and self._consume(row["id"], wanted):
-                return record(Decision.ALLOW, "approval consumed", row["id"])
+            taken = self._take_granted(task_id, wanted)
+            if taken is not None:
+                return record(Decision.ALLOW, "approval consumed", taken)
 
             pending = self._conn.execute(
                 "SELECT id FROM approvals WHERE task_id = ? AND action_hash = ? "
@@ -250,6 +249,30 @@ class PolicyEngine:
                 )
             return record(Decision.NEEDS_APPROVAL,
                           f"no approval for this exact call: {action}", approval_id)
+
+    def _take_granted(self, task_id: str, wanted_hash: str) -> str | None:
+        """Find and spend one usable approval for exactly this action.
+
+        Candidates are tried in order and each must pass the operator
+        signature check when one is configured, so a forged or edited row
+        cannot shadow a genuine approval queued behind it (item 4.5).
+        """
+        rows = self._conn.execute(
+            "SELECT id, expires_at, decided_by, signature FROM approvals "
+            "WHERE task_id = ? AND action_hash = ? AND state = 'granted' "
+            f"AND consumed_at IS NULL AND expires_at > {NOW_MS} ORDER BY requested_at",
+            (task_id, wanted_hash),
+        ).fetchall()
+        for row in rows:
+            if self._operator_key is not None and not operator_keys.verify(
+                    self._operator_key, row["signature"], row["id"], wanted_hash,
+                    row["expires_at"], row["decided_by"] or ""):
+                append_event(self._conn, task_id, "approval_rejected", detail={
+                    "approval_id": row["id"], "reason": "no valid operator signature"})
+                continue
+            if self._consume(row["id"], wanted_hash):
+                return str(row["id"])
+        return None
 
     def _consume(self, approval_id: str, wanted_hash: str) -> bool:
         """Reserve an approval for exactly this intent, exactly once.
@@ -308,6 +331,7 @@ class PolicyEngine:
         approval_id: str,
         decided_by: str,
         valid_for: timedelta = timedelta(minutes=15),
+        signer: Ed25519PrivateKey | None = None,
     ) -> str | None:
         """Approve a pending request, for a bounded window.
 
@@ -318,14 +342,26 @@ class PolicyEngine:
         the caller can report that something will actually happen.
         """
         with self._tx():
+            row = self._conn.execute(
+                "SELECT action_hash FROM approvals WHERE id = ? AND state = 'pending'",
+                (approval_id,)).fetchone()
+            if row is None:
+                return None
+            expires = _ts(_utcnow() + valid_for)
+            signature = (operator_keys.sign(signer, approval_id, row["action_hash"],
+                                            expires, decided_by)
+                         if signer is not None else None)
             cur = self._conn.execute(
                 "UPDATE approvals SET state = 'granted', decided_by = ?, "
-                f"decided_at = {NOW_MS}, expires_at = ? "
+                f"decided_at = {NOW_MS}, expires_at = ?, signature = ? "
                 "WHERE id = ? AND state = 'pending'",
-                (decided_by, _ts(_utcnow() + valid_for), approval_id),
+                (decided_by, expires, signature, approval_id),
             )
             if cur.rowcount == 0:
                 return None
+            append_event(self._conn, None, "approval_granted", detail={
+                "approval_id": approval_id, "decided_by": decided_by,
+                "signed": signature is not None})
             return self._release_task(approval_id, "queued")
 
     def deny(self, approval_id: str, decided_by: str,

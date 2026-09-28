@@ -163,3 +163,23 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
 - [ ] Power-pull drill during a running task: pull the plug, boot, confirm
       the task is requeued or held per its idempotency, note timings.
 - [ ] Failed model load drill after the model adapter (5.1) exists.
+
+## 11. Operator account and approval keys (item 4.5, #70)
+
+The code is done and tested. What makes it a boundary is which OS account
+can read what, and that needs the machine. Parked until the M6.
+
+- [ ] Create the non-admin `lab` account (section 1) and keep the
+      operator (admin) account separate.
+- [ ] As the operator: `uv run python -m lab.cli operator init --dir ~/.lab-operator`.
+      The private key stays in the operator's home (`chmod 700 ~/.lab-operator`).
+- [ ] Copy only `operator.pub` to a path the `lab` account can read; set
+      `LAB_OPERATOR_PUBKEY` in the LaunchDaemon environment (6.2).
+- [ ] Confirm the supervisor log does NOT show "approvals are NOT
+      signature-checked".
+- [ ] As `lab`, try `cat ~operator/.lab-operator/operator.key` (expect
+      permission denied) and try to approve a test request with a
+      fabricated signature (expect `approval_rejected` in the events).
+- [ ] Put the queue database, policy files and credentials under a
+      directory the reviewed handlers' worker processes cannot open (#70
+      acceptance: a handler that opens the DB path gets EACCES).

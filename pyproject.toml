@@ -11,7 +11,7 @@ name = "home-lab"
 version = "0.1.0"
 description = "24/7 local autonomous AI workstation, built to the reference architecture from the llm-architects study"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = ["cryptography>=45"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "coverage>=7.6", "hypothesis>=6.100"]
