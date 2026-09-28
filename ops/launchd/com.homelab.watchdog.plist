@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.homelab.watchdog</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/homelab/.venv/bin/python</string>
+		<string>-m</string>
+		<string>lab.cli</string>
+		<string>--db</string>
+		<string>/var/homelab/lab.db</string>
+		<string>watchdog</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/var/log/homelab/watchdog.err</string>
+	<key>StandardOutPath</key>
+	<string>/var/log/homelab/watchdog.log</string>
+	<key>StartInterval</key>
+	<integer>30</integer>
+	<key>WorkingDirectory</key>
+	<string>/opt/homelab</string>
+</dict>
+</plist>

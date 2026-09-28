@@ -298,6 +298,15 @@ Implemented and tested:
   lease, or work waiting with no live worker and a silent log), which is
   what the watchdog (#78) and the dead-man switch (#79) will act on.
   It also reports the operator mode.
+- **Heartbeat and watchdog** (`lab/service.py`, `lab watchdog`, item 6.2,
+  #78). The supervisor writes `<db>.heartbeat` (pid, time, process start
+  time) from its event loop, so a blocked loop stops beating. `lab
+  watchdog`, run every 30 seconds by its own LaunchDaemon, kills the pid
+  in that file when the heartbeat is older than `--max-age`, and launchd
+  restarts the supervisor. It signals only a pid it read from the file,
+  never 0 or 1, and only if `ps` still reports the recorded start time, so
+  a reused pid is left alone. A clean exit removes the heartbeat. It does
+  not judge queue health (`lab status`) or alert a person (#79).
 - **Operator controls** (`lab/control.py`, `lab control`, `lab cancel`, item
   6.3, #79). One database row, read by the supervisor before every lease,
   holds `running`, `paused`, `draining` or `stopped`. Paused leases

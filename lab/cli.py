@@ -49,7 +49,18 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from lab import audit, backup, control, drills, emitter, metrics, publish, rubric, skills
+from lab import (
+    audit,
+    backup,
+    control,
+    drills,
+    emitter,
+    metrics,
+    publish,
+    rubric,
+    service,
+    skills,
+)
 from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
 from lab.connectors import ConnectorError, load_connectors
@@ -454,6 +465,11 @@ def build_parser() -> argparse.ArgumentParser:
         m_end.add_argument("--reason", required=True)
     mem_sub.add_parser("sweep", help="retire expired memories")
 
+    wd = sub.add_parser("watchdog", help="kill a supervisor whose heartbeat has gone stale")
+    wd.add_argument("--max-age", type=float, default=service.DEFAULT_MAX_AGE,
+                    help="seconds without a heartbeat before the supervisor counts as hung")
+    wd.add_argument("--dry-run", action="store_true")
+
     ctl = sub.add_parser("control", help="pause, resume, drain or stop the whole lab")
     ctl.add_argument("action", choices=["show", "pause", "resume", "drain", "stop"])
     ctl.add_argument("--by", default="operator", help="an audit label")
@@ -514,6 +530,15 @@ def build_parser() -> argparse.ArgumentParser:
     chk.add_argument("--checkpoint", type=Path, required=True)
 
     return parser
+
+
+def cmd_watchdog(args: argparse.Namespace) -> int:
+    """Touches no database. Exit 0 healthy or nothing to do, 2 if it killed (or would kill)."""
+    verdict = service.check(args.db, max_age=args.max_age, dry_run=args.dry_run)
+    age = f" (heartbeat {verdict.age:.0f}s old)" if verdict.age is not None else ""
+    print(f"watchdog: {verdict.action}"
+          + (f" pid {verdict.pid}" if verdict.pid else "") + age)
+    return 2 if verdict.action in ("killed", "would_kill") else 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -909,6 +934,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_operator(args)
     if args.command == "status":
         return cmd_status(args)
+    if args.command == "watchdog":
+        return cmd_watchdog(args)
     if args.command == "eval":
         from lab import evals
         return evals.main(args.eval_args)
