@@ -3,8 +3,18 @@
 **Living document. Uncapped backlog, gated output.**
 Last updated 2026-09-25.
 
+**Superseded for tracking, 2026-09-28.** The paper pipeline below (P1-P7)
+is now tracked live in `roshanaryal1/research-pipeline` as `LA-P1` through
+`LA-P7`, with a gate-checking bot (`scripts/check.mjs`) that fails on a
+broken link, a stale status, or an overdue date. This file stays as the
+original record and is still the right place for the reasoning behind
+each paper; it is not where you check what is current. If the two ever
+disagree, `research-pipeline` is correct.
+
 This is the shared working file for everything publishable across the
 llm-architects line and the home-lab build. Add freely, promote carefully.
+Short-form (Track B, below) is **not** ported to `research-pipeline`; this
+file and `roshanaryal1/writing` remain its source of truth.
 
 ## Why two tracks with different rules
 

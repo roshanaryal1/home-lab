@@ -91,6 +91,7 @@ re-losing.
 ## Related documents
 
 - [`docs/decisions/0004-operating-system.md`](decisions/0004-operating-system.md), the framing this diagram implements
+- [`docs/decisions/0005-multi-tenant-proposal-review.md`](decisions/0005-multi-tenant-proposal-review.md), what's adopted vs deferred from a larger enterprise-platform proposal
 - [`docs/PLAN.md`](PLAN.md), the research and defect history that led here
 - [`docs/PIPELINE.md`](PIPELINE.md), which papers each piece of this feeds
 - [`docs/SUBSYSTEMS.md`](SUBSYSTEMS.md), design detail for four specific subsystems
