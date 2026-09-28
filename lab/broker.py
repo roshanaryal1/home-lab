@@ -54,6 +54,7 @@ import errno
 import hashlib
 import itertools
 import json
+import logging
 import math
 import os
 import shutil
@@ -68,6 +69,8 @@ from lab import sandbox
 from lab.journal import OperationJournal, operation_id
 from lab.policy import Decision, PolicyEngine, Tier, canonical
 from lab.queue import LeaseToken
+
+LOG = logging.getLogger(__name__)
 
 
 class BrokerError(RuntimeError):
@@ -234,6 +237,19 @@ class ToolRequest:
     tool: str
     params: dict[str, Any]
     task_id: str
+
+
+@dataclass
+class _CallRecord:
+    """What one dispatch decided and returned, for its audit event."""
+
+    decision: str = "refused"     # allow | needs_approval | refused
+    result: ToolResult | None = None
+    error: str | None = None
+
+    def finish(self, result: ToolResult) -> ToolResult:
+        self.result = result
+        return result
 
 
 @dataclass(frozen=True)
@@ -513,24 +529,37 @@ class ExecutionBroker:
         """The single entry point, run synchronously.
 
         Raises ``ApprovalRequired`` when a human must decide first; every
-        other refusal is a failed ``ToolResult``.
+        other refusal is a failed ``ToolResult``. Every call, whatever its
+        outcome, leaves one ``broker_call`` audit event (item 3.2).
         """
+        call = _CallRecord()
         try:
             handler, request, ws = self._prepare(ctx, tool, params)
+            call.decision = "allow"
             op_id, replay = self._journal_begin(ctx, request)
             if replay is not None:
-                return replay
+                return call.finish(replay)
             try:
                 result = handler(request, ws)
             except BaseException as exc:
                 self._journal_end(op_id, ctx.task_id, None, exc)
                 raise
             self._journal_end(op_id, ctx.task_id, result, None)
-            return result
-        except (ApprovalRequired, OutcomeUnknown):
+            return call.finish(result)
+        except ApprovalRequired:
+            call.decision = "needs_approval"
+            raise
+        except OutcomeUnknown as exc:
+            call.error = type(exc).__name__
             raise
         except BrokerError as exc:
+            call.error = type(exc).__name__
             return ToolResult(ok=False, tool=tool, error=f"{type(exc).__name__}: {exc}")
+        except BaseException as exc:
+            call.error = type(exc).__name__
+            raise
+        finally:
+            self._audit_call(ctx, tool, params, call)
 
     async def _dispatch_async(self, ctx: ExecutionContext, tool: str,
                               params: dict[str, Any]) -> ToolResult:
@@ -541,11 +570,13 @@ class ExecutionBroker:
         running for minutes, runs in a thread and touches no database, so
         the lease heartbeat keeps beating while it runs.
         """
+        call = _CallRecord()
         try:
             handler, request, ws = self._prepare(ctx, tool, params)
+            call.decision = "allow"
             op_id, replay = self._journal_begin(ctx, request)
             if replay is not None:
-                return replay
+                return call.finish(replay)
             try:
                 result = await asyncio.to_thread(handler, request, ws)
             except BaseException as exc:
@@ -554,11 +585,50 @@ class ExecutionBroker:
                 self._journal_end(op_id, ctx.task_id, None, exc)
                 raise
             self._journal_end(op_id, ctx.task_id, result, None)
-            return result
-        except (ApprovalRequired, OutcomeUnknown):
+            return call.finish(result)
+        except ApprovalRequired:
+            call.decision = "needs_approval"
+            raise
+        except OutcomeUnknown as exc:
+            call.error = type(exc).__name__
             raise
         except BrokerError as exc:
+            call.error = type(exc).__name__
             return ToolResult(ok=False, tool=tool, error=f"{type(exc).__name__}: {exc}")
+        except BaseException as exc:
+            call.error = type(exc).__name__
+            raise
+        finally:
+            self._audit_call(ctx, tool, params, call)
+
+    def _audit_call(self, ctx: ExecutionContext, tool: str, params: dict[str, Any],
+                    call: _CallRecord) -> None:
+        """One event per call: tool, parameter hash, lease generation, decision, result.
+
+        Written after the fact, so a failure here must not turn a tool
+        that already ran into an apparent failure (a retry could repeat
+        it). It is logged loudly instead; the pre-execution decision
+        event from the policy engine, which does fail closed, still
+        exists for every allowed call.
+        """
+        if self.policy is None:
+            return
+        try:
+            params_sha = hashlib.sha256(canonical(params).encode("utf-8")).hexdigest()
+        except (TypeError, ValueError):
+            params_sha = "unhashable"
+        try:
+            self.policy.audit(ctx.task_id, "broker_call", {
+                "tool": tool,
+                "params_sha256": params_sha,
+                "lease_id": ctx.lease.lease_id,
+                "lease_generation": ctx.lease.generation,
+                "decision": call.decision,
+                "ok": call.result.ok if call.result is not None else None,
+                "error": call.error or (call.result.error if call.result else None),
+            })
+        except Exception:
+            LOG.exception("could not write the broker_call audit event for %s", ctx.task_id)
 
     def _check_context(self, ctx: ExecutionContext) -> None:
         if self._revoked:

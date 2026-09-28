@@ -35,6 +35,7 @@ from datetime import timedelta
 from enum import StrEnum
 from typing import Any
 
+from lab.audit import append_event
 from lab.queue import NOW_MS, Task, _ts, _utcnow
 
 
@@ -116,6 +117,10 @@ class PolicyEngine:
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
+
+    def audit(self, task_id: str | None, kind: str, detail: dict[str, Any]) -> None:
+        """Append a non-transition event to the hash-chained audit log."""
+        append_event(self._conn, task_id, kind, detail=detail)
 
     @contextmanager
     def _tx(self) -> Iterator[None]:
@@ -207,13 +212,10 @@ class PolicyEngine:
 
         def record(decision: Decision, reason: str,
                    approval_id: str | None = None) -> PolicyResult:
-            self._conn.execute(
-                "INSERT INTO events (task_id, kind, detail) VALUES (?, ?, ?)",
-                (task_id, f"tool_{decision.value}", json.dumps({
-                    "tool": tool, "tier": tier.value, "reason": reason,
-                    "approval_id": approval_id, "action_hash": wanted,
-                })),
-            )
+            append_event(self._conn, task_id, f"tool_{decision.value}", detail={
+                "tool": tool, "tier": tier.value, "reason": reason,
+                "approval_id": approval_id, "action_hash": wanted,
+            })
             return PolicyResult(decision, tier, reason, approval_id)
 
         if tier is Tier.NEVER:
@@ -279,15 +281,12 @@ class PolicyEngine:
         having denials would make it impossible to prove a given action
         was ever authorised.
         """
-        self._conn.execute(
-            "INSERT INTO events (task_id, kind, detail) VALUES (?, ?, ?)",
-            (task.id, f"policy_{decision.value}", json.dumps({
-                "tier": tier.value,
-                "reason": reason,
-                "approval_id": approval_id,
-                "action_hash": action_hash(task),
-            })),
-        )
+        append_event(self._conn, task.id, f"policy_{decision.value}", detail={
+            "tier": tier.value,
+            "reason": reason,
+            "approval_id": approval_id,
+            "action_hash": action_hash(task),
+        })
         return PolicyResult(decision, tier, reason, approval_id)
 
     # --------------------------------------------------------- approvals
@@ -370,12 +369,8 @@ class PolicyEngine:
             f"updated_at = {NOW_MS}, available_at = {NOW_MS} WHERE id = ?",
             (to_state, reason, task_id),
         )
-        self._conn.execute(
-            "INSERT INTO events (task_id, kind, from_state, to_state, detail) "
-            "VALUES (?, ?, 'awaiting_approval', ?, ?)",
-            (task_id, to_state, to_state,
-             json.dumps({"approval_id": approval_id, "reason": reason})),
-        )
+        append_event(self._conn, task_id, to_state, "awaiting_approval", to_state,
+                     {"approval_id": approval_id, "reason": reason})
         return task_id
 
     def pending(self) -> list[sqlite3.Row]:

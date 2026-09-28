@@ -18,19 +18,23 @@ Usage:
     python3 -m lab.cli tasks
     python3 -m lab.cli ops
     python3 -m lab.cli resolve <op> --happened|--not-happened --by roshan
+    python3 -m lab.cli audit verify
+    python3 -m lab.cli audit checkpoint --key KEYFILE --out DIR
+    python3 -m lab.cli audit check --key KEYFILE --checkpoint FILE
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from lab import skills
+from lab import audit, skills
 from lab.journal import OperationJournal
 from lab.policy import PolicyEngine, task_intent
 from lab.queue import TaskQueue
@@ -270,7 +274,49 @@ def build_parser() -> argparse.ArgumentParser:
     inventory.add_argument("--root", type=Path, required=True)
     inventory.add_argument("--json", action="store_true")
 
+    audit_cmd = sub.add_parser("audit", help="verify the audit log and its signed checkpoints")
+    audit_sub = audit_cmd.add_subparsers(dest="audit_command", required=True)
+    audit_sub.add_parser("verify", help="walk the hash chain; exit 1 if it is broken")
+    cp = audit_sub.add_parser("checkpoint", help="sign the chain head and write it to a directory")
+    cp.add_argument("--key", type=Path, required=True, help="signing key file (16+ bytes)")
+    cp.add_argument("--out", type=Path, required=True,
+                    help="directory the lab account cannot write to")
+    chk = audit_sub.add_parser("check", help="is the live log a continuation of a checkpoint?")
+    chk.add_argument("--key", type=Path, required=True)
+    chk.add_argument("--checkpoint", type=Path, required=True)
+
     return parser
+
+
+def cmd_audit(args: argparse.Namespace) -> int:
+    """Read-only on the database: it opens no queue and applies no migration."""
+    if not args.db.exists():
+        print(f"No database at {args.db}", file=sys.stderr)
+        return 1
+    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    try:
+        if args.audit_command == "checkpoint":
+            path = audit.write_checkpoint(conn, args.key, args.out)
+            print(f"wrote {path}")
+            return 0
+        if args.audit_command == "check":
+            report = audit.check_against_checkpoint(conn, args.checkpoint, args.key)
+        else:
+            report = audit.verify_chain(conn)
+    except audit.CheckpointError as exc:
+        print(f"audit: {exc}", file=sys.stderr)
+        return 1
+    except sqlite3.DatabaseError as exc:
+        print(f"audit: cannot read the log: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    if report.ok:
+        print(f"ok: {report.events} chained events, {report.unchained} older unchained, "
+              f"head {(report.last_hash or '-')[:12]}")
+        return 0
+    print(f"BROKEN at event {report.bad_id}: {report.problem}")
+    return 1
 
 
 def cmd_skills(args: argparse.Namespace) -> int:
@@ -308,6 +354,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "skills":
         return cmd_skills(args)
+    if args.command == "audit":
+        return cmd_audit(args)
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1

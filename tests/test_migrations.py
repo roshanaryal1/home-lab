@@ -75,11 +75,16 @@ def shape(conn: sqlite3.Connection) -> dict[str, object]:
 
 
 def dir_with(tmp_path: Path, name: str, sql: str) -> Path:
+    """Every shipped migration plus one more, numbered after the last.
+
+    ``name`` is the part after the number, so adding a real migration does
+    not collide with the fake one.
+    """
     directory = tmp_path / "migrations"
     directory.mkdir()
     for found in discover():
         shutil.copy(found.path, directory / found.path.name)
-    (directory / name).write_text(sql)
+    (directory / f"{latest_version() + 1:04d}_{name}").write_text(sql)
     return directory
 
 
@@ -88,7 +93,7 @@ def dir_with(tmp_path: Path, name: str, sql: str) -> Path:
 
 def test_fresh_database_is_at_the_latest_version(tmp_path: Path) -> None:
     with TaskQueue(tmp_path / "lab.db") as q:
-        assert current_version(q._conn) == latest_version() == 2
+        assert current_version(q._conn) == latest_version() == 3
         names = {r["name"] for r in q._conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'")}
         assert set(TABLES) <= names
@@ -221,15 +226,15 @@ def test_a_partly_upgraded_file_finishes_upgrading(tmp_path: Path) -> None:
 
 @pytest.mark.safety
 def test_failure_midway_rolls_the_whole_migration_back(tmp_path: Path) -> None:
-    directory = dir_with(tmp_path, "0003_half_done.sql", (
+    directory = dir_with(tmp_path, "half_done.sql", (
         "CREATE TABLE half_done (id INTEGER);\n"
         "INSERT INTO half_done VALUES (1);\n"
         "INSERT INTO no_such_table VALUES (1);\n"
     ))
     conn = raw(tmp_path / "lab.db")
-    with pytest.raises(MigrationError, match="0003_half_done"):
+    with pytest.raises(MigrationError, match="half_done"):
         migrate(conn, directory)
-    assert current_version(conn) == 2  # 1 and 2 committed, 3 did not
+    assert current_version(conn) == latest_version()  # the shipped ones committed, the fake did not
     assert conn.execute(
         "SELECT name FROM sqlite_master WHERE name = 'half_done'").fetchone() is None
     assert not conn.in_transaction
@@ -237,14 +242,14 @@ def test_failure_midway_rolls_the_whole_migration_back(tmp_path: Path) -> None:
 
 
 def test_a_migration_that_leaves_a_dangling_reference_is_rolled_back(tmp_path: Path) -> None:
-    directory = dir_with(tmp_path, "0003_orphan.sql", (
+    directory = dir_with(tmp_path, "orphan.sql", (
         "INSERT INTO approvals (id, task_id, reason, action_hash, expires_at)\n"
         "VALUES ('x', 'no-such-task', 'r', 'h', '2999-01-01');\n"
     ))
     conn = raw(tmp_path / "lab.db")
     with pytest.raises(MigrationError):
         migrate(conn, directory)
-    assert current_version(conn) == 2
+    assert current_version(conn) == latest_version()
     assert conn.execute("SELECT COUNT(*) FROM approvals").fetchone()[0] == 0
 
 
