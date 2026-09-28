@@ -66,10 +66,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lab import sandbox
+from lab.connectors import Connector, ConnectorError
 from lab.egress import EgressDenied, EgressGateway, parse_allowlist
 from lab.journal import OperationJournal, operation_id
 from lab.policy import Decision, PolicyEngine, Tier, canonical
 from lab.queue import LeaseToken
+from lab.vault import Redactor, SecretUnavailable, Vault
 
 LOG = logging.getLogger(__name__)
 
@@ -150,6 +152,9 @@ TOOL_TIERS: dict[str, Tier] = {
     # list per task, resolve-then-pin, audited. The result is untrusted
     # evidence, never instructions.
     "net.fetch": Tier.NOTIFY,
+    # One destination, one credential, injected by the broker (item 4.4).
+    # Approve tier: a person sees the exact destination, path and body.
+    "connector.call": Tier.APPROVE,
 }
 
 
@@ -165,6 +170,7 @@ TOOL_EFFECTS: dict[str, str] = {
     # A command can do anything its sandbox allows, so assume the worst.
     "shell.run": NON_IDEMPOTENT,
     "net.fetch": IDEMPOTENT,        # a GET; retried freely, and gated by the host list
+    "connector.call": NON_IDEMPOTENT,   # may change the outside world: journaled
 }
 
 # Per-task and per-call ceilings (item 1.10). A request can lower these
@@ -199,6 +205,8 @@ TOOL_SCHEMAS: dict[str, dict[str, tuple[_Validator, bool]]] = {
     "fs.delete": {"path": (_is_str, True)},
     "shell.run": {"argv": (_is_argv, True), "timeout": (_is_timeout, False)},
     "net.fetch": {"url": (_is_str, True)},
+    "connector.call": {"connector": (_is_str, True), "path": (_is_str, True),
+                       "method": (_is_str, False), "body": (_is_str, False)},
 }
 
 
@@ -387,6 +395,7 @@ class ExecutionBroker:
         leases: Callable[[LeaseToken], bool] | None = None,
         journal: OperationJournal | None = None,
         egress: EgressGateway | None = None,
+        vault: Vault | None = None,
     ) -> None:
         self.workspace_root = Path(workspace_root)
         self.workspace_root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -405,6 +414,10 @@ class ExecutionBroker:
         self._seq: dict[tuple[str, str], int] = {}
         # None means net.fetch always refuses: no gateway, no network.
         self._egress = egress
+        # None means connector.call always refuses: no vault, no credentials.
+        self._vault = vault
+        self._connectors: dict[str, Connector] = {}
+        self._task_connectors: dict[str, frozenset[str]] = {}
         self._egress_hosts: dict[str, frozenset[str]] = {}
         self._workspaces: dict[str, Workspace] = {}
         self._calls: dict[str, int] = {}
@@ -413,7 +426,8 @@ class ExecutionBroker:
     # ------------------------------------------------------- lifecycle
 
     def open_workspace(self, task_id: str, allowed_tools: set[str],
-                       egress_hosts: frozenset[str] | set[str] = frozenset()) -> Workspace:
+                       egress_hosts: frozenset[str] | set[str] = frozenset(),
+                       connectors: frozenset[str] | set[str] = frozenset()) -> Workspace:
         """Give a task its own directory and an explicit tool allowlist.
 
         The allowlist is per task and default-deny: a tool not named here
@@ -434,13 +448,22 @@ class ExecutionBroker:
         self._workspaces[task_id] = ws
         self._grants[task_id] = set(allowed_tools)
         self._egress_hosts[task_id] = parse_allowlist(egress_hosts)
+        unknown_connectors = set(connectors) - set(self._connectors)
+        if unknown_connectors:
+            raise ToolNotAllowed(f"unknown connectors: {sorted(unknown_connectors)}")
+        self._task_connectors[task_id] = frozenset(connectors)
         self._calls[task_id] = 0
         return ws
+
+    def add_connector(self, connector: Connector) -> None:
+        """Trusted registration of a destination. Not reachable from a task."""
+        self._connectors[connector.name] = connector
 
     def close_workspace(self, task_id: str) -> None:
         ws = self._workspaces.pop(task_id, None)
         self._grants.pop(task_id, None)
         self._egress_hosts.pop(task_id, None)
+        self._task_connectors.pop(task_id, None)
         self._calls.pop(task_id, None)
         if ws is not None:
             ws.destroy()
@@ -461,6 +484,7 @@ class ExecutionBroker:
             "fs.delete": self._tool_fs_delete,
             "shell.run": self._tool_shell_run,
             "net.fetch": self._tool_net_fetch,
+            "connector.call": self._tool_connector_call,
         }
 
     def session(self, ctx: ExecutionContext) -> ToolSession:
@@ -490,6 +514,10 @@ class ExecutionBroker:
         # Before policy: a human is never asked to approve a malformed
         # call, and a runaway loop stops without touching the audit log.
         validate_params(request.tool, request.params)
+        if request.tool == "connector.call":
+            # Before policy, so a person is never asked to approve a call
+            # to a connector the task does not hold or a path it may not use.
+            self._precheck_connector(request)
         used = self._calls.get(request.task_id, 0)
         if used >= MAX_CALLS_PER_TASK:
             raise QuotaExceeded(f"tool call ceiling {MAX_CALLS_PER_TASK} reached")
@@ -776,6 +804,48 @@ class ExecutionBroker:
             "content_type": fetched.content_type,
             "evidence": fetched.evidence.as_payload(),
         })
+
+    def _precheck_connector(self, request: ToolRequest) -> Connector:
+        params = request.params
+        name = params["connector"]
+        if name not in self._task_connectors.get(request.task_id, frozenset()):
+            raise ToolNotAllowed(f"task {request.task_id} has no grant for connector {name!r}")
+        connector = self._connectors[name]
+        try:
+            connector.check_call(params.get("method", "POST"), params["path"],
+                                 params.get("body"))
+        except ConnectorError as exc:
+            raise InvalidParams(str(exc)) from None
+        return connector
+
+    def _tool_connector_call(self, request: ToolRequest, ws: Workspace) -> ToolResult:
+        params = request.params
+        name = params["connector"]
+        connector = self._precheck_connector(request)
+        method = params.get("method", "POST")
+        body = params.get("body")
+        if self._egress is None or self._vault is None:
+            return ToolResult(False, request.tool, error="no egress gateway or vault")
+        try:
+            secret = self._vault.resolve(connector.secret)
+        except SecretUnavailable as exc:
+            return ToolResult(False, request.tool, error=f"SecretUnavailable: {exc}")
+        redactor = Redactor([secret])
+        try:
+            fetched = self._egress.fetch(
+                f"https://{connector.host}{params['path']}",
+                frozenset({connector.host}), request.task_id, method=method,
+                headers={connector.header: connector.header_value(secret),
+                         **({"Content-Type": "application/json"} if body is not None else {})},
+                body=body.encode("utf-8") if body is not None else None,
+                follow_redirects=False)
+        except EgressDenied as exc:
+            return ToolResult(False, request.tool,
+                              error=str(redactor.scrub(f"EgressDenied: {exc}")))
+        return ToolResult(True, request.tool, redactor.scrub({
+            "connector": name, "status": fetched.status,
+            "evidence": fetched.evidence.as_payload(),
+        }))
 
     def _tool_shell_run(self, request: ToolRequest, ws: Workspace) -> ToolResult:
         """Run a command, confined by the kernel rather than by us.

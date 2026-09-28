@@ -151,6 +151,27 @@ Implemented and tested:
   server's TLS certificate is verified against the system store only,
   nothing limits total bytes per task across calls, and the shell tool's
   network access is governed by the sandbox profile, not this gateway.
+- **Secret broker and connectors** (`lab/vault.py`, `lab/connectors.py`,
+  item 4.4, #15). A connector is one destination: one host, one secret
+  name, one header, the methods and path prefix allowed. Trusted code
+  defines and grants them; a task cannot invent a destination, widen a
+  path or choose another secret. `connector.call` is approve tier, so a
+  person sees the exact connector, path and body (never the secret);
+  malformed, out-of-scope or ungranted calls are refused before anyone
+  is asked. The broker resolves the secret from `LAB_SECRET_<NAME>` or
+  the Keychain at the moment of the call, puts it in the request header,
+  sends through the egress gateway with no redirects (the credential
+  goes to one host), and scrubs the value, and its URL-encoded and
+  base64 forms, from the result and any error. There is no list
+  operation, so a worker cannot enumerate secrets. A test has the server
+  echo the header back in three encodings and then searches every table,
+  the returned result and the log for the value. The tool holds a secret
+  and an outside effect, so the Rule of Two refuses it for any task with
+  untrusted input (`tests/test_connectors.py`). Limits: a secret shorter
+  than 8 characters is refused, not handled; the value exists in the
+  supervisor's memory during the call; and a destination that stores what
+  it is sent can still be told to repeat the value later, which redaction
+  cannot see.
 - **Operator-signed approvals** (`lab/operator.py`, item 4.5, #70).
   `lab operator init` creates an Ed25519 keypair; `lab approve --key`
   signs the grant over the approval id, action hash, expiry and decider.
@@ -213,10 +234,17 @@ absent is worse than no policy:
   `tests/test_limits.py`). Memory is not, and arrives with the model
   adapter (#16, #74). A fork bomb inside the deadline is contained by the
   group kill, not prevented.
-- **No secret broker.** There is nowhere to inject secrets yet, so there
-  is nothing to leak, but credential handling is unimplemented.
-**Do not connect real credentials until the three absences above are
-closed.**
+- **The secret broker has only been run against a dummy connector.**
+  Built (`lab/vault.py`, `lab/connectors.py`, item 4.4, #15) and tested
+  with dummy credentials and a fake transport. No real credential has
+  been resolved from the Keychain, and no real destination has been
+  called.
+
+**Do not connect real credentials until the separate operator account
+exists (#70), the memory ceiling exists (#16), and the Keychain path has
+been exercised on the mini (`ops/mac-mini-setup.md` section 6).** The
+egress gateway and the secret broker are the other two of the original
+three absences and are now built.
 
 ## Process isolation
 

@@ -58,6 +58,9 @@ TOOL_LEGS: dict[str, frozenset[Leg]] = {
     # Outbound requests are an outside effect (a URL can carry data out),
     # even though the host list bounds where.
     "net.fetch": frozenset({Leg.EXTERNAL_ACTION}),
+    # A credentialed outside effect: sees a secret and acts externally, so
+    # it may only run for trusted input (ADR 0006, the publish plane).
+    "connector.call": frozenset({Leg.SENSITIVE_DATA, Leg.EXTERNAL_ACTION}),
 }
 
 
