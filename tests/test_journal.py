@@ -229,6 +229,7 @@ async def test_a_permanent_failure_is_not_retried(tmp_path) -> None:
     sup.close()
 
 
+@pytest.mark.safety
 def test_no_journal_means_no_non_idempotent_call(tmp_path, effects) -> None:
     with TaskQueue(tmp_path / "lab.db") as q:
         q._conn.execute("INSERT INTO tasks (id, title) VALUES ('t1', 't1')")

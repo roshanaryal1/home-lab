@@ -225,6 +225,7 @@ def test_manifest_is_stable_json(broker) -> None:
 # ---------------------------------------------------------- tool tiers
 
 
+@pytest.mark.safety
 def test_destructive_tools_require_approval_tier(broker) -> None:
     """The tier comes from the tool, not from the task's own claim."""
     assert TOOL_TIERS["fs.delete"] is Tier.APPROVE

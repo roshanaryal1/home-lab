@@ -14,7 +14,7 @@ requires-python = ">=3.13"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "coverage>=7.6", "hypothesis>=6.100"]
 
 [tool.setuptools]
 packages = ["lab"]
@@ -42,5 +42,22 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "PYI"]
 # the package. With the package installable (issue #29) that bootstrap is
 # gone, so the exemption is gone with it.
 
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["lab"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+    "safety: proves a load-bearing safety property; CI fails if these tests are removed or drop below the floor",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["lab"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

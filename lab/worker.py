@@ -79,7 +79,7 @@ def worker_environment(workspace: Path) -> dict[str, str]:
 
 
 async def run_in_worker(ref: str, task: Task, tools: ToolSession, *,
-                        workspace: Path) -> dict:
+                        workspace: Path) -> dict[str, Any]:
     """Run ``ref`` for ``task`` in a fresh process; broker its tool calls.
 
     Raises ``ApprovalRequired`` when a call needs a human (after ending
@@ -109,7 +109,7 @@ async def run_in_worker(ref: str, task: Task, tools: ToolSession, *,
 
     drainer = asyncio.create_task(drain_stderr())
 
-    async def send(message: dict) -> None:
+    async def send(message: dict[str, Any]) -> None:
         stdin.write(json.dumps(message).encode() + b"\n")
         await stdin.drain()
 
@@ -213,7 +213,7 @@ def main() -> None:
     sys.stdout = sys.stderr
     reader = sys.stdin
 
-    def emit(message: dict) -> None:
+    def emit(message: dict[str, Any]) -> None:
         proto_out.write(json.dumps(message) + "\n")
         proto_out.flush()
 

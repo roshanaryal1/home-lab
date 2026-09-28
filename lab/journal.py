@@ -27,6 +27,7 @@ import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
+from typing import Any
 
 NOW_MS = "strftime('%Y-%m-%d %H:%M:%f', 'now')"
 
@@ -43,7 +44,7 @@ class Operation:
     tool: str
     seq: int
     state: str
-    result: dict | None
+    result: dict[str, Any] | None
     error: str | None
 
 
@@ -79,7 +80,7 @@ class OperationJournal:
             (op_id, task_id, tool, params_sha256, seq))
         self._event(task_id, "operation_started", op_id, tool)
 
-    def confirm(self, op_id: str, task_id: str, result: dict) -> None:
+    def confirm(self, op_id: str, task_id: str, result: dict[str, Any]) -> None:
         self._finish(op_id, task_id, "confirmed", result=result)
 
     def failed(self, op_id: str, task_id: str, error: str) -> None:
@@ -89,7 +90,7 @@ class OperationJournal:
         self._finish(op_id, task_id, "uncertain", error=error)
 
     def _finish(self, op_id: str, task_id: str, state: str, *,
-                result: dict | None = None, error: str | None = None) -> None:
+                result: dict[str, Any] | None = None, error: str | None = None) -> None:
         self._conn.execute(
             f"UPDATE operations SET state = ?, result = ?, error = ?, finished_at = {NOW_MS} "
             "WHERE id = ?",

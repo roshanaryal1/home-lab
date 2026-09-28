@@ -38,20 +38,29 @@ jobs:
         run: uv run python -c "import sqlite3, sys; print('python', sys.version.split()[0], 'sqlite', sqlite3.sqlite_version)"
       - name: Lint
         run: uv run ruff check .
-      - name: Test
-        run: uv run python -m pytest tests/ -q
-      - name: Safety properties must still be covered
-        # The two load-bearing guarantees are that a crash never blindly
-        # replays a non-idempotent task, and that the heavy inference slot is
-        # never breached. Deleting the tests that prove those would otherwise
-        # be a silent green build, so assert the coverage still exists.
+      - name: Type check
+        run: uv run mypy
+      - name: Test with coverage
+        run: uv run coverage run -m pytest tests/ -q
+      - name: Coverage floor on the safety-critical modules
+        # Each module must reach the floor on its own, so a well-covered
+        # module cannot hide a neglected one.
         run: |
-          SAFETY="idempotent or destructive or heavy_task"
-          uv run python -m pytest tests/ -q -k "$SAFETY" --no-header
-          FOUND=$(uv run python -m pytest tests/ --collect-only -q -k "$SAFETY" 2>/dev/null | grep -c "::")
+          for module in queue policy broker sandbox; do
+            uv run coverage report --include="lab/$module.py" --fail-under=90 --skip-empty || exit 1
+          done
+      - name: Safety properties must still be covered
+        # Tests carrying the safety marker prove the load-bearing
+        # guarantees: a crash never blindly replays a non-idempotent task,
+        # the heavy inference slot is never breached, and the reproduced
+        # defects R01 to R11 stay fixed. Deleting them would otherwise be a
+        # silent green build, so assert the marked set has not shrunk.
+        run: |
+          uv run python -m pytest tests/ -q -m safety --no-header
+          FOUND=$(uv run python -m pytest tests/ --collect-only -q -m safety 2>/dev/null | grep -c "::")
           echo "safety tests found: $FOUND"
-          if [ "$FOUND" -lt 6 ]; then
-            echo "expected at least 6 safety tests, found $FOUND"
+          if [ "$FOUND" -lt 22 ]; then
+            echo "expected at least 22 safety tests, found $FOUND"
             exit 1
           fi
 

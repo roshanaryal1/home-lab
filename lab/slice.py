@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from typing import Any
 
 from lab.observe import ObservationError, observe_and_propose
 from lab.queue import TaskQueue
@@ -29,7 +30,7 @@ from lab.route import draft, route_by_evidence_weight
 log = logging.getLogger("lab.slice")
 
 
-def process_proposals(queue: TaskQueue) -> list[tuple[str, dict]]:
+def process_proposals(queue: TaskQueue) -> list[tuple[str, dict[str, Any]]]:
     """Lease every queued proposal, route it, draft it, and stop there.
 
     Returns (task_id, result) pairs. ``Task`` does not surface the
@@ -42,7 +43,7 @@ def process_proposals(queue: TaskQueue) -> list[tuple[str, dict]]:
     "succeeded", not at any state that implies something left the
     machine.
     """
-    processed: list[tuple[str, dict]] = []
+    processed: list[tuple[str, dict[str, Any]]] = []
     while True:
         task = queue.lease(weight="light")
         if task is None:

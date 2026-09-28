@@ -127,6 +127,7 @@ def test_retry_backoff_makes_task_unavailable_immediately(q: TaskQueue) -> None:
 # ----------------------------------------------------------- recovery
 
 
+@pytest.mark.safety
 def test_recovery_requeues_idempotent_task(q: TaskQueue) -> None:
     task_id = q.add_task("safe to repeat", idempotent=True)
     tok = q.lease().lease
@@ -138,6 +139,7 @@ def test_recovery_requeues_idempotent_task(q: TaskQueue) -> None:
     assert q.get(task_id).state == "queued"
 
 
+@pytest.mark.safety
 def test_recovery_holds_non_idempotent_task_for_review(q: TaskQueue) -> None:
     """The core safety rule: never blindly replay a destructive task."""
     task_id = q.add_task("sends real email", idempotent=False)
@@ -150,6 +152,7 @@ def test_recovery_holds_non_idempotent_task_for_review(q: TaskQueue) -> None:
     assert q.lease() is None, "an interrupted destructive task must not re-run"
 
 
+@pytest.mark.safety
 def test_recovery_holds_idempotent_task_with_no_attempts_left(q: TaskQueue) -> None:
     task_id = q.add_task("repeatable but exhausted", idempotent=True,
                          max_attempts=1)
@@ -395,6 +398,7 @@ def test_crash_mid_succeed_leaves_no_partial_state(
 # idempotent; ordinary fail() did not.
 
 
+@pytest.mark.safety
 def test_non_idempotent_failure_is_not_auto_retried(q: TaskQueue) -> None:
     task_id = q.add_task("send an email", max_attempts=3, idempotent=False)
     tok = q.lease().lease
@@ -409,6 +413,7 @@ def test_non_idempotent_failure_is_not_auto_retried(q: TaskQueue) -> None:
     assert task.attempts == 1
 
 
+@pytest.mark.safety
 def test_idempotent_failure_still_auto_retries(q: TaskQueue) -> None:
     """The fix must not stop safe retries from happening."""
     task_id = q.add_task("re-run a read", max_attempts=3, idempotent=True)

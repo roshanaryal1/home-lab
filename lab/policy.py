@@ -33,6 +33,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import StrEnum
+from typing import Any
 
 from lab.queue import NOW_MS, Task, _ts, _utcnow
 
@@ -80,18 +81,18 @@ def canonical(obj: object) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def intent_hash(intent: dict) -> str:
+def intent_hash(intent: dict[str, Any]) -> str:
     return hashlib.sha256(canonical(intent).encode("utf-8")).hexdigest()
 
 
-def task_intent(task: Task) -> dict:
+def task_intent(task: Task) -> dict[str, Any]:
     """What a task-level approval authorizes: this task, this payload."""
     return {"kind": "task", "task": task.id, "agent_kind": task.agent_kind,
             "payload": task.payload, "policy_version": POLICY_VERSION}
 
 
-def tool_intent(task_id: str, tool: str, params: dict,
-                preconditions: dict | None = None) -> dict:
+def tool_intent(task_id: str, tool: str, params: dict[str, Any],
+                preconditions: dict[str, Any] | None = None) -> dict[str, Any]:
     """What a tool-call approval authorizes (item 1.4).
 
     ``preconditions`` is the state the call will act on, as the broker
@@ -188,8 +189,8 @@ class PolicyEngine:
                 task, tier, Decision.ALLOW, "approval consumed", row["id"]
             )
 
-    def authorize_tool(self, task_id: str, tool: str, params: dict,
-                       tier: Tier, preconditions: dict | None = None) -> PolicyResult:
+    def authorize_tool(self, task_id: str, tool: str, params: dict[str, Any],
+                       tier: Tier, preconditions: dict[str, Any] | None = None) -> PolicyResult:
         """The per-call gate. The broker calls this before every tool runs.
 
         ``tier`` comes from the broker's trusted registry, never from the
@@ -353,7 +354,7 @@ class PolicyEngine:
         ).fetchone()
         if row is None:
             return None
-        task_id = row["task_id"]
+        task_id: str = row["task_id"]
 
         state = self._conn.execute(
             "SELECT state FROM tasks WHERE id = ?", (task_id,)

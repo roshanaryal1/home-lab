@@ -27,6 +27,7 @@ import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from lab.journal import OperationJournal
 from lab.policy import PolicyEngine, task_intent
@@ -40,9 +41,9 @@ SECRET_HINTS = ("password", "token", "secret", "api_key", "apikey",
                 "credential", "authorization", "auth", "private_key")
 
 
-def _redact(params: dict) -> dict:
+def _redact(params: dict[str, Any]) -> dict[str, Any]:
     """Mask values whose key looks like a credential."""
-    out = {}
+    out: dict[str, Any] = {}
     for key, value in params.items():
         if any(hint in key.lower() for hint in SECRET_HINTS):
             out[key] = "<redacted>"
@@ -76,7 +77,7 @@ def _age(timestamp: str) -> str:
     return f"{seconds // 86400}d"
 
 
-def cmd_approvals(queue: TaskQueue, policy: PolicyEngine, args) -> int:
+def cmd_approvals(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     pending = policy.pending()
     if not pending:
         print("Nothing waiting for approval.")
@@ -92,7 +93,7 @@ def cmd_approvals(queue: TaskQueue, policy: PolicyEngine, args) -> int:
     return 0
 
 
-def cmd_show(queue: TaskQueue, policy: PolicyEngine, args) -> int:
+def cmd_show(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     """The important one. Never approve what you have not read."""
     row = queue._conn.execute(
         "SELECT * FROM approvals WHERE id LIKE ?", (args.id + "%",)
@@ -130,7 +131,7 @@ def cmd_show(queue: TaskQueue, policy: PolicyEngine, args) -> int:
     return 0
 
 
-def cmd_approve(queue: TaskQueue, policy: PolicyEngine, args) -> int:
+def cmd_approve(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     row = queue._conn.execute(
         "SELECT id, state FROM approvals WHERE id LIKE ?", (args.id + "%",)
     ).fetchone()
@@ -153,7 +154,7 @@ def cmd_approve(queue: TaskQueue, policy: PolicyEngine, args) -> int:
     return 0
 
 
-def cmd_deny(queue: TaskQueue, policy: PolicyEngine, args) -> int:
+def cmd_deny(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     row = queue._conn.execute(
         "SELECT id, state FROM approvals WHERE id LIKE ?", (args.id + "%",)
     ).fetchone()
@@ -172,7 +173,7 @@ def cmd_deny(queue: TaskQueue, policy: PolicyEngine, args) -> int:
     return 0
 
 
-def cmd_tasks(queue: TaskQueue, policy: PolicyEngine, args) -> int:
+def cmd_tasks(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     counts = queue.counts()
     if not counts:
         print("No tasks.")
@@ -186,7 +187,7 @@ def cmd_tasks(queue: TaskQueue, policy: PolicyEngine, args) -> int:
     return 0
 
 
-def cmd_ops(queue: TaskQueue, policy: PolicyEngine, args) -> int:
+def cmd_ops(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     """Operations whose outcome nobody knows (item 1.7)."""
     rows = OperationJournal(queue._conn).unresolved()
     if not rows:
@@ -203,7 +204,7 @@ def cmd_ops(queue: TaskQueue, policy: PolicyEngine, args) -> int:
     return 0
 
 
-def cmd_resolve(queue: TaskQueue, policy: PolicyEngine, args) -> int:
+def cmd_resolve(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     journal = OperationJournal(queue._conn)
     matches = [r for r in journal.unresolved() if r["id"].startswith(args.id)]
     if len(matches) != 1:

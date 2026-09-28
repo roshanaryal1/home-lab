@@ -1,6 +1,7 @@
 """The execution broker: the intended single path from a worker to anything real.
 
 Every call is authorized by the policy engine against the tool's tier
+from typing import Any
 from the trusted registry below (item 1.1, #43). Not yet the *only*
 path: handlers run inside the supervisor process, so nothing but
 convention stops one touching the filesystem directly (#48, item 1.2).
@@ -61,6 +62,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from lab import sandbox
 from lab.journal import OperationJournal, operation_id
@@ -194,7 +196,7 @@ class InvalidParams(BrokerError):
     """The call's parameters do not match the tool's schema."""
 
 
-def validate_params(tool: str, params: dict) -> None:
+def validate_params(tool: str, params: dict[str, Any]) -> None:
     schema = TOOL_SCHEMAS.get(tool)
     if schema is None:
         raise ToolNotAllowed(f"no schema for tool {tool}")
@@ -230,7 +232,7 @@ class ToolRequest:
     is no public entry point that accepts a caller-built request."""
 
     tool: str
-    params: dict
+    params: dict[str, Any]
     task_id: str
 
 
@@ -238,7 +240,7 @@ class ToolRequest:
 class ToolResult:
     ok: bool
     tool: str
-    detail: dict = field(default_factory=dict)
+    detail: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
 
 
@@ -436,7 +438,7 @@ class ExecutionBroker:
         """Refuse every call from every session from now on."""
         self._revoked = True
 
-    def _prepare(self, ctx: ExecutionContext, tool: str, params: dict,
+    def _prepare(self, ctx: ExecutionContext, tool: str, params: dict[str, Any],
                  ) -> tuple[Callable[[ToolRequest, Workspace], ToolResult],
                             ToolRequest, Workspace]:
         """Every check, in order, before anything runs.
@@ -507,7 +509,7 @@ class ExecutionBroker:
             self._journal.uncertain(op_id, task_id,
                                     f"{type(exc).__name__}: {exc}" if exc else "unknown")
 
-    def _dispatch(self, ctx: ExecutionContext, tool: str, params: dict) -> ToolResult:
+    def _dispatch(self, ctx: ExecutionContext, tool: str, params: dict[str, Any]) -> ToolResult:
         """The single entry point, run synchronously.
 
         Raises ``ApprovalRequired`` when a human must decide first; every
@@ -531,7 +533,7 @@ class ExecutionBroker:
             return ToolResult(ok=False, tool=tool, error=f"{type(exc).__name__}: {exc}")
 
     async def _dispatch_async(self, ctx: ExecutionContext, tool: str,
-                              params: dict) -> ToolResult:
+                              params: dict[str, Any]) -> ToolResult:
         """Checks on the event loop, execution in a thread (item 1.8).
 
         Policy and the database stay on the loop's thread, where the one
@@ -725,7 +727,7 @@ class ExecutionBroker:
 
     # ------------------------------------------------------------ audit
 
-    def manifest(self, task_id: str) -> dict:
+    def manifest(self, task_id: str) -> dict[str, Any]:
         """What a task's workspace contained when it finished.
 
         Part of the evidence plane: an execution that leaves no record of

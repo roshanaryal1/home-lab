@@ -31,6 +31,8 @@ from lab.policy import PolicyEngine, action_hash
 from lab.queue import LeaseLost, Task, TaskQueue
 from lab.supervisor import Supervisor, SupervisorConfig
 
+pytestmark = pytest.mark.safety
+
 
 @pytest.fixture()
 def q(tmp_path: Path) -> TaskQueue:
