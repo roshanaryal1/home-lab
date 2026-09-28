@@ -81,6 +81,7 @@ async def test_task_without_handler_is_cancelled_not_retried(
     sup.close()
 
 
+@pytest.mark.safety
 @pytest.mark.asyncio
 async def test_only_one_heavy_task_runs_at_a_time(tmp_path: Path) -> None:
     """The 32 GB constraint: one heavy inference slot, enforced."""
@@ -148,6 +149,7 @@ async def test_priority_order_is_respected(tmp_path: Path) -> None:
     sup.close()
 
 
+@pytest.mark.safety
 @pytest.mark.asyncio
 async def test_startup_recovers_interrupted_idempotent_task(
     tmp_path: Path,
@@ -178,6 +180,7 @@ async def test_startup_recovers_interrupted_idempotent_task(
     sup.close()
 
 
+@pytest.mark.safety
 @pytest.mark.asyncio
 async def test_startup_does_not_rerun_interrupted_destructive_task(
     tmp_path: Path,

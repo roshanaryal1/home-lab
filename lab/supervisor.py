@@ -24,7 +24,7 @@ import socket
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 from lab.broker import (
     ApprovalRequired,
@@ -44,7 +44,7 @@ log = logging.getLogger("lab.supervisor")
 # A handler takes the leased task and a tool session bound to it, and
 # returns a JSON-serialisable result. The session is the handler's only
 # sanctioned way to touch anything; it cannot name another task.
-Handler = Callable[[Task, ToolSession], Awaitable[dict]]
+Handler = Callable[[Task, ToolSession], Awaitable[dict[str, Any]]]
 
 
 class HandlerError(RuntimeError):
@@ -157,7 +157,7 @@ class Supervisor:
         self._max_tasks: int | None = None
         # A handle on every running handler, so lease loss and emergency
         # stop can end the work itself, not only stop recording it.
-        self._running: dict[str, asyncio.Task] = {}
+        self._running: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._interrupted: dict[str, str] = {}
         self.unhealthy_reason: str | None = None
 
@@ -191,7 +191,7 @@ class Supervisor:
         check_reference(ref)
         broker = self.broker
 
-        async def in_worker(task: Task, session: ToolSession) -> dict:
+        async def in_worker(task: Task, session: ToolSession) -> dict[str, Any]:
             workspace = broker._workspace_for(task.id).root
             return await run_in_worker(ref, task, session, workspace=workspace)
 
@@ -406,7 +406,7 @@ class Supervisor:
         ctx = ExecutionContext(task_id=task.id, agent_kind=task.agent_kind or "",
                                attempt=task.attempts, lease=token)
         ceiling = asyncio.timeout(self.config.task_timeout_seconds)
-        work = asyncio.create_task(handler(task, self.broker.session(ctx)))
+        work = asyncio.ensure_future(handler(task, self.broker.session(ctx)))
         self._running[task.id] = work
         try:
             async with ceiling:
@@ -486,8 +486,8 @@ class Supervisor:
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat
-            current = self.queue.get(task.id)
-            if current is not None and current.state in ("succeeded", "failed", "cancelled"):
+            latest = self.queue.get(task.id)
+            if latest is not None and latest.state in ("succeeded", "failed", "cancelled"):
                 self.broker.close_workspace(task.id)
 
     def _record_failure(self, task: Task, token: LeaseToken, exc: BaseException) -> None:

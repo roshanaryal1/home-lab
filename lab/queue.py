@@ -24,7 +24,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
@@ -144,7 +144,7 @@ class Task:
     attempts: int
     max_attempts: int
     idempotent: bool
-    payload: dict
+    payload: dict[str, Any]
     weight: str = "light"
     capability_tier: str = "autonomous"
     agent_kind: str | None = None
@@ -310,7 +310,7 @@ class TaskQueue:
         kind: str,
         from_state: str | None = None,
         to_state: str | None = None,
-        detail: dict | None = None,
+        detail: dict[str, Any] | None = None,
     ) -> None:
         self._conn.execute(
             "INSERT INTO events (task_id, kind, from_state, to_state, detail) "
@@ -320,7 +320,7 @@ class TaskQueue:
         )
 
     def record_event(self, task_id: str | None, kind: str,
-                     detail: dict | None = None) -> None:
+                     detail: dict[str, Any] | None = None) -> None:
         """Audit something that is not a state transition."""
         self._record(task_id, kind, detail=detail)
 
@@ -329,7 +329,7 @@ class TaskQueue:
     def add_task(
         self,
         title: str,
-        payload: dict | None = None,
+        payload: dict[str, Any] | None = None,
         *,
         priority: int = 100,
         agent_kind: str | None = None,
@@ -366,7 +366,7 @@ class TaskQueue:
         to_state: str,
         *,
         error: str | None = None,
-        result: dict | None = None,
+        result: dict[str, Any] | None = None,
         available_in: timedelta | None = None,
     ) -> None:
         row = self._conn.execute(
@@ -499,7 +499,7 @@ class TaskQueue:
                 "UPDATE tasks SET executions = executions + 1 WHERE id = ?",
                 (token.task_id,))
 
-    def succeed(self, token: LeaseToken, result: dict | None = None) -> None:
+    def succeed(self, token: LeaseToken, result: dict[str, Any] | None = None) -> None:
         with self._fenced(token):
             self._transition(token.task_id, "succeeded", result=result)
             self._release_lease(token.task_id)

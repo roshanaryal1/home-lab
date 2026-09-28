@@ -18,7 +18,7 @@ call is a drop-in change, not a redesign.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 Route = Literal["post", "blog", "paper"]
 
@@ -29,7 +29,7 @@ class RouteDecision:
     evidence: str  # human-readable justification, always present
 
 
-def route_by_evidence_weight(payload: dict) -> RouteDecision:
+def route_by_evidence_weight(payload: dict[str, Any]) -> RouteDecision:
     """Decide post vs blog vs paper for one signal.
 
     v0 rule, single-signal only:
@@ -62,7 +62,7 @@ def route_by_evidence_weight(payload: dict) -> RouteDecision:
     )
 
 
-def draft(payload: dict, decision: RouteDecision) -> str:
+def draft(payload: dict[str, Any], decision: RouteDecision) -> str:
     """Template-fill a draft. Not real writing; proves the path only.
 
     Real drafting is a model call once one is available. This exists so

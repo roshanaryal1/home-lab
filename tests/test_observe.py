@@ -104,6 +104,7 @@ def test_observe_and_propose_creates_tasks(q: TaskQueue) -> None:
         assert task.state == "queued"
 
 
+@pytest.mark.safety
 def test_observe_and_propose_is_idempotent(q: TaskQueue) -> None:
     """The same signal observed twice produces one proposal, not two.
     Without this, a poller running every N minutes would flood the
