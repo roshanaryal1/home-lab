@@ -52,6 +52,7 @@ import errno
 import hashlib
 import itertools
 import json
+import math
 import os
 import shutil
 import stat
@@ -118,6 +119,60 @@ TOOL_TIERS: dict[str, Tier] = {
     # because a subprocess makes its own syscalls.
     "shell.run": Tier.APPROVE,
 }
+
+
+# Per-task and per-call ceilings (item 1.10). A request can lower these
+# where a parameter allows it, never raise them.
+MAX_CALLS_PER_TASK = 1000
+MAX_READ_BYTES = 1024 * 1024
+MAX_LIST_ENTRIES = 1000
+
+# What each tool accepts: field -> (validator, required). Unknown fields
+# are refused, so a model cannot pass options the broker never reviewed.
+_Validator = Callable[[object], bool]
+
+
+def _is_str(v: object) -> bool:
+    return isinstance(v, str)
+
+
+def _is_argv(v: object) -> bool:
+    return isinstance(v, list) and bool(v) and all(isinstance(a, str) and "\0" not in a
+                                                   for a in v)
+
+
+def _is_timeout(v: object) -> bool:
+    return (isinstance(v, int | float) and not isinstance(v, bool)
+            and math.isfinite(v) and v > 0)
+
+
+TOOL_SCHEMAS: dict[str, dict[str, tuple[_Validator, bool]]] = {
+    "fs.read": {"path": (_is_str, True)},
+    "fs.list": {"path": (_is_str, False)},
+    "fs.write": {"path": (_is_str, True), "content": (_is_str, True)},
+    "fs.delete": {"path": (_is_str, True)},
+    "shell.run": {"argv": (_is_argv, True), "timeout": (_is_timeout, False)},
+}
+
+
+class InvalidParams(BrokerError):
+    """The call's parameters do not match the tool's schema."""
+
+
+def validate_params(tool: str, params: dict) -> None:
+    schema = TOOL_SCHEMAS.get(tool)
+    if schema is None:
+        raise ToolNotAllowed(f"no schema for tool {tool}")
+    unknown = set(params) - set(schema)
+    if unknown:
+        raise InvalidParams(f"{tool}: unknown parameters {sorted(unknown)}")
+    for name, (valid, required) in schema.items():
+        if name not in params:
+            if required:
+                raise InvalidParams(f"{tool}: missing parameter {name!r}")
+            continue
+        if not valid(params[name]):
+            raise InvalidParams(f"{tool}: invalid value for {name!r}")
 
 
 @dataclass(frozen=True)
@@ -278,6 +333,7 @@ class ExecutionBroker:
         # lease, so every call is refused: fail closed.
         self._leases = leases
         self._workspaces: dict[str, Workspace] = {}
+        self._calls: dict[str, int] = {}
         self._grants: dict[str, set[str]] = {}
 
     # ------------------------------------------------------- lifecycle
@@ -300,11 +356,13 @@ class ExecutionBroker:
         ws = Workspace(root=path)
         self._workspaces[task_id] = ws
         self._grants[task_id] = set(allowed_tools)
+        self._calls[task_id] = 0
         return ws
 
     def close_workspace(self, task_id: str) -> None:
         ws = self._workspaces.pop(task_id, None)
         self._grants.pop(task_id, None)
+        self._calls.pop(task_id, None)
         if ws is not None:
             ws.destroy()
 
@@ -345,6 +403,13 @@ class ExecutionBroker:
                 raise ToolNotAllowed(f"no such tool: {request.tool}")
             self._check_grant(request)
             ws = self._workspace_for(request.task_id)
+            # Before policy: a human is never asked to approve a malformed
+            # call, and a runaway loop stops without touching the audit log.
+            validate_params(request.tool, request.params)
+            used = self._calls.get(request.task_id, 0)
+            if used >= MAX_CALLS_PER_TASK:
+                raise QuotaExceeded(f"tool call ceiling {MAX_CALLS_PER_TASK} reached")
+            self._calls[request.task_id] = used + 1
             self._authorize(request, ws)
             return handler(request, ws)
         except ApprovalRequired:
@@ -413,9 +478,12 @@ class ExecutionBroker:
                     raise PathEscape(f"{parts[-1]!r} is a symlink") from None
                 return ToolResult(False, request.tool, error="not a file")
             with os.fdopen(fd, "rb") as fh:
-                if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                info = os.fstat(fh.fileno())
+                if not stat.S_ISREG(info.st_mode):
                     return ToolResult(False, request.tool, error="not a file")
-                content = fh.read().decode("utf-8")
+                if info.st_size > MAX_READ_BYTES:
+                    raise QuotaExceeded(f"file larger than the {MAX_READ_BYTES} byte read cap")
+                content = fh.read(MAX_READ_BYTES).decode("utf-8", errors="replace")
         return ToolResult(True, request.tool, {"content": content})
 
     def _tool_fs_list(self, request: ToolRequest, ws: Workspace) -> ToolResult:
@@ -424,13 +492,15 @@ class ExecutionBroker:
         try:
             with ws.dir_fd(parts) as fd:
                 names = sorted(os.listdir(fd))
+            truncated = len(names) > MAX_LIST_ENTRIES
+            names = names[:MAX_LIST_ENTRIES]
         except FileNotFoundError:
             return ToolResult(False, request.tool, error="not a directory")
         except PathEscape:
             raise
         except OSError:
             return ToolResult(False, request.tool, error="not a directory")
-        return ToolResult(True, request.tool, {"entries": names})
+        return ToolResult(True, request.tool, {"entries": names, "truncated": truncated})
 
     def _tool_fs_write(self, request: ToolRequest, ws: Workspace) -> ToolResult:
         content = request.params["content"]
@@ -470,8 +540,6 @@ class ExecutionBroker:
         exact failure this tool exists to prevent.
         """
         argv = request.params["argv"]
-        if not isinstance(argv, list) or not argv:
-            raise BrokerError("argv must be a non-empty list")
 
         try:
             result = sandbox.run(
@@ -486,7 +554,9 @@ class ExecutionBroker:
             tool=request.tool,
             detail={"stdout": result.stdout, "stderr": result.stderr,
                     "returncode": result.returncode,
-                    "sandbox_denied": result.denied},
+                    "sandbox_denied": result.denied,
+                    "timed_out": result.timed_out,
+                    "truncated": result.truncated},
             error=None if result.ok else result.stderr.strip() or "failed",
         )
 

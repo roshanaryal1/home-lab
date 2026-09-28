@@ -60,9 +60,14 @@ but a caller that reaches for `subprocess` directly will hit it.
 
 from __future__ import annotations
 
+import contextlib
+import os
 import platform
+import selectors
 import shutil
+import signal
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -90,6 +95,89 @@ class SandboxResult:
     stdout: str
     stderr: str
     denied: bool = False
+    timed_out: bool = False
+    truncated: bool = False
+
+
+# Hard ceilings a request cannot raise (item 1.10).
+MAX_TIMEOUT_SECONDS = 300.0
+MAX_OUTPUT_BYTES = 256 * 1024     # per stream; the rest is read and dropped
+
+
+def command_environment(workspace: Path) -> dict[str, str]:
+    """The whole environment a sandboxed command gets (item 1.10, R11).
+
+    Nothing is inherited from the supervisor, so a token in its
+    environment cannot reach a command.
+    """
+    return {"PATH": "/usr/bin:/bin", "HOME": str(workspace),
+            "TMPDIR": str(workspace), "LANG": "C.UTF-8"}
+
+
+@dataclass(frozen=True)
+class _Execution:
+    returncode: int
+    stdout: bytes
+    stderr: bytes
+    timed_out: bool
+    truncated: bool
+
+
+def _kill_group(pgid: int) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, signal.SIGKILL)
+
+
+def _execute(cmd: list[str], *, cwd: str, env: dict[str, str],
+             timeout: float, cap: int) -> _Execution:
+    """Run ``cmd`` in its own process group with bounded time and output.
+
+    Output is streamed and kept up to ``cap`` bytes per stream; anything
+    beyond is read and discarded so the child cannot block on a full
+    pipe and memory cannot grow with it. At the deadline, and again once
+    the command has exited, the whole group is killed, so background
+    children and fork chains do not outlive the call.
+    """
+    proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            start_new_session=True)
+    assert proc.stdout is not None and proc.stderr is not None
+    out_fd, err_fd = proc.stdout.fileno(), proc.stderr.fileno()
+    buffers = {out_fd: bytearray(), err_fd: bytearray()}
+    truncated = timed_out = False
+    deadline = time.monotonic() + timeout
+    with selectors.DefaultSelector() as sel:
+        for stream in (proc.stdout, proc.stderr):
+            sel.register(stream, selectors.EVENT_READ)
+        while sel.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                break
+            for key, _ in sel.select(min(remaining, 0.5)):
+                chunk = os.read(key.fd, 65536)
+                if not chunk:
+                    sel.unregister(key.fileobj)
+                    continue
+                buf = buffers[key.fd]
+                room = cap - len(buf)
+                if room > 0:
+                    buf.extend(chunk[:room])
+                if len(chunk) > max(room, 0):
+                    truncated = True
+    if timed_out:
+        _kill_group(proc.pid)
+    try:
+        proc.wait(timeout=max(0.0, deadline - time.monotonic()) + 1.0)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        _kill_group(proc.pid)
+        proc.wait()
+    _kill_group(proc.pid)
+    stdout, stderr = bytes(buffers[out_fd]), bytes(buffers[err_fd])
+    proc.stdout.close()
+    proc.stderr.close()
+    return _Execution(proc.returncode, stdout, stderr, timed_out, truncated)
 
 
 def available() -> bool:
@@ -208,21 +296,20 @@ def run(
     profile = build_profile(root, allow_network=allow_network,
                             extra_readable=extra_readable)
 
-    try:
-        completed = subprocess.run(
-            [SANDBOX_EXEC, "-p", profile, *argv],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=str(root),
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return SandboxResult(
-            ok=False, returncode=-1, stdout="", stderr="timed out"
-        )
+    done = _execute(
+        [SANDBOX_EXEC, "-p", profile, *argv],
+        cwd=str(root),
+        env=command_environment(root),
+        timeout=min(max(timeout, 0.0), MAX_TIMEOUT_SECONDS),
+        cap=MAX_OUTPUT_BYTES,
+    )
+    if done.timed_out:
+        return SandboxResult(ok=False, returncode=-1,
+                             stdout=done.stdout.decode(errors="replace"),
+                             stderr="timed out", timed_out=True,
+                             truncated=done.truncated)
 
-    stderr = completed.stderr
+    stderr = done.stderr.decode(errors="replace")
     # Seatbelt surfaces refusals as EPERM, which tools report in their
     # own words. Recognising it lets a caller tell "the sandbox stopped
     # this" apart from "the command failed on its own merits".
@@ -232,11 +319,12 @@ def run(
         or "deny " in stderr
     )
     return SandboxResult(
-        ok=completed.returncode == 0,
-        returncode=completed.returncode,
-        stdout=completed.stdout,
+        ok=done.returncode == 0,
+        returncode=done.returncode,
+        stdout=done.stdout.decode(errors="replace"),
         stderr=stderr,
-        denied=denied and completed.returncode != 0,
+        denied=denied and done.returncode != 0,
+        truncated=done.truncated,
     )
 
 

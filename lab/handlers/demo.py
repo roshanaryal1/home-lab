@@ -30,3 +30,10 @@ async def describe_process(task: Task, tools: ToolSession) -> dict:
 
 async def explode(task: Task, tools: ToolSession) -> dict:
     raise ValueError("handler exploded in the worker")
+
+
+async def sleep_for(task: Task, tools: ToolSession) -> dict:
+    """Sleep for payload["seconds"]; used to test the wall-clock ceiling."""
+    import asyncio
+    await asyncio.sleep(float(task.payload.get("seconds", 60)))
+    return {"slept": True}

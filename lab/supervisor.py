@@ -100,6 +100,11 @@ class SupervisorConfig:
     # Where per-task workspaces live. Defaults to a directory next to the
     # database, so a test's tmp_path keeps everything together.
     workspace_root: str | Path | None = None
+    # Wall-clock ceiling for one run of a handler (item 1.10, #16). A
+    # handler in a worker process is killed with its process group when
+    # it is reached; the task is failed with the reason recorded, and
+    # retried only under the usual idempotency rule.
+    task_timeout_seconds: float = 3600.0
 
     def resolved_owner(self) -> str:
         return self.owner or f"supervisor@{socket.gethostname()}"
@@ -298,12 +303,26 @@ class Supervisor:
             self.broker.open_workspace(task.id, set(self._tools.get(task.agent_kind or "", ())))
         ctx = ExecutionContext(task_id=task.id, agent_kind=task.agent_kind or "",
                                attempt=task.attempts, lease=token)
+        ceiling = asyncio.timeout(self.config.task_timeout_seconds)
         try:
-            result = await handler(task, self.broker.session(ctx))
+            async with ceiling:
+                result = await handler(task, self.broker.session(ctx))
         except asyncio.CancelledError:
             # Shutdown mid-task. Leave it leased so recovery decides,
             # rather than guessing here whether it is safe to replay.
             raise
+        except TimeoutError as exc:
+            if not ceiling.expired():
+                # The handler's own timeout, not ours: an ordinary failure.
+                self._record_failure(task, token, exc)
+                return
+            limit = self.config.task_timeout_seconds
+            try:
+                self.queue.fail(token, f"wall-clock ceiling of {limit:g}s exceeded")
+                self.stats.failed += 1
+            except LeaseLost:
+                log.error("cannot record timeout of %s: lease lost", task.id)
+            log.error("task %s exceeded its %gs wall-clock ceiling", task.id, limit)
         except ApprovalRequired as exc:
             # A tool call inside the handler needs a human first (item
             # 1.1). The broker already opened the request for that exact
@@ -318,12 +337,7 @@ class Supervisor:
             except LeaseLost:
                 log.error("cannot park %s: lease lost", task.id)
         except Exception as exc:
-            try:
-                self.queue.fail(token, f"{type(exc).__name__}: {exc}")
-                self.stats.failed += 1
-            except LeaseLost:
-                log.error("cannot record failure of %s: lease lost", task.id)
-            log.exception("task %s failed", task.id)
+            self._record_failure(task, token, exc)
         else:
             try:
                 self.queue.succeed(token, result)
@@ -339,6 +353,14 @@ class Supervisor:
             current = self.queue.get(task.id)
             if current is not None and current.state in ("succeeded", "failed", "cancelled"):
                 self.broker.close_workspace(task.id)
+
+    def _record_failure(self, task: Task, token: LeaseToken, exc: BaseException) -> None:
+        try:
+            self.queue.fail(token, f"{type(exc).__name__}: {exc}")
+            self.stats.failed += 1
+        except LeaseLost:
+            log.error("cannot record failure of %s: lease lost", task.id)
+        log.exception("task %s failed", task.id)
 
     def stop(self) -> None:
         self._stopping.set()
