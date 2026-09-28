@@ -72,7 +72,7 @@ re-losing.
 
 | Component | File / doc | Status | Owner |
 |---|---|---|---|
-| Queue | `lab/queue.py`, `lab/migrations/` | Built, tested. The schema is versioned: numbered SQL migrations run one transaction each and record the version in `PRAGMA user_version`; a failed one rolls back whole, and a database from a newer build is refused, `tests/test_migrations.py` (item 3.1). CHECK constraints cap payload at 64 KiB and result at 1 MiB and keep the attempt counters sane. Commits are durable (synchronous=FULL, fullfsync) and start-up refuses a SQLite with the WAL-reset bug, `tests/test_durability.py`. Races, a Hypothesis state machine and SIGKILL of a real process mid-transaction are covered in `tests/test_races.py` (item 2.4); power-loss durability is not, and waits for the Mac mini. The audit log is append-only by trigger, hash-chained, checkpointed with a signed head and written for every broker call, `lab/audit.py`, `tests/test_audit.py` (item 3.2) | n/a |
+| Queue | `lab/queue.py`, `lab/migrations/` | Built, tested. The schema is versioned: numbered SQL migrations run one transaction each and record the version in `PRAGMA user_version`; a failed one rolls back whole, and a database from a newer build is refused, `tests/test_migrations.py` (item 3.1). CHECK constraints cap payload at 64 KiB and result at 1 MiB and keep the attempt counters sane. Commits are durable (synchronous=FULL, fullfsync) and start-up refuses a SQLite with the WAL-reset bug, `tests/test_durability.py`. Races, a Hypothesis state machine and SIGKILL of a real process mid-transaction are covered in `tests/test_races.py` (item 2.4); power-loss durability is not, and waits for the Mac mini. The audit log is append-only by trigger, hash-chained, checkpointed with a signed head and written for every broker call, `lab/audit.py`, `tests/test_audit.py` (item 3.2). Task outputs are stored content-addressed with a descriptor row before success is recorded, `lab/artifacts.py`, `tests/test_artifacts.py` (item 3.3) | n/a |
 | Supervisor | `lab/supervisor.py` | Built, tested | n/a |
 | Capability gate | `lab/policy.py`, `lab/broker.py` | Rule of Two enforced before the gate, `lab/authority.py` (item 4.1). Task-level and per-tool-call: built, tested (item 1.1). Handlers call through a session bound to their task and lease (1.2); reviewed handlers run in a worker process (`lab/worker.py`); separate OS account pending, [#70](https://github.com/roshanaryal1/home-lab/issues/70) | n/a |
 | Sandbox | `lab/sandbox.py` | Built, tested on macOS 26.5.1 and 27 | n/a |
@@ -84,7 +84,7 @@ re-losing.
 | Publish plane | n/a | Blocked on the secret broker | [#15](https://github.com/roshanaryal1/home-lab/issues/15) |
 | Network egress control | n/a | Open | [#14](https://github.com/roshanaryal1/home-lab/issues/14) |
 | Resource ceilings per task | n/a | Open | [#16](https://github.com/roshanaryal1/home-lab/issues/16) |
-| `dscl` account enumeration | n/a | Open decision | [#27](https://github.com/roshanaryal1/home-lab/issues/27) |
+| `dscl` account enumeration | `lab/sandbox.py` | Accepted, not narrowed; untrusted code is routed to a disposable container instead | [ADR 0007](decisions/0007-isolation-for-untrusted-code.md), [#27](https://github.com/roshanaryal1/home-lab/issues/27) |
 | Tailscale-only dashboard | n/a | Not started | reference architecture §11 |
 | launchd + watchdog | n/a | Checklist written, not run | `ops/mac-mini-setup.md` |
 

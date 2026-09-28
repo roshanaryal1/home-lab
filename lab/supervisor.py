@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self
 
+from lab.artifacts import ArtifactError, ArtifactStore
 from lab.authority import AgentCapability, AuthorityViolation, check, held_legs
 from lab.broker import (
     ApprovalRequired,
@@ -109,6 +110,9 @@ class SupervisorConfig:
     # Where per-task workspaces live. Defaults to a directory next to the
     # database, so a test's tmp_path keeps everything together.
     workspace_root: str | Path | None = None
+    # Where the content-addressed artifact store lives (item 3.3). Next to
+    # the database by default, so a backup of the directory holds both.
+    artifact_root: str | Path | None = None
     # Wall-clock ceiling for one run of a handler (item 1.10, #16). A
     # handler in a worker process is killed with its process group when
     # it is reached; the task is failed with the reason recorded, and
@@ -151,6 +155,9 @@ class Supervisor:
         self.journal = OperationJournal(self.queue._conn)
         self.broker = ExecutionBroker(Path(root), policy=self.policy,
                                       leases=self.queue.owns_lease, journal=self.journal)
+        self.artifacts = ArtifactStore(
+            config.artifact_root or Path(config.db_path).parent / "artifacts",
+            self.queue._conn)
         self._tools: dict[str, frozenset[str]] = {}
         self._capabilities: dict[str, AgentCapability] = {}
         self.stats = SupervisorStats()
@@ -495,8 +502,13 @@ class Supervisor:
             self._record_failure(task, token, exc)
         else:
             try:
+                # Outputs are stored and described before success is
+                # recorded, so no succeeded task points at a missing file.
+                self._ingest_outputs(task)
                 self.queue.succeed(token, result)
                 self.stats.succeeded += 1
+            except ArtifactError as exc:
+                self._record_failure(task, token, exc)
             except PayloadTooLarge as exc:
                 self._record_failure(task, token, exc)
             except LeaseLost:
@@ -515,6 +527,15 @@ class Supervisor:
             latest = self.queue.get(task.id)
             if latest is not None and latest.state in ("succeeded", "failed", "cancelled"):
                 self.broker.close_workspace(task.id)
+
+    def _ingest_outputs(self, task: Task) -> None:
+        ws = self.broker._workspaces.get(task.id)
+        if ws is None:
+            return
+        try:
+            self.artifacts.ingest_workspace(ws, task.id, task.attempts)
+        except OSError as exc:
+            raise ArtifactError(f"cannot store outputs: {exc}") from exc
 
     def _record_failure(self, task: Task, token: LeaseToken, exc: BaseException) -> None:
         try:
