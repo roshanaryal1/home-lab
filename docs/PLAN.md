@@ -2,6 +2,8 @@
 
 **Roshan Aryal · 2026-09-25 · v1, pre-execution**
 
+> **Status, 2026-09-28:** this is the original research document and is kept as written. It is not the current plan or status. For what is built, see the README status table and `docs/ARCHITECTURE.md`; for what remains and is parked on the Mac mini, see `ops/mac-mini-setup.md`.
+
 This document exists because the decision was made to research before building.
 Nothing in the build changes until the decisions at the end are made.
 

@@ -131,7 +131,7 @@ tested. Steps 3 onward of the build order (model adapter, residency
 policy, swap manager) are the parts that need the M6 and cannot be
 meaningfully exercised on a laptop.
 
-## 9. Isolation measurements (item 4.6, ADR 0007)
+## 9. Isolation measurements (item 4.6, #71, ADR 0007)
 
 Parked until the M6 is on the desk. None of this is run yet.
 
@@ -148,7 +148,7 @@ Parked until the M6 is on the desk. None of this is run yet.
       that only the mounted workspace is visible.
 - [ ] Write the numbers into ADR 0007, replacing "not measured yet".
 
-## 10. Backup and recovery drills (items 3.4 and #91)
+## 10. Backup and recovery drills (items 3.4 and #91, #67)
 
 Software is done and rehearsed in CI. These are the parts that count only
 on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
@@ -260,3 +260,70 @@ the paths, then:
       (`ops/drills/`).
 - [ ] `lab watchdog --dry-run` prints `healthy` when idle and running.
 
+
+## 17. Power and disk encryption (item 6.1, #77)
+
+- [ ] Set "Start up automatically after a power failure" (System Settings,
+      Energy) and confirm it survives a reboot.
+- [ ] Decide FileVault. With it on, the Mac waits at the password screen after
+      any reboot and the lab does not start; with it off, disk contents are
+      readable to anyone holding the drive. Record the decision and why here
+      and in ADR 0001. If on, plan for a remote unlock path or accept manual
+      unlock after power loss, and make the dead-man switch (section 19) alert
+      when the lab has been down for more than ten minutes.
+- [ ] Put the mini on a UPS sized for a clean shutdown, not for runtime.
+- [ ] Pull the plug once. Done when the lab is running again on its own or a
+      phone alert says it is not.
+
+## 18. macOS updates and nightly self-test (item 6.4, #80)
+
+- [ ] Turn automatic major upgrades off; keep security responses and
+      rapid security updates on.
+- [ ] Nightly job (a LaunchDaemon like the watchdog) runs the sandbox and
+      safety tests (`pytest -m safety`) and `lab audit verify`, then sends the
+      result to the phone. A result must arrive every morning, including "ok".
+- [ ] After each OS update, run the same job by hand before leaving the lab
+      unattended (a new macOS has already needed a sandbox fix, #25).
+
+## 19. Alerts and the dead-man switch (item 6.3, #79)
+
+`lab control` and `lab cancel` are built. What needs the mini and an account:
+
+- [ ] Pick the alert channel (a push service or email) and create the account.
+- [ ] `lab status` exits 2 when unhealthy; run it from a LaunchDaemon and send
+      an alert on exit 2.
+- [ ] Dead-man switch: an external service expects a ping every few minutes
+      from the lab and alerts when it stops. Unplug the network; the alert must
+      arrive within ten minutes.
+- [ ] Stop an active dummy task with `lab control stop` and confirm no later
+      tool effect in the audit log.
+
+## 20. Constrained decoding (item 5.3, #76)
+
+- [ ] After the section 13 baseline, run the same task file with
+      grammar-constrained decoding for tool calls and routing labels.
+- [ ] Record invalid-call rate, correct-task rate and latency next to the
+      baseline. Adopt only on a measured gain; the strict parser stays either
+      way.
+
+## 21. Pre-registration (item 8.1, #82)
+
+- [ ] Create the OSF account (owner).
+- [ ] Register hypotheses, metrics, failure categories and the analysis plan
+      before the first real eval run, and link the registration from
+      `docs/PIPELINE.md`. The registration timestamp must precede the first
+      run's provenance record.
+
+## 22. Shadow experiment, tuning and memory ceilings (items 8.3, 8.8, #84, #88, #16)
+
+- [ ] 8.3: run candidate typed-decision models in shadow against the
+      deterministic rubric (`lab/rubric.py`); measure per-class error, false
+      promotion, abstention, calibration, latency and memory. A typed allow
+      or a confidence never acts as permission.
+- [ ] 8.8: after section 14, measure queue wait, tasks per hour, tail latency,
+      peak memory, throttling and energy on the fixed task set; tune only with
+      a measured gain.
+- [ ] #16: per-task memory and CPU ceilings need the real inference workload.
+      Wall-clock ceilings are built (1.10). Measure peak RSS of the heavy
+      model, set the ceiling with headroom under 32 GB, and add the test that
+      a deliberate overrun fails the task with a recorded reason.
