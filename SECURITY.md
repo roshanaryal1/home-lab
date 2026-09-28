@@ -79,6 +79,21 @@ Implemented and tested:
   not approval waits (item 1.7, `tests/test_journal.py`); and durable
   commits on a SQLite without the WAL-reset bug (item 1.9,
   `tests/test_durability.py`).
+- **Audit log** (`lab/audit.py`, item 3.2, #65). `events` refuses UPDATE
+  and DELETE by trigger, no longer cascades from task deletion (a task
+  with leases or approvals cannot be deleted at all), and every row
+  carries a SHA-256 chain over its content and the previous row. Every
+  broker call writes one `broker_call` event: tool, parameter hash (never
+  the parameters), lease generation, decision and result. `lab audit
+  checkpoint` signs the chain head with HMAC-SHA256 under a key file and
+  writes it to a directory; `lab audit check` then proves the live log
+  still contains the checkpointed row, which catches a rewrite of the
+  whole chain that a bare chain cannot (`tests/test_audit.py`). Limits,
+  stated plainly: triggers and chain stop accidents and edits, not
+  someone who can drop the trigger and also reach the key and the
+  checkpoint directory. Until the separate operator account exists
+  (#70) the key and checkpoints must be kept off the lab account by
+  hand. Events from before migration 3 are kept but not chained.
 
 ## Known gaps in what exists
 

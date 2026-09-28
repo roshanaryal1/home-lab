@@ -27,6 +27,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Self
 
+from lab.audit import append_event
 from lab.migrations import migrate
 
 # SQLite 3.7.0 through 3.51.2 carry the WAL-reset corruption bug, a data
@@ -332,12 +333,7 @@ class TaskQueue:
         to_state: str | None = None,
         detail: dict[str, Any] | None = None,
     ) -> None:
-        self._conn.execute(
-            "INSERT INTO events (task_id, kind, from_state, to_state, detail) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (task_id, kind, from_state, to_state,
-             json.dumps(detail) if detail else None),
-        )
+        append_event(self._conn, task_id, kind, from_state, to_state, detail)
 
     def record_event(self, task_id: str | None, kind: str,
                      detail: dict[str, Any] | None = None) -> None:
