@@ -23,6 +23,9 @@ Usage:
     python3 -m lab.cli audit check --key KEYFILE --checkpoint FILE
     python3 -m lab.cli artifacts list <task-id>
     python3 -m lab.cli artifacts verify
+    python3 -m lab.cli backup --to DIR [--artifacts DIR]
+    python3 -m lab.cli restore-check MANIFEST --into DIR
+    python3 -m lab.cli drill crash|restore [--log DIR]
 """
 
 from __future__ import annotations
@@ -36,7 +39,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from lab import audit, skills
+from lab import audit, backup, drills, skills
 from lab.artifacts import ArtifactStore
 from lab.journal import OperationJournal
 from lab.policy import PolicyEngine, task_intent
@@ -285,6 +288,19 @@ def build_parser() -> argparse.ArgumentParser:
     art_list.add_argument("task_id")
     art_sub.add_parser("verify", help="re-hash every stored artifact; exit 1 on any problem")
 
+    bak = sub.add_parser("backup", help="snapshot the database and artifacts (online, consistent)")
+    bak.add_argument("--to", type=Path, required=True, help="destination directory")
+    bak.add_argument("--artifacts", type=Path, default=None,
+                     help="artifact store to copy (default: 'artifacts' next to the database)")
+    rc = sub.add_parser("restore-check",
+                        help="restore a backup into a fresh directory and verify it")
+    rc.add_argument("manifest", type=Path)
+    rc.add_argument("--into", type=Path, required=True, help="must not exist or be empty")
+    drill = sub.add_parser("drill", help="inject a real failure and log the outcome")
+    drill.add_argument("name", choices=["crash", "restore"])
+    drill.add_argument("--log", type=Path, default=Path("ops/drills/log"),
+                       help="where the dated record is written (default: ops/drills/log)")
+
     audit_cmd = sub.add_parser("audit", help="verify the audit log and its signed checkpoints")
     audit_sub = audit_cmd.add_subparsers(dest="audit_command", required=True)
     audit_sub.add_parser("verify", help="walk the hash chain; exit 1 if it is broken")
@@ -297,6 +313,42 @@ def build_parser() -> argparse.ArgumentParser:
     chk.add_argument("--checkpoint", type=Path, required=True)
 
     return parser
+
+
+def cmd_backup(args: argparse.Namespace) -> int:
+    """Read-only on the source database; opens no queue and applies no migration."""
+    try:
+        if args.command == "backup":
+            store = args.artifacts if args.artifacts is not None else args.db.parent / "artifacts"
+            path = backup.backup(args.db, args.to, store if store.exists() else None)
+            print(f"wrote {path}")
+            return 0
+        report = backup.restore_check(args.manifest, args.into)
+    except backup.BackupError as exc:
+        print(f"backup: {exc}", file=sys.stderr)
+        return 1
+    for problem in report.problems:
+        print(f"FAILED: {problem}")
+    print(f"{'ok' if report.ok else 'RESTORE FAILED'}: {report.events} audit events, "
+          f"{report.artifacts_checked} artifact blobs checked, restored to {report.database}")
+    return 0 if report.ok else 1
+
+
+def cmd_drill(args: argparse.Namespace) -> int:
+    if args.name == "crash":
+        results = drills.drill_crash()
+    else:
+        if not args.db.exists():
+            print(f"No database at {args.db}", file=sys.stderr)
+            return 1
+        artifacts_dir = args.db.parent / "artifacts"
+        results = [drills.drill_restore(args.db, artifacts_dir if artifacts_dir.exists() else None)]
+    for result in results:
+        path = drills.record(result, args.log)
+        print(f"{'PASS' if result.passed else 'FAIL'} {result.name}: {result.actual}\n  -> {path}")
+    if not drills.on_target():
+        print("note: not the target machine; logged as a rehearsal, not a demonstration")
+    return 0 if all(r.passed for r in results) else 1
 
 
 def cmd_audit(args: argparse.Namespace) -> int:
@@ -383,6 +435,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_skills(args)
     if args.command == "audit":
         return cmd_audit(args)
+    if args.command in ("backup", "restore-check"):
+        return cmd_backup(args)
+    if args.command == "drill":
+        return cmd_drill(args)
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1
