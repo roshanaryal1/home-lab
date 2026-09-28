@@ -66,6 +66,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lab import sandbox
+from lab.egress import EgressDenied, EgressGateway, parse_allowlist
 from lab.journal import OperationJournal, operation_id
 from lab.policy import Decision, PolicyEngine, Tier, canonical
 from lab.queue import LeaseToken
@@ -145,6 +146,10 @@ TOOL_TIERS: dict[str, Tier] = {
     # Runs a command. Requires OS-level isolation, never Python-level,
     # because a subprocess makes its own syscalls.
     "shell.run": Tier.APPROVE,
+    # Outbound GET through the egress gateway (item 4.3): default-deny host
+    # list per task, resolve-then-pin, audited. The result is untrusted
+    # evidence, never instructions.
+    "net.fetch": Tier.NOTIFY,
 }
 
 
@@ -159,6 +164,7 @@ TOOL_EFFECTS: dict[str, str] = {
     "fs.delete": IDEMPOTENT,
     # A command can do anything its sandbox allows, so assume the worst.
     "shell.run": NON_IDEMPOTENT,
+    "net.fetch": IDEMPOTENT,        # a GET; retried freely, and gated by the host list
 }
 
 # Per-task and per-call ceilings (item 1.10). A request can lower these
@@ -192,6 +198,7 @@ TOOL_SCHEMAS: dict[str, dict[str, tuple[_Validator, bool]]] = {
     "fs.write": {"path": (_is_str, True), "content": (_is_str, True)},
     "fs.delete": {"path": (_is_str, True)},
     "shell.run": {"argv": (_is_argv, True), "timeout": (_is_timeout, False)},
+    "net.fetch": {"url": (_is_str, True)},
 }
 
 
@@ -379,6 +386,7 @@ class ExecutionBroker:
         policy: PolicyEngine | None = None,
         leases: Callable[[LeaseToken], bool] | None = None,
         journal: OperationJournal | None = None,
+        egress: EgressGateway | None = None,
     ) -> None:
         self.workspace_root = Path(workspace_root)
         self.workspace_root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -395,17 +403,23 @@ class ExecutionBroker:
         # How many identical calls each claim has made so far, so the nth
         # identical call gets the same operation id on every retry.
         self._seq: dict[tuple[str, str], int] = {}
+        # None means net.fetch always refuses: no gateway, no network.
+        self._egress = egress
+        self._egress_hosts: dict[str, frozenset[str]] = {}
         self._workspaces: dict[str, Workspace] = {}
         self._calls: dict[str, int] = {}
         self._grants: dict[str, set[str]] = {}
 
     # ------------------------------------------------------- lifecycle
 
-    def open_workspace(self, task_id: str, allowed_tools: set[str]) -> Workspace:
+    def open_workspace(self, task_id: str, allowed_tools: set[str],
+                       egress_hosts: frozenset[str] | set[str] = frozenset()) -> Workspace:
         """Give a task its own directory and an explicit tool allowlist.
 
         The allowlist is per task and default-deny: a tool not named here
-        is refused even if it exists.
+        is refused even if it exists. The same holds for the network:
+        ``egress_hosts`` is the only list of hosts ``net.fetch`` may reach,
+        empty by default, set here by trusted code and never by the task.
         """
         unknown = allowed_tools - set(TOOL_TIERS)
         if unknown:
@@ -419,12 +433,14 @@ class ExecutionBroker:
         ws = Workspace(root=path)
         self._workspaces[task_id] = ws
         self._grants[task_id] = set(allowed_tools)
+        self._egress_hosts[task_id] = parse_allowlist(egress_hosts)
         self._calls[task_id] = 0
         return ws
 
     def close_workspace(self, task_id: str) -> None:
         ws = self._workspaces.pop(task_id, None)
         self._grants.pop(task_id, None)
+        self._egress_hosts.pop(task_id, None)
         self._calls.pop(task_id, None)
         if ws is not None:
             ws.destroy()
@@ -444,6 +460,7 @@ class ExecutionBroker:
             "fs.write": self._tool_fs_write,
             "fs.delete": self._tool_fs_delete,
             "shell.run": self._tool_shell_run,
+            "net.fetch": self._tool_net_fetch,
         }
 
     def session(self, ctx: ExecutionContext) -> ToolSession:
@@ -745,6 +762,20 @@ class ExecutionBroker:
                     raise BrokerError("target is not a regular file")
                 fh.write(content.encode("utf-8"))
         return ToolResult(True, request.tool, {"bytes": len(content)})
+
+    def _tool_net_fetch(self, request: ToolRequest, ws: Workspace) -> ToolResult:
+        if self._egress is None:
+            return ToolResult(False, request.tool, error="EgressDenied: no egress gateway")
+        hosts = self._egress_hosts.get(request.task_id, frozenset())
+        try:
+            fetched = self._egress.fetch(request.params["url"], hosts, request.task_id)
+        except EgressDenied as exc:
+            return ToolResult(False, request.tool, error=f"EgressDenied: {exc}")
+        return ToolResult(True, request.tool, {
+            "url": fetched.url, "status": fetched.status, "hops": fetched.hops,
+            "content_type": fetched.content_type,
+            "evidence": fetched.evidence.as_payload(),
+        })
 
     def _tool_shell_run(self, request: ToolRequest, ws: Workspace) -> ToolResult:
         """Run a command, confined by the kernel rather than by us.

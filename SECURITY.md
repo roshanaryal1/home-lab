@@ -132,6 +132,25 @@ Implemented and tested:
   approval cannot hide it. Limit: whoever can call `add_task` can still
   assert an operator origin; separating that caller from the agent is
   #70. Memory and summary lineage arrive with #85.
+- **Egress gateway** (`lab/egress.py`, item 4.3, #14). `net.fetch` is
+  default-deny: a task's allowed hosts are set at handler registration,
+  never by the task, and none means no network. https and port 443 only,
+  DNS names only (no spelling of an IP literal can match), no
+  credentials in URLs. The name is resolved once per hop; every returned
+  address must be globally routable (loopback, private, link-local
+  including 169.254.169.254, CGNAT, multicast, reserved and IPv4-mapped
+  forms are refused, and one bad address refuses the whole answer); the
+  connection then goes to that validated address with the name used only
+  for TLS and Host, so a rebinding server gets no second lookup.
+  Redirects are never followed by the transport: each hop is fully
+  re-validated, at most three. Responses are size-capped, sent without
+  content encoding, and returned as fixed-schema `Evidence`. Every
+  attempt is audited by host and URL hash (never the query string), and
+  an audit failure stops the request. `net.fetch` counts as an external
+  action for the Rule of Two (`tests/test_egress.py`). Not covered: the
+  server's TLS certificate is verified against the system store only,
+  nothing limits total bytes per task across calls, and the shell tool's
+  network access is governed by the sandbox profile, not this gateway.
 - **Operator-signed approvals** (`lab/operator.py`, item 4.5, #70).
   `lab operator init` creates an Ed25519 keypair; `lab approve --key`
   signs the grant over the approval id, action hash, expiry and decider.
@@ -181,9 +200,11 @@ every draft by hand.
 Stated plainly, because a security policy implying protections that are
 absent is worse than no policy:
 
-- **No network egress control.** Nothing restricts outbound connections.
-  There is no network tool yet, so nothing makes them either, but that is
-  an absence of opportunity, not a control.
+- **Network egress exists only through one gateway, and no real host
+  has been exercised yet.** `net.fetch` (`lab/egress.py`, item 4.3, #14)
+  is the only outbound path: see "What exists". Shell commands still run
+  with the sandbox's network rules, and nothing else in the lab opens
+  sockets.
 - **No memory ceiling per task.** Commands get only PATH, HOME, TMPDIR
   and LANG; parameters are schema-checked; timeouts are clamped to 300 s;
   output is capped at 256 KiB per stream; the command's whole process
