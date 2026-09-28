@@ -15,6 +15,18 @@ open a public issue for anything exploitable.
 
 Expect an acknowledgement within 7 days.
 
+## Repository controls
+
+- `main` is protected: pull requests only, linear history, resolved
+  conversations, and the `test`, `workflow-audit` and `secret-scan` CI jobs
+  must pass.
+- CI actions are pinned to commit SHAs and audited by zizmor.
+- Dependabot alerts and security updates are on for `uv.lock` and actions.
+- The repository is private, so GitHub secret scanning, push protection
+  and CodeQL are not available without Advanced Security. gitleaks scans
+  the full history in CI instead. It runs after a push, so it detects a
+  leaked secret rather than preventing it.
+
 ## Scope
 
 In scope, and taken seriously:
