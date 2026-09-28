@@ -63,7 +63,8 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from lab import sandbox
-from lab.policy import Decision, PolicyEngine, Tier
+from lab.journal import OperationJournal, operation_id
+from lab.policy import Decision, PolicyEngine, Tier, canonical
 from lab.queue import LeaseToken
 
 
@@ -95,6 +96,26 @@ class PolicyDenied(BrokerError):
     """Policy refused this call outright."""
 
 
+class PermanentFailure(RuntimeError):
+    """Raised by a handler when no retry can succeed (bad input, a refusal
+    that will not change). The task fails without being requeued (1.7).
+    Works from a worker process too: the flag crosses the channel."""
+
+
+class OutcomeUnknown(BrokerError):
+    """A retry reached an operation whose earlier outcome nobody knows.
+
+    Raised out of the session like ``ApprovalRequired``: the handler must
+    not continue, and the supervisor holds the task until a person
+    reconciles the operation (item 1.7).
+    """
+
+    def __init__(self, operation_id: str, tool: str) -> None:
+        super().__init__(f"{tool} operation {operation_id[:12]} may already have run; "
+                         "holding for reconciliation")
+        self.operation_id = operation_id
+
+
 class ApprovalRequired(BrokerError):
     """This exact call needs a human approval that does not exist yet.
 
@@ -121,6 +142,19 @@ TOOL_TIERS: dict[str, Tier] = {
     "shell.run": Tier.APPROVE,
 }
 
+
+# What running each tool again would do (item 1.7). Read-only and
+# idempotent tools are simply rerun on a retry. Non-idempotent ones go
+# through the operation journal and are never blindly repeated.
+READ_ONLY, IDEMPOTENT, NON_IDEMPOTENT = "read_only", "idempotent", "non_idempotent"
+TOOL_EFFECTS: dict[str, str] = {
+    "fs.read": READ_ONLY,
+    "fs.list": READ_ONLY,
+    "fs.write": IDEMPOTENT,
+    "fs.delete": IDEMPOTENT,
+    # A command can do anything its sandbox allows, so assume the worst.
+    "shell.run": NON_IDEMPOTENT,
+}
 
 # Per-task and per-call ceilings (item 1.10). A request can lower these
 # where a parameter allows it, never raise them.
@@ -326,6 +360,7 @@ class ExecutionBroker:
         workspace_root: Path,
         policy: PolicyEngine | None = None,
         leases: Callable[[LeaseToken], bool] | None = None,
+        journal: OperationJournal | None = None,
     ) -> None:
         self.workspace_root = Path(workspace_root)
         self.workspace_root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -336,6 +371,12 @@ class ExecutionBroker:
         # Set by revoke(): an emergency stop takes authority away from
         # every session at once, before any work is cancelled (item 1.8).
         self._revoked = False
+        # None means a non-idempotent tool cannot be journaled, so it is
+        # refused: fail closed, like a missing policy engine.
+        self._journal = journal
+        # How many identical calls each claim has made so far, so the nth
+        # identical call gets the same operation id on every retry.
+        self._seq: dict[tuple[str, str], int] = {}
         self._workspaces: dict[str, Workspace] = {}
         self._calls: dict[str, int] = {}
         self._grants: dict[str, set[str]] = {}
@@ -421,6 +462,51 @@ class ExecutionBroker:
         self._authorize(request, ws)
         return handler, request, ws
 
+    def _journal_begin(self, ctx: ExecutionContext, request: ToolRequest,
+                       ) -> tuple[str | None, ToolResult | None]:
+        """Decide, for a non-idempotent call, whether to run it at all.
+
+        Returns (operation id, None) to run it, or (id, recorded result)
+        to replay a confirmed outcome without running it again. Raises
+        ``OutcomeUnknown`` for an operation that may already have run.
+        """
+        if TOOL_EFFECTS.get(request.tool, NON_IDEMPOTENT) != NON_IDEMPOTENT:
+            return None, None
+        if self._journal is None:
+            raise PolicyUnavailable("no operation journal; refusing a non-idempotent call")
+        params_sha = hashlib.sha256(canonical(request.params).encode("utf-8")).hexdigest()
+        key = (ctx.lease.lease_id, f"{request.tool}:{params_sha}")
+        seq = self._seq.get(key, 0)
+        self._seq[key] = seq + 1
+        op_id = operation_id(ctx.task_id, request.tool, params_sha, seq)
+        prior = self._journal.get(op_id)
+        if prior is not None and prior.state == "confirmed":
+            result = prior.result or {}
+            return op_id, ToolResult(ok=bool(result.get("ok", True)), tool=request.tool,
+                                     detail={**result.get("detail", {}), "replayed": True},
+                                     error=result.get("error"))
+        if prior is not None and prior.state in ("executing", "uncertain"):
+            if prior.state == "executing":
+                self._journal.uncertain(op_id, ctx.task_id,
+                                        "found executing on retry: the run died during it")
+            raise OutcomeUnknown(op_id, request.tool)
+        self._journal.begin(op_id, ctx.task_id, request.tool, params_sha, seq)
+        return op_id, None
+
+    def _journal_end(self, op_id: str | None, task_id: str,
+                     result: ToolResult | None, exc: BaseException | None) -> None:
+        if op_id is None or self._journal is None:
+            return
+        if result is not None:
+            self._journal.confirm(op_id, task_id, {
+                "ok": result.ok, "detail": result.detail, "error": result.error})
+        elif isinstance(exc, BrokerError):
+            # Refused by the tool before it had any effect.
+            self._journal.failed(op_id, task_id, f"{type(exc).__name__}: {exc}")
+        else:
+            self._journal.uncertain(op_id, task_id,
+                                    f"{type(exc).__name__}: {exc}" if exc else "unknown")
+
     def _dispatch(self, ctx: ExecutionContext, tool: str, params: dict) -> ToolResult:
         """The single entry point, run synchronously.
 
@@ -429,8 +515,17 @@ class ExecutionBroker:
         """
         try:
             handler, request, ws = self._prepare(ctx, tool, params)
-            return handler(request, ws)
-        except ApprovalRequired:
+            op_id, replay = self._journal_begin(ctx, request)
+            if replay is not None:
+                return replay
+            try:
+                result = handler(request, ws)
+            except BaseException as exc:
+                self._journal_end(op_id, ctx.task_id, None, exc)
+                raise
+            self._journal_end(op_id, ctx.task_id, result, None)
+            return result
+        except (ApprovalRequired, OutcomeUnknown):
             raise
         except BrokerError as exc:
             return ToolResult(ok=False, tool=tool, error=f"{type(exc).__name__}: {exc}")
@@ -446,8 +541,19 @@ class ExecutionBroker:
         """
         try:
             handler, request, ws = self._prepare(ctx, tool, params)
-            return await asyncio.to_thread(handler, request, ws)
-        except ApprovalRequired:
+            op_id, replay = self._journal_begin(ctx, request)
+            if replay is not None:
+                return replay
+            try:
+                result = await asyncio.to_thread(handler, request, ws)
+            except BaseException as exc:
+                # Includes cancellation: a command cut off mid-run has an
+                # unknown outcome, and is recorded as such.
+                self._journal_end(op_id, ctx.task_id, None, exc)
+                raise
+            self._journal_end(op_id, ctx.task_id, result, None)
+            return result
+        except (ApprovalRequired, OutcomeUnknown):
             raise
         except BrokerError as exc:
             return ToolResult(ok=False, tool=tool, error=f"{type(exc).__name__}: {exc}")

@@ -36,7 +36,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from lab.broker import ToolResult, ToolSession
+from lab.broker import PermanentFailure, ToolResult, ToolSession
 from lab.queue import Task
 
 # Only code in this package may be loaded into a worker. A task or a
@@ -159,6 +159,8 @@ async def run_in_worker(ref: str, task: Task, tools: ToolSession, *,
                     raise WorkerError("worker returned a non-object result")
                 return result_obj
             elif kind == "error":
+                if message.get("permanent") is True:
+                    raise PermanentFailure(str(message.get("error")))
                 raise WorkerError(f"handler failed in worker: {message.get('error')}")
             else:
                 raise WorkerError(f"unknown message type {kind!r}")
@@ -224,7 +226,8 @@ def main() -> None:
         result = asyncio.run(handler(task, tools))
         emit({"type": "done", "result": result})
     except BaseException as exc:
-        emit({"type": "error", "error": f"{type(exc).__name__}: {exc}"})
+        emit({"type": "error", "error": f"{type(exc).__name__}: {exc}",
+              "permanent": isinstance(exc, PermanentFailure)})
         raise SystemExit(1) from None
 
 
