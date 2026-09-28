@@ -8,6 +8,7 @@ enforced by the code rather than by convention.
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -329,4 +330,82 @@ async def test_a_session_dies_with_its_lease(tmp_path: Path) -> None:
     sup.queue.add_task("slow", agent_kind="slow")
     await sup.run(max_tasks=1)
     assert not seen["after"].ok and "ContextRevoked" in seen["after"].error
+    sup.close()
+
+
+# ------------------------------------------------ item 1.2, worker process
+
+
+@pytest.mark.asyncio
+async def test_reviewed_handler_runs_in_its_own_process(tmp_path: Path,
+                                                        monkeypatch) -> None:
+    import os
+    monkeypatch.setenv("LAB_SUPERVISOR_SECRET", "must-not-reach-workers")
+    sup = make_supervisor(tmp_path)
+    sup.register_reviewed("probe", "lab.handlers.demo:describe_process")
+    task_id = sup.queue.add_task("probe", agent_kind="probe")
+    await sup.run(max_tasks=1)
+    result = json.loads(sup.queue._conn.execute(
+        "SELECT result FROM tasks WHERE id = ?", (task_id,)).fetchone()[0])
+    assert sup.queue.get(task_id).state == "succeeded"
+    assert result["pid"] != os.getpid()
+    assert "LAB_SUPERVISOR_SECRET" not in result["env"]
+    assert set(result["env"]) <= {"PATH", "HOME", "LANG", "PYTHONDONTWRITEBYTECODE",
+                                  "__CF_USER_TEXT_ENCODING", "LC_CTYPE"}
+    assert Path(result["cwd"]).name.startswith(f"task-{task_id}")
+    sup.close()
+
+
+@pytest.mark.asyncio
+async def test_worker_tool_calls_go_through_the_broker(tmp_path: Path) -> None:
+    sup = make_supervisor(tmp_path)
+    sup.register_reviewed("note", "lab.handlers.demo:write_note",
+                          tools={"fs.write", "fs.read"})
+    task_id = sup.queue.add_task("note", agent_kind="note", payload={"note": "hi"})
+    await sup.run(max_tasks=1)
+    result = json.loads(sup.queue._conn.execute(
+        "SELECT result FROM tasks WHERE id = ?", (task_id,)).fetchone()[0])
+    assert result == {"read_back": "hi"}
+    kinds = [r[0] for r in sup.queue._conn.execute(
+        "SELECT kind FROM events WHERE task_id = ? AND kind LIKE 'tool_%'", (task_id,))]
+    assert kinds == ["tool_allow", "tool_allow"]
+    sup.close()
+
+
+@pytest.mark.asyncio
+async def test_worker_approval_parks_and_grant_completes(tmp_path: Path) -> None:
+    sup = make_supervisor(tmp_path)
+    sup.register_reviewed("del", "lab.handlers.demo:delete_note",
+                          tools={"fs.write", "fs.list", "fs.delete"})
+    task_id = sup.queue.add_task("del", agent_kind="del")
+    await sup.run(max_tasks=1)
+    assert sup.queue.get(task_id).state == "awaiting_approval"
+    (pending,) = sup.policy.pending()
+    sup.policy.grant(pending["id"], decided_by="operator")
+    sup.stats.leased = 0
+    await sup.run(max_tasks=1)
+    assert sup.queue.get(task_id).state == "succeeded"
+    sup.close()
+
+
+@pytest.mark.asyncio
+async def test_worker_exception_fails_the_task(tmp_path: Path) -> None:
+    sup = make_supervisor(tmp_path)
+    sup.register_reviewed("boom", "lab.handlers.demo:explode")
+    task_id = sup.queue.add_task("boom", agent_kind="boom")
+    await sup.run(max_tasks=1)
+    task = sup.queue.get(task_id)
+    assert task.state == "failed"
+    assert "handler exploded in the worker" in task.last_error
+    sup.close()
+
+
+@pytest.mark.parametrize("ref", [
+    "os:system", "lab.queue:TaskQueue", "lab.handlers", "lab.handlersx.demo:write_note",
+    "lab.handlers.demo:write_note; import os",
+])
+def test_only_reviewed_handlers_can_be_registered(tmp_path: Path, ref: str) -> None:
+    sup = make_supervisor(tmp_path)
+    with pytest.raises(ValueError, match="not a reviewed handler"):
+        sup.register_reviewed("x", ref)
     sup.close()
