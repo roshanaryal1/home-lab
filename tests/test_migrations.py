@@ -93,7 +93,7 @@ def dir_with(tmp_path: Path, name: str, sql: str) -> Path:
 
 def test_fresh_database_is_at_the_latest_version(tmp_path: Path) -> None:
     with TaskQueue(tmp_path / "lab.db") as q:
-        assert current_version(q._conn) == latest_version() == 6
+        assert current_version(q._conn) == latest_version() == 7
         names = {r["name"] for r in q._conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'")}
         assert set(TABLES) <= names

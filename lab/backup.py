@@ -222,6 +222,10 @@ def restore_check(manifest_path: Path, into: Path) -> RestoreReport:
                 "SELECT COUNT(DISTINCT sha256) FROM artifacts").fetchone()[0])
             for problem in store.verify_all():
                 report.fail(f"artifact {problem.sha256[:12]} ({problem.path}): {problem.problem}")
+    except sqlite3.DatabaseError as exc:
+        # Damaged enough that SQLite cannot run its own checks: a failed
+        # restore to report, not an exception to crash the drill with.
+        report.fail(f"database cannot be read: {exc}")
     finally:
         conn.close()
     return report

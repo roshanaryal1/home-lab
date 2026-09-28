@@ -172,6 +172,24 @@ Implemented and tested:
   supervisor's memory during the call; and a destination that stores what
   it is sent can still be told to repeat the value later, which redaction
   cannot see.
+- **Evidence ledger** (`lab/ledger.py`, migration 7, #90). A research
+  task records its question, protocol version, data and code identifiers,
+  outputs and validation checks. Each conclusion is a claim whose status
+  (unverified, supported, contradicted, verified) is separate from the
+  task's: finishing a task changes no claim. A claim links to quotes in
+  snapshots of its sources, stored as immutable content-addressed blobs
+  and re-hashed on every open; a quote must actually appear in the
+  snapshot it cites. Contradicting evidence anywhere blocks supported and
+  verified; verification needs two independent sources (snapshots of the
+  same source count once), a contradiction pass newer than the last
+  evidence change, and a named signer, is never automatic, and is lost
+  when new evidence arrives. `run_review_pass` re-opens every cited
+  snapshot, drops links whose source no longer verifies, and records the
+  list of claims with missing evidence and with contradictions; a draft
+  is reviewable only while that pass is current. Every state change is an
+  audit event. Limits: "independent" means a different source id, not
+  proof the sources did not copy each other, and deciding whether a quote
+  really supports a claim is still a person's judgement.
 - **Evaluation records** (`lab/evals.py`, `evals/tasks.jsonl`, item 7.3,
   #81). A fixed 24-task set runs against any OpenAI-compatible loopback
   endpoint and is graded by deterministic checks only. Each run writes a

@@ -23,6 +23,7 @@ Usage:
     python3 -m lab.cli audit check --key KEYFILE --checkpoint FILE
     python3 -m lab.cli artifacts list <task-id>
     python3 -m lab.cli artifacts verify
+    python3 -m lab.cli ledger show|review|verify ...
     python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
     python3 -m lab.cli backup --to DIR [--artifacts DIR]
@@ -48,6 +49,7 @@ from lab import audit, backup, drills, metrics, skills
 from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
 from lab.journal import OperationJournal
+from lab.ledger import Ledger, LedgerError
 from lab.policy import PolicyEngine, task_intent
 from lab.queue import TaskQueue
 
@@ -370,6 +372,20 @@ def build_parser() -> argparse.ArgumentParser:
     op_init.add_argument("--dir", type=Path, required=True,
                          help="a directory the agent's OS account cannot read")
 
+    led = sub.add_parser("ledger", help="research claims, their evidence and their status")
+    led.add_argument("--store", type=Path, default=None,
+                     help="artifact store (default: 'artifacts' next to the database)")
+    led_sub = led.add_subparsers(dest="ledger_command", required=True)
+    led_show = led_sub.add_parser("show", help="claims, evidence and review state of one task")
+    led_show.add_argument("task_id")
+    led_review = led_sub.add_parser("review", help="run the contradiction pass and missing-"
+                                    "evidence list")
+    led_review.add_argument("task_id")
+    led_review.add_argument("--by", required=True)
+    led_verify = led_sub.add_parser("verify", help="sign a supported claim off as verified")
+    led_verify.add_argument("claim_id", type=int)
+    led_verify.add_argument("--by", required=True)
+
     ev = sub.add_parser("eval", add_help=False,
                         help="run the fixed task set against a model endpoint, with provenance")
     ev.add_argument("eval_args", nargs=argparse.REMAINDER)
@@ -527,7 +543,43 @@ def cmd_artifacts(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespa
     return 1 if problems else 0
 
 
+def cmd_ledger(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    ledger = Ledger(queue._conn, ArtifactStore(args.store or args.db.parent / "artifacts",
+                                               queue._conn))
+    try:
+        if args.ledger_command == "verify":
+            ledger.verify(args.claim_id, _escape(args.by))
+            print(f"claim {args.claim_id} verified by {_escape(args.by)!r}")
+            return 0
+        if args.ledger_command == "review":
+            state = ledger.run_review_pass(args.task_id, _escape(args.by))
+        else:
+            task = ledger.research_task(args.task_id)
+            print(f"question   {_escape(task['question'])}")
+            print(f"protocol   {_escape(task['protocol_version'])}")
+            state = ledger.review_state(args.task_id)
+            for claim in ledger.claims(args.task_id):
+                print(f"\n[{claim.status.upper():<12}] claim {claim.id}: {_escape(claim.text)}")
+                for ev in ledger.evidence(claim.id):
+                    print(f"    {ev['relation']:<11} snapshot {ev['snapshot_id']} "
+                          f"{_escape(ev['source_id'])}: \"{_escape(ev['quote'])}\"")
+                if not claim.supports:
+                    print("    (no supporting evidence)")
+            print()
+    except LedgerError as exc:
+        print(f"ledger: {exc}", file=sys.stderr)
+        return 1
+    print(f"reviewable: {'yes' if state.reviewable else 'NO'}"
+          + (f"  ({'; '.join(state.reasons)})" if state.reasons else ""))
+    if state.missing_evidence:
+        print(f"claims with missing evidence: {state.missing_evidence}")
+    if state.contradicted:
+        print(f"claims with contradicting evidence: {state.contradicted}")
+    return 0
+
+
 COMMANDS = {
+    "ledger": cmd_ledger,
     "artifacts": cmd_artifacts,
     "approvals": cmd_approvals,
     "show": cmd_show,
