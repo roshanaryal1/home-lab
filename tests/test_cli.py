@@ -221,7 +221,7 @@ def test_approving_twice_fails_clearly(db, capsys) -> None:
 
 
 def test_unknown_id_fails_clearly(db, capsys) -> None:
-    assert run(db, "show", "doesnotexist") == 1
+    assert run(db, "show", "deadbeef") == 1
     assert "No approval matching" in capsys.readouterr().err
 
 

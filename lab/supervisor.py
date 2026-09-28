@@ -37,6 +37,7 @@ from lab.broker import (
     ToolSession,
 )
 from lab.journal import OperationJournal
+from lab.operator import load_public
 from lab.policy import Decision, PolicyEngine
 from lab.queue import LeaseLost, LeaseToken, PayloadTooLarge, Task, TaskQueue
 from lab.worker import check_reference, run_in_worker
@@ -118,6 +119,11 @@ class SupervisorConfig:
     # it is reached; the task is failed with the reason recorded, and
     # retried only under the usual idempotency rule.
     task_timeout_seconds: float = 3600.0
+    # Path to the operator's public key (item 4.5). When set, only
+    # approvals signed with the matching private key are honoured. Falls
+    # back to $LAB_OPERATOR_PUBKEY. Unset means approvals are not
+    # signature-checked, which is acceptable only on dummy data.
+    operator_public_key: str | Path | None = None
     # A worker slot that fails this many times in a row stops and marks
     # the supervisor unhealthy, rather than spinning on a broken
     # dependency (item 1.8).
@@ -150,7 +156,12 @@ class Supervisor:
     def __init__(self, config: SupervisorConfig) -> None:
         self.config = config
         self.queue = TaskQueue(config.db_path, owner=config.resolved_owner())
-        self.policy = PolicyEngine(self.queue._conn)
+        pubkey_path = config.operator_public_key or os.environ.get("LAB_OPERATOR_PUBKEY")
+        self.policy = PolicyEngine(
+            self.queue._conn, load_public(Path(pubkey_path)) if pubkey_path else None)
+        if not self.policy.enforces_operator_signatures:
+            log.warning("approvals are NOT signature-checked: set operator_public_key "
+                        "or LAB_OPERATOR_PUBKEY before connecting real credentials")
         root = config.workspace_root or Path(config.db_path).parent / "workspaces"
         self.journal = OperationJournal(self.queue._conn)
         self.broker = ExecutionBroker(Path(root), policy=self.policy,

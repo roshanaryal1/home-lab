@@ -132,6 +132,25 @@ Implemented and tested:
   approval cannot hide it. Limit: whoever can call `add_task` can still
   assert an operator origin; separating that caller from the agent is
   #70. Memory and summary lineage arrive with #85.
+- **Operator-signed approvals** (`lab/operator.py`, item 4.5, #70).
+  `lab operator init` creates an Ed25519 keypair; `lab approve --key`
+  signs the grant over the approval id, action hash, expiry and decider.
+  A supervisor given the public key (`operator_public_key` or
+  `LAB_OPERATOR_PUBKEY`) consumes only approvals whose signature
+  verifies, so a row the agent wrote, an unsigned grant, a grant signed
+  by another key, or a signed one edited afterwards (longer window,
+  different decider) is ignored and audited as `approval_rejected`. A
+  forged row cannot shadow a genuine one. `--by` is an audit label, not
+  identity: the key is the identity. The CLI refuses ambiguous or
+  non-hex id prefixes, refuses to approve if `--expect-hash` differs
+  from what was reviewed, escapes control and bidi characters in
+  everything it prints, and warns when a grant is unsigned. **This is a
+  boundary only once the private key is unreadable to the agent's OS
+  account and the supervisor is configured with the public key.** Neither
+  is true yet: without a configured key approvals are not checked (the
+  supervisor logs a warning at start), and the lab account is parked for
+  the Mac mini (`ops/mac-mini-setup.md` section 11). Adds `cryptography`
+  as the first runtime dependency.
 - **Backup and restore** (`lab/backup.py`, item 3.4, #67). `lab backup`
   snapshots the live database with SQLite's online backup API (no torn
   copy, supervisor keeps running) and copies only artifact blobs the

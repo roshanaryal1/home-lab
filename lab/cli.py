@@ -32,14 +32,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sqlite3
 import sys
+import unicodedata
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from lab import audit, backup, drills, skills
+from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
 from lab.journal import OperationJournal
 from lab.policy import PolicyEngine, task_intent
@@ -89,6 +93,42 @@ def _age(timestamp: str) -> str:
     return f"{seconds // 86400}d"
 
 
+def _escape(text: object) -> str:
+    """Make text safe to print: no control character, escape sequence or
+    bidi override can rewrite what the operator thinks they are reading."""
+    return "".join(
+        ch if ch == " " or (ch.isprintable() and unicodedata.category(ch) != "Cf")
+        else f"\\u{ord(ch):04x}" if ord(ch) <= 0xFFFF else f"\\U{ord(ch):08x}"
+        for ch in str(text)
+    )
+
+
+_HEX_PREFIX = re.compile(r"^[0-9a-f]{4,64}$")
+
+
+def _find_approval(queue: TaskQueue, prefix: str) -> sqlite3.Row | None:
+    """The one approval a prefix names, or None after saying why not.
+
+    A prefix that matches two approvals is refused rather than guessed at,
+    so a decision can never land on a different request than the one the
+    operator read. SQL wildcards in the argument are not wildcards.
+    """
+    if not _HEX_PREFIX.match(prefix):
+        print("An approval id prefix is 4 to 64 hex characters.", file=sys.stderr)
+        return None
+    rows = queue._conn.execute(
+        "SELECT * FROM approvals WHERE substr(id, 1, ?) = ?", (len(prefix), prefix)
+    ).fetchall()
+    if not rows:
+        print(f"No approval matching {prefix!r}", file=sys.stderr)
+        return None
+    if len(rows) > 1:
+        print(f"{len(rows)} approvals match {prefix!r}; give a longer prefix",
+              file=sys.stderr)
+        return None
+    return rows[0]  # type: ignore[no-any-return]
+
+
 def cmd_approvals(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     pending = policy.pending()
     if not pending:
@@ -107,11 +147,8 @@ def cmd_approvals(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespa
 
 def cmd_show(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     """The important one. Never approve what you have not read."""
-    row = queue._conn.execute(
-        "SELECT * FROM approvals WHERE id LIKE ?", (args.id + "%",)
-    ).fetchone()
+    row = _find_approval(queue, args.id)
     if row is None:
-        print(f"No approval matching {args.id!r}", file=sys.stderr)
         return 1
 
     task = queue.get(row["task_id"])
@@ -123,10 +160,10 @@ def cmd_show(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -
     print(f"Approval   {row['id']}")
     print(f"State      {row['state']}")
     print(f"Requested  {row['requested_at']}  ({_age(row['requested_at'])} ago)")
-    print(f"Reason     {row['reason']}")
+    print(f"Reason     {_escape(row['reason'])}")
     print()
     print(f"Task       {task.id}")
-    print(f"Title      {task.title}")
+    print(f"Title      {_escape(task.title)}")
     print(f"Kind       {task.agent_kind}")
     print(f"Tier       {task.capability_tier}")
     print(f"State      {task.state}")
@@ -140,7 +177,7 @@ def cmd_show(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -
     # 1.4). Rows from before intents were stored fall back to the task.
     intent = json.loads(row["intent"]) if row["intent"] else task_intent(task)
     print("This approval authorises EXACTLY this intent:")
-    print(json.dumps(_redact(intent), indent=2, sort_keys=True))
+    print(json.dumps(_redact(intent), indent=2, sort_keys=True, ensure_ascii=True))
     print()
     print(f"Bound to   {row['action_hash'][:16]}...")
     print("Changing any parameter, the state it acts on, or the policy "
@@ -149,20 +186,38 @@ def cmd_show(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -
 
 
 def cmd_approve(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
-    row = queue._conn.execute(
-        "SELECT id, state FROM approvals WHERE id LIKE ?", (args.id + "%",)
-    ).fetchone()
+    row = _find_approval(queue, args.id)
     if row is None:
-        print(f"No approval matching {args.id!r}", file=sys.stderr)
         return 1
     if row["state"] != "pending":
         print(f"Approval is already {row['state']}, nothing to do",
               file=sys.stderr)
         return 1
+    if args.expect_hash and not row["action_hash"].startswith(args.expect_hash):
+        print("Refusing: the action hash differs from the one you reviewed "
+              f"({row['action_hash'][:16]}... vs {args.expect_hash}). Run `show` again.",
+              file=sys.stderr)
+        return 1
 
-    released = policy.grant(row["id"], decided_by=args.by,
-                            valid_for=timedelta(minutes=args.minutes))
-    print(f"Granted {row['id'][:12]} for {args.minutes} minutes, by {args.by}")
+    key = None
+    key_path = args.key or os.environ.get("LAB_OPERATOR_KEY")
+    if key_path:
+        try:
+            key = operator_keys.load_private(Path(key_path))
+        except operator_keys.OperatorKeyError as exc:
+            print(f"approve: {exc}", file=sys.stderr)
+            return 1
+    else:
+        print("warning: no operator key; this approval is UNSIGNED and a supervisor "
+              "that enforces operator signatures will ignore it", file=sys.stderr)
+
+    task = queue.get(row["task_id"])
+    print(f"Granting {row['id'][:12]}: {_escape(task.title) if task else '?'} "
+          f"[hash {row['action_hash'][:16]}]")
+    released = policy.grant(row["id"], decided_by=_escape(args.by),
+                            valid_for=timedelta(minutes=args.minutes), signer=key)
+    print(f"Granted {row['id'][:12]} for {args.minutes} minutes, label {_escape(args.by)!r}"
+          f"{', signed' if key else ', UNSIGNED'}")
     if released:
         print(f"Task {released[:12]} returned to the queue and will run.")
     else:
@@ -172,21 +227,18 @@ def cmd_approve(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace
 
 
 def cmd_deny(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
-    row = queue._conn.execute(
-        "SELECT id, state FROM approvals WHERE id LIKE ?", (args.id + "%",)
-    ).fetchone()
+    row = _find_approval(queue, args.id)
     if row is None:
-        print(f"No approval matching {args.id!r}", file=sys.stderr)
         return 1
     if row["state"] != "pending":
         print(f"Approval is already {row['state']}, nothing to do",
               file=sys.stderr)
         return 1
 
-    cancelled = policy.deny(row["id"], decided_by=args.by, reason=args.reason)
-    print(f"Denied {row['id'][:12]}, by {args.by}")
+    cancelled = policy.deny(row["id"], decided_by=_escape(args.by), reason=args.reason)
+    print(f"Denied {row['id'][:12]}, label {_escape(args.by)!r}")
     if cancelled:
-        print(f"Task {cancelled[:12]} cancelled: {args.reason}")
+        print(f"Task {cancelled[:12]} cancelled: {_escape(args.reason)}")
     return 0
 
 
@@ -259,6 +311,10 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("id")
     approve.add_argument("--by", required=True,
                          help="who is approving; recorded, never defaulted")
+    approve.add_argument("--key", type=Path, default=None,
+                         help="operator private key (or $LAB_OPERATOR_KEY); signs the grant")
+    approve.add_argument("--expect-hash", default=None,
+                         help="action hash prefix you reviewed in `show`; refuse if it differs")
     approve.add_argument("--minutes", type=int, default=15,
                          help="how long the grant is valid (default 15)")
 
@@ -305,6 +361,12 @@ def build_parser() -> argparse.ArgumentParser:
     drill.add_argument("name", choices=["crash", "restore"])
     drill.add_argument("--log", type=Path, default=Path("ops/drills/log"),
                        help="where the dated record is written (default: ops/drills/log)")
+
+    op = sub.add_parser("operator", help="create the operator's approval signing key")
+    op_sub = op.add_subparsers(dest="operator_command", required=True)
+    op_init = op_sub.add_parser("init", help="write operator.key (0600) and operator.pub")
+    op_init.add_argument("--dir", type=Path, required=True,
+                         help="a directory the agent's OS account cannot read")
 
     audit_cmd = sub.add_parser("audit", help="verify the audit log and its signed checkpoints")
     audit_sub = audit_cmd.add_subparsers(dest="audit_command", required=True)
@@ -354,6 +416,17 @@ def cmd_drill(args: argparse.Namespace) -> int:
     if not drills.on_target():
         print("note: not the target machine; logged as a rehearsal, not a demonstration")
     return 0 if all(r.passed for r in results) else 1
+
+
+def cmd_operator(args: argparse.Namespace) -> int:
+    try:
+        private, public = operator_keys.generate(args.dir)
+    except operator_keys.OperatorKeyError as exc:
+        print(f"operator: {exc}", file=sys.stderr)
+        return 1
+    print(f"private key {private} (keep it where the agent's account cannot read it)")
+    print(f"public key  {public} (give this to the supervisor: LAB_OPERATOR_PUBKEY)")
+    return 0
 
 
 def cmd_audit(args: argparse.Namespace) -> int:
@@ -440,6 +513,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_skills(args)
     if args.command == "audit":
         return cmd_audit(args)
+    if args.command == "operator":
+        return cmd_operator(args)
     if args.command in ("backup", "restore-check"):
         return cmd_backup(args)
     if args.command == "drill":
