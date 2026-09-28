@@ -28,16 +28,16 @@ than quietly resolved.
 |---|---|
 | 1. SQLite schema: tasks, leases, events, agents, approvals | done |
 | 2. Supervisor event loop and durable recovery | done, with known gaps listed in `SECURITY.md` |
-| 3. Model adapter, one heavy + one light model | needs the M6 |
+| 3. Model adapter, one heavy + one light model | adapter built and tested against a mock ([#74](https://github.com/roshanaryal1/home-lab/issues/74)); the real model needs the M6 |
 | 4. Concurrency semaphores (heavy=1, light=2-3) | done, in the supervisor |
 | 5. Model swap manager with RAM/headroom policy | needs the M6 |
 | 6. Aider/OpenHands executor adapters | not started |
 | 7. Research evidence ledger and verification pipeline | not started, [#90](https://github.com/roshanaryal1/home-lab/issues/90) |
-| 8. Dedicated-user permissions and task workspaces | checklist written |
+| 8. Dedicated-user permissions and task workspaces | code done (operator-signed approvals); account setup is a checklist for the mini, [#70](https://github.com/roshanaryal1/home-lab/issues/70) |
 | 9. launchd + watchdog + queue-aware caffeinate | checklist written |
-| 10. Tailscale-only FastAPI dashboard and emergency stop | not started; metrics [#89](https://github.com/roshanaryal1/home-lab/issues/89), controls [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
-| 11. sqlite-vec / FTS retrieval | not started |
-| 12. Benchmark and tune before adding anything else | not started |
+| 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status` and the emergency stop exist; dashboard and operator controls not started, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
+| 11. sqlite-vec / FTS retrieval | not started, [#85](https://github.com/roshanaryal1/home-lab/issues/85) |
+| 12. Benchmark and tune before adding anything else | not started, needs the M6 |
 
 Steps 1, 2 and 4 are machine-independent and run anywhere. Everything
 touching model residency needs the 32 GB machine to mean anything.
@@ -45,15 +45,16 @@ touching model residency needs the 32 GB machine to mean anything.
 The table above is the execution substrate: safe to leave running
 unattended, but it has no opinion about what work should exist. Three
 planes on top of it are what make this an operating system rather than
-a task runner, and none of them exist yet:
+a task runner:
 
 | Plane | Issue | State |
 |---|---|---|
-| Observation: notice work from the event stream, emit proposals | [#32](https://github.com/roshanaryal1/home-lab/issues/32) | not started |
-| Router: post / blog / paper by evidence weight | [#33](https://github.com/roshanaryal1/home-lab/issues/33) | not started |
-| Publish: post/email on your behalf | blocked on [#15](https://github.com/roshanaryal1/home-lab/issues/15) | not started |
+| Observation: notice work from the event stream, emit proposals | [#32](https://github.com/roshanaryal1/home-lab/issues/32) | first slice only: this repo's closed issues and merged PRs become proposals |
+| Router: post / blog / paper by evidence weight | [#33](https://github.com/roshanaryal1/home-lab/issues/33) | v0 from the slice; the rubric that can refuse thin evidence is not built |
+| Publish: post/email on your behalf | [#86](https://github.com/roshanaryal1/home-lab/issues/86) | connectors and the secret broker exist, tested with dummy credentials; reviewed publishing with receipts is not built |
 
-Build order and reasoning are in ADR 0004.
+Build order and reasoning are in ADR 0004; the rules that limit what an
+agent may hold, and the staged rollout, are in ADR 0006.
 
 ## The two rules that shape the code
 
@@ -71,12 +72,16 @@ five minutes and a crash sending the same email twice.
 
 ## Security status
 
-Three protections do not exist yet, and nothing else in this repo makes up
-for them: a separate non-admin lab account ([#70](https://github.com/roshanaryal1/home-lab/issues/70)),
-network egress control, and a secret broker. Until they close, run the lab
-only with dummy data, review every draft by hand and connect no real
-credentials. [SECURITY.md](SECURITY.md) has the full list of what is and
-is not enforced.
+Run the lab only with dummy data, review every draft by hand and connect
+no real credentials until three things are true, because none of them can
+be finished without the Mac mini: a separate non-admin lab account that
+cannot read the operator's approval key ([#70](https://github.com/roshanaryal1/home-lab/issues/70)),
+a per-task memory ceiling ([#16](https://github.com/roshanaryal1/home-lab/issues/16)),
+and the Keychain path exercised on the mini. The egress gateway and the
+secret broker now exist and are tested, but only against fake networks and
+dummy credentials. [SECURITY.md](SECURITY.md) has the full list of what is
+and is not enforced, and [THREATS.md](THREATS.md) maps it to the OWASP
+agentic top 10 with the test or open issue behind every row.
 
 Ideas taken from outside projects do not change that. They are reviewed
 against these gaps first; see the
@@ -103,15 +108,56 @@ library between machines is deliberately not built: it waits until one
 machine is named the canonical copy and changes to skills have an approval
 step ([#87](https://github.com/roshanaryal1/home-lab/issues/87)).
 
+## Operating the lab
+
+```sh
+uv run python -m lab.cli status [--json]          # queue, worker health, counters; exit 2 if unhealthy
+uv run python -m lab.cli approvals                # what is waiting for a decision
+uv run python -m lab.cli show <id>                # read the exact call before deciding
+uv run python -m lab.cli approve <id> --by you --key operator.key --expect-hash <prefix>
+uv run python -m lab.cli operator init --dir ~/.lab-operator   # create the approval signing key
+uv run python -m lab.cli deny <id> --by you       # refuse it; the parked task is cancelled
+uv run python -m lab.cli tasks                    # task counts by state
+uv run python -m lab.cli ops                      # operations of unknown outcome
+uv run python -m lab.cli resolve <op> --happened|--not-happened --by you   # reconcile one
+uv run python -m lab.cli audit verify             # walk the hash-chained event log
+uv run python -m lab.cli audit checkpoint --key K --out DIR    # signed head, kept outside the lab
+uv run python -m lab.cli artifacts verify         # re-hash every stored output
+uv run python -m lab.cli backup --to DIR          # online snapshot, then restore-check to prove it
+uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything
+uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
+uv run python -m lab.attacks                      # benign-plus-hostile scenarios against a stub model
+```
+
+Approvals are signed with the operator's private key and the supervisor
+honours only signatures that verify against the public key it is given
+(`LAB_OPERATOR_PUBKEY`). That is a boundary only once the key is out of the
+agent account's reach.
+
 ## Layout
 
 ```
-lab/migrations/      numbered SQL migrations for the queue and audit schema
+lab/migrations/      numbered SQL migrations for the queue, audit and origin schema
 lab/queue.py         state machine, leases, retry, crash recovery
 lab/supervisor.py    asyncio loop, concurrency slots, dispatch
+lab/policy.py        capability tiers, approvals (operator-signed), the gate
+lab/authority.py     the Rule of Two, enforced per task (ADR 0006)
+lab/origin.py        where a task's input came from, and the taint that follows it
+lab/broker.py        typed tools, workspaces, per-call audit
+lab/egress.py        the only outbound path: default-deny, resolve-then-pin
+lab/vault.py, connectors.py   secrets injected per call, one destination each
+lab/audit.py         append-only hash chain and signed checkpoints
+lab/artifacts.py     content-addressed task outputs
+lab/backup.py, drills.py      verifying backup and logged recovery drills
+lab/metrics.py       `lab status`, derived from the event log
+lab/model.py         bounded model adapter: pinned revisions, admission, strict tool calls
+lab/attacks.py       injection harness
 lab/skills.py        read-only skill validator and inventory
-ops/mac-mini-setup.md  setup checklist for the mini itself
-tests/               pytest suite, no external dependencies
+THREATS.md           OWASP agentic top 10 mapped to controls and tests
+docs/decisions/      ADRs 0001 to 0007
+ops/mac-mini-setup.md  setup and parked-hardware checklists for the mini itself
+ops/drills/          recovery drill template and dated records
+tests/               pytest suite
 ```
 
 ## Running the tests
@@ -121,10 +167,12 @@ uv sync --locked --extra dev   # exact Python from .python-version, deps from uv
 uv run python -m pytest tests/ -q
 ```
 
-No dependencies beyond the standard library and pytest. Async tests run
-through a small hook in `tests/conftest.py` rather than pulling in
-`pytest-asyncio`, because this machine is meant to run unattended and
-every dependency is a thing that can break at 3am.
+One runtime dependency, `cryptography`, for the operator's Ed25519
+approval signatures: the standard library has no asymmetric signatures and
+a shared secret would let the verifier forge. Async tests run through a
+small hook in `tests/conftest.py` rather than pulling in `pytest-asyncio`,
+because this machine is meant to run unattended and every dependency is a
+thing that can break at 3am.
 
 ## Setting up the mini
 
