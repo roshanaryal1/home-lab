@@ -74,7 +74,7 @@ re-losing.
 |---|---|---|---|
 | Queue | `lab/queue.py`, `lab/schema.sql` | Built, tested. Commits are durable (synchronous=FULL, fullfsync) and start-up refuses a SQLite with the WAL-reset bug, `tests/test_durability.py` | n/a |
 | Supervisor | `lab/supervisor.py` | Built, tested | n/a |
-| Capability gate | `lab/policy.py`, `lab/broker.py` | Task-level and per-tool-call: built, tested (item 1.1). Caller identity is not yet bound to the task, [#48](https://github.com/roshanaryal1/home-lab/issues/48) | n/a |
+| Capability gate | `lab/policy.py`, `lab/broker.py` | Task-level and per-tool-call: built, tested (item 1.1). Handlers call through a session bound to their task and lease (1.2); handlers still run in the supervisor process, [#48](https://github.com/roshanaryal1/home-lab/issues/48) | n/a |
 | Sandbox | `lab/sandbox.py` | Built, tested on macOS 26.5.1 and 27 | n/a |
 | Heavy model | Qwen3-Coder-30B-A3B, MLX 4-bit | Chosen, **unbenchmarked** on the M6 | [ADR 0001](decisions/0001-heavy-model.md) |
 | Python runtime | uv-managed | Chosen; mini needs patch-version pin | [ADR 0002](decisions/0002-python-runtime.md) |

@@ -26,14 +26,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Self
 
-from lab.broker import ApprovalRequired
+from lab.broker import ApprovalRequired, ExecutionBroker, ExecutionContext, ToolSession
 from lab.policy import Decision, PolicyEngine
 from lab.queue import LeaseLost, LeaseToken, Task, TaskQueue
 
 log = logging.getLogger("lab.supervisor")
 
-# A handler takes the leased task and returns a JSON-serialisable result.
-Handler = Callable[[Task], Awaitable[dict]]
+# A handler takes the leased task and a tool session bound to it, and
+# returns a JSON-serialisable result. The session is the handler's only
+# sanctioned way to touch anything; it cannot name another task.
+Handler = Callable[[Task, ToolSession], Awaitable[dict]]
 
 
 class HandlerError(RuntimeError):
@@ -94,6 +96,9 @@ class SupervisorConfig:
     # immediately instead of waiting out the TTL. A different supervisor
     # still cannot touch it until the lease actually expires.
     owner: str | None = None
+    # Where per-task workspaces live. Defaults to a directory next to the
+    # database, so a test's tmp_path keeps everything together.
+    workspace_root: str | Path | None = None
 
     def resolved_owner(self) -> str:
         return self.owner or f"supervisor@{socket.gethostname()}"
@@ -116,6 +121,10 @@ class Supervisor:
         self.config = config
         self.queue = TaskQueue(config.db_path, owner=config.resolved_owner())
         self.policy = PolicyEngine(self.queue._conn)
+        root = config.workspace_root or Path(config.db_path).parent / "workspaces"
+        self.broker = ExecutionBroker(Path(root), policy=self.policy,
+                                      leases=self.queue.owns_lease)
+        self._tools: dict[str, frozenset[str]] = {}
         self.stats = SupervisorStats()
         self._handlers: dict[str, Handler] = {}
         self._stopping = asyncio.Event()
@@ -123,8 +132,15 @@ class Supervisor:
 
     # --------------------------------------------------------- handlers
 
-    def register(self, agent_kind: str, handler: Handler) -> None:
+    def register(self, agent_kind: str, handler: Handler,
+                 tools: frozenset[str] | set[str] = frozenset()) -> None:
+        """Register reviewed handler code and the tools it may request.
+
+        The allowlist lives here, in trusted registration, not on the
+        task: a task cannot widen the tools its handler is given.
+        """
         self._handlers[agent_kind] = handler
+        self._tools[agent_kind] = frozenset(tools)
 
     def _handler_for(self, task: Task) -> Handler | None:
         return self._handlers.get(task.agent_kind or "", None)
@@ -256,8 +272,13 @@ class Supervisor:
             log.error("lease on %s lost before start; not running it", task.id)
             return
         heartbeat = asyncio.create_task(self._renew_while_running(token))
+        if task.id not in self.broker._workspaces:
+            # Kept across a park, so a resumed task finds its files.
+            self.broker.open_workspace(task.id, set(self._tools.get(task.agent_kind or "", ())))
+        ctx = ExecutionContext(task_id=task.id, agent_kind=task.agent_kind or "",
+                               attempt=task.attempts, lease=token)
         try:
-            result = await handler(task)
+            result = await handler(task, self.broker.session(ctx))
         except asyncio.CancelledError:
             # Shutdown mid-task. Leave it leased so recovery decides,
             # rather than guessing here whether it is safe to replay.
@@ -294,6 +315,9 @@ class Supervisor:
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat
+            current = self.queue.get(task.id)
+            if current is not None and current.state in ("succeeded", "failed", "cancelled"):
+                self.broker.close_workspace(task.id)
 
     def stop(self) -> None:
         self._stopping.set()

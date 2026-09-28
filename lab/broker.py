@@ -12,7 +12,14 @@ alone is not isolation from other processes on the same host.
 The boundary this module draws is the one in the architecture diagram:
 **nothing below the broker line is reachable except through a typed,
 brokered request.** A worker does not open files, spawn shells or make
-network calls. It submits a `ToolRequest` and gets a `ToolResult`.
+network calls. It holds a `ToolSession` and gets a `ToolResult`.
+
+Identity (item 1.2, #48). The supervisor, which is trusted code, builds
+an `ExecutionContext` (task, agent kind, attempt, lease token) and hands
+the handler a `ToolSession` bound to it. A handler never names a task,
+so it cannot reach another task's workspace, and every call re-checks
+that the context's lease is still live, so a worker that lost its lease
+can no longer act.
 
 Why that matters beyond tidiness: it moves the security decision out of
 the place where model output lives. A handler that takes a path from a
@@ -49,6 +56,7 @@ from pathlib import Path
 
 from lab import sandbox
 from lab.policy import Decision, PolicyEngine, Tier
+from lab.queue import LeaseToken
 
 
 class BrokerError(RuntimeError):
@@ -57,6 +65,10 @@ class BrokerError(RuntimeError):
 
 class PathEscape(BrokerError):
     """A request tried to reach outside its workspace."""
+
+
+class ContextRevoked(BrokerError):
+    """The session's lease is no longer live, or it was never valid."""
 
 
 class ToolNotAllowed(BrokerError):
@@ -103,13 +115,27 @@ TOOL_TIERS: dict[str, Tier] = {
 
 
 @dataclass(frozen=True)
+class ExecutionContext:
+    """Who is acting, built only by trusted code (the supervisor).
+
+    Never taken from a request or from model output. ``lease`` is the
+    token from ``TaskQueue.lease()``; the broker checks it on every call.
+    """
+
+    task_id: str
+    agent_kind: str
+    attempt: int
+    lease: LeaseToken
+
+
+@dataclass(frozen=True)
 class ToolRequest:
-    """A typed ask. The only thing a worker may submit."""
+    """One call, as the broker builds it from a session. Internal: there
+    is no public entry point that accepts a caller-built request."""
 
     tool: str
     params: dict
     task_id: str
-    worker: str
 
 
 @dataclass(frozen=True)
@@ -162,10 +188,14 @@ class ExecutionBroker:
         self,
         workspace_root: Path,
         policy: PolicyEngine | None = None,
+        leases: Callable[[LeaseToken], bool] | None = None,
     ) -> None:
         self.workspace_root = Path(workspace_root)
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.policy = policy
+        # Usually TaskQueue.owns_lease. None means no call can prove its
+        # lease, so every call is refused: fail closed.
+        self._leases = leases
         self._workspaces: dict[str, Workspace] = {}
         self._grants: dict[str, set[str]] = {}
 
@@ -211,14 +241,21 @@ class ExecutionBroker:
             "shell.run": self._tool_shell_run,
         }
 
-    def submit(self, request: ToolRequest) -> ToolResult:
+    def session(self, ctx: ExecutionContext) -> ToolSession:
+        """The handle a handler gets. Bound to one context, for its life."""
+        return ToolSession(self, ctx)
+
+    def _dispatch(self, ctx: ExecutionContext, tool: str, params: dict) -> ToolResult:
         """The single entry point. Everything is checked before anything runs.
 
-        Order: known tool, per-task grant, open workspace, then policy for
-        this exact call. Raises ``ApprovalRequired`` when a human must
-        decide first; every other refusal is a failed ``ToolResult``.
+        Order: live lease for this context, known tool, per-task grant,
+        open workspace, then policy for this exact call. Raises
+        ``ApprovalRequired`` when a human must decide first; every other
+        refusal is a failed ``ToolResult``.
         """
+        request = ToolRequest(tool=tool, params=dict(params), task_id=ctx.task_id)
         try:
+            self._check_context(ctx)
             handler = self._registry().get(request.tool)
             if handler is None or request.tool not in TOOL_TIERS:
                 raise ToolNotAllowed(f"no such tool: {request.tool}")
@@ -231,6 +268,15 @@ class ExecutionBroker:
         except BrokerError as exc:
             return ToolResult(ok=False, tool=request.tool,
                               error=f"{type(exc).__name__}: {exc}")
+
+    def _check_context(self, ctx: ExecutionContext) -> None:
+        if self._leases is None:
+            raise ContextRevoked("no lease checker configured; refusing every call")
+        if ctx.lease.task_id != ctx.task_id or not self._leases(ctx.lease):
+            raise ContextRevoked(
+                f"lease {ctx.lease.lease_id} on {ctx.task_id} is not live; "
+                "this session can no longer act"
+            )
 
     def _authorize(self, request: ToolRequest) -> None:
         if self.policy is None:
@@ -356,3 +402,19 @@ class ExecutionBroker:
 
     def manifest_json(self, task_id: str) -> str:
         return json.dumps(self.manifest(task_id), sort_keys=True)
+
+
+class ToolSession:
+    """A handler's only way to call a tool. Cannot name a task.
+
+    Holds its broker privately. In-process that is a convention, not a
+    boundary: handler code could still reach ``_broker``. The process
+    boundary that makes it one is the worker process (item 1.2, #48).
+    """
+
+    def __init__(self, broker: ExecutionBroker, ctx: ExecutionContext) -> None:
+        self._broker = broker
+        self.context = ctx
+
+    def submit(self, tool: str, **params: object) -> ToolResult:
+        return self._broker._dispatch(self.context, tool, params)
