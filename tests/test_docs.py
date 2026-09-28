@@ -40,3 +40,11 @@ def test_contributing_does_not_hard_code_the_safety_floor() -> None:
 def test_the_readme_points_at_the_citation_file_and_the_release_steps() -> None:
     assert "CITATION.cff" in README and "ops/release.md" in README
     assert (ROOT / "CITATION.cff").is_file() and (ROOT / "ops" / "release.md").is_file()
+
+
+def test_every_blocked_hardware_issue_has_a_checklist_section() -> None:
+    """Parked work must not exist only as an issue label."""
+    text = (ROOT / "ops" / "mac-mini-setup.md").read_text(encoding="utf-8")
+    parked = [67, 70, 71, 72, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 86, 88, 91, 16]
+    missing = [n for n in parked if f"#{n}" not in text]
+    assert not missing, f"no checklist mentions issues: {missing}"
