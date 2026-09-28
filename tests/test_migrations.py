@@ -1,0 +1,370 @@
+"""Versioned schema migrations (improvement plan item 3.1, #64)."""
+
+from __future__ import annotations
+
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from lab.migrations import (
+    MIGRATIONS_DIR,
+    MigrationError,
+    SchemaTooNew,
+    current_version,
+    discover,
+    latest_version,
+    migrate,
+    split_statements,
+)
+from lab.queue import MAX_PAYLOAD_BYTES, MAX_RESULT_BYTES, PayloadTooLarge, TaskQueue
+
+ROOT = Path(__file__).resolve().parent.parent
+LEGACY = ROOT / "tests" / "fixtures" / "legacy_v0.sql"
+TABLES = ("agents", "tasks", "leases", "approvals", "events", "operations")
+OLD_COLUMNS = {
+    "agents": ["id", "name", "kind", "capability_tier", "notes"],
+    "tasks": ["id", "parent_id", "title", "payload", "state", "priority", "attempts",
+              "max_attempts", "idempotent", "result", "last_error", "created_at"],
+    "leases": ["id", "task_id", "owner", "holder", "expires_at", "released_at"],
+    "approvals": ["id", "task_id", "reason", "state", "action_hash", "expires_at"],
+    "events": ["id", "task_id", "kind", "from_state", "to_state", "detail"],
+    "operations": ["id", "task_id", "tool", "params_sha256", "seq", "state"],
+}
+
+
+def raw(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(path, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def legacy_db(path: Path) -> None:
+    conn = raw(path)
+    conn.executescript(LEGACY.read_text(encoding="utf-8"))
+    conn.close()
+
+
+def snapshot(conn: sqlite3.Connection) -> dict[str, list[tuple[object, ...]]]:
+    return {
+        table: [tuple(r) for r in conn.execute(
+            f"SELECT {', '.join(cols)} FROM {table} ORDER BY id")]  # nosemgrep
+        for table, cols in OLD_COLUMNS.items()
+    }
+
+
+def shape(conn: sqlite3.Connection) -> dict[str, object]:
+    """Everything about the schema that the code can observe."""
+    out: dict[str, object] = {}
+    for table in TABLES:
+        # Sorted: ALTER ADD COLUMN appends, so an upgraded file lists the
+        # late columns last. The code reads columns by name.
+        out[f"{table}.columns"] = sorted(
+            tuple(r)[1:] for r in conn.execute(f"PRAGMA table_info({table})"))  # nosemgrep
+        out[f"{table}.fks"] = sorted(
+            (r["table"], r["from"], r["to"], r["on_delete"])
+            for r in conn.execute(f"PRAGMA foreign_key_list({table})"))  # nosemgrep
+        out[f"{table}.indexes"] = sorted(
+            r["name"] for r in conn.execute(f"PRAGMA index_list({table})")  # nosemgrep
+            if not r["name"].startswith("sqlite_autoindex"))
+    return out
+
+
+def dir_with(tmp_path: Path, name: str, sql: str) -> Path:
+    directory = tmp_path / "migrations"
+    directory.mkdir()
+    for found in discover():
+        shutil.copy(found.path, directory / found.path.name)
+    (directory / name).write_text(sql)
+    return directory
+
+
+# ------------------------------------------------------------ the runner
+
+
+def test_fresh_database_is_at_the_latest_version(tmp_path: Path) -> None:
+    with TaskQueue(tmp_path / "lab.db") as q:
+        assert current_version(q._conn) == latest_version() == 2
+        names = {r["name"] for r in q._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")}
+        assert set(TABLES) <= names
+        assert "tasks_new" not in names
+
+
+def test_reopening_changes_nothing(tmp_path: Path) -> None:
+    db = tmp_path / "lab.db"
+    with TaskQueue(db) as q:
+        task_id = q.add_task("survives a reopen", {"k": "v"})
+        before = shape(q._conn)
+    with TaskQueue(db) as q:
+        assert current_version(q._conn) == latest_version()
+        assert shape(q._conn) == before
+        task = q.get(task_id)
+        assert task is not None and task.payload == {"k": "v"}
+
+
+def test_migration_files_are_numbered_without_gaps() -> None:
+    found = discover()
+    assert [m.version for m in found] == list(range(1, len(found) + 1))
+    assert all(m.path.parent == MIGRATIONS_DIR for m in found)
+    assert latest_version() == len(found)
+
+
+def test_gap_in_numbering_is_refused(tmp_path: Path) -> None:
+    shutil.copy(MIGRATIONS_DIR / "0001_baseline.sql", tmp_path / "0001_baseline.sql")
+    (tmp_path / "0003_skipped_two.sql").write_text("SELECT 1;\n")
+    with pytest.raises(MigrationError, match="no gaps"):
+        discover(tmp_path)
+
+
+def test_badly_named_file_is_refused(tmp_path: Path) -> None:
+    (tmp_path / "add_a_column.sql").write_text("SELECT 1;\n")
+    with pytest.raises(MigrationError, match=r"NNNN_name\.sql"):
+        discover(tmp_path)
+
+
+@pytest.mark.safety
+def test_database_from_a_newer_build_is_refused(tmp_path: Path) -> None:
+    db = tmp_path / "lab.db"
+    TaskQueue(db).close()
+    conn = raw(db)
+    conn.execute(f"PRAGMA user_version = {latest_version() + 1}")  # nosemgrep
+    conn.close()
+    with pytest.raises(SchemaTooNew, match="knows up to"):
+        TaskQueue(db)
+
+
+def test_split_statements_keeps_trigger_bodies_whole() -> None:
+    script = (
+        "-- a comment; with a semicolon\n"
+        "CREATE TABLE t (a);\n"
+        "CREATE TRIGGER g AFTER INSERT ON t BEGIN\n"
+        "    SELECT 1;\n"
+        "    SELECT 2;\n"
+        "END;\n"
+        "-- trailing comment\n"
+    )
+    statements = split_statements(script)
+    assert len(statements) == 2
+    assert "CREATE TABLE t" in statements[0]
+    assert statements[1].startswith("CREATE TRIGGER")
+    assert statements[1].rstrip().endswith("END;")
+
+
+def test_unterminated_statement_is_refused() -> None:
+    with pytest.raises(MigrationError, match="unterminated"):
+        split_statements("CREATE TABLE t (a)")
+
+
+# ------------------------------------------------- upgrading an old file
+
+
+@pytest.mark.safety
+def test_old_database_upgrades_with_its_data_intact(tmp_path: Path) -> None:
+    db = tmp_path / "old.db"
+    legacy_db(db)
+    before = raw(db)
+    assert current_version(before) == 0
+    old = snapshot(before)
+    before.close()
+
+    with TaskQueue(db) as q:
+        assert current_version(q._conn) == latest_version()
+        assert snapshot(q._conn) == old
+        # Columns added since the file was written get the value that era implies.
+        assert {r[0] for r in q._conn.execute("SELECT executions FROM tasks")} == {0}
+        assert {r[0] for r in q._conn.execute("SELECT generation FROM leases")} == {0}
+        assert {r[0] for r in q._conn.execute("SELECT intent FROM approvals")} == {None}
+        assert q._conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert q._conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_upgraded_database_has_the_same_shape_as_a_fresh_one(tmp_path: Path) -> None:
+    legacy_db(tmp_path / "old.db")
+    with TaskQueue(tmp_path / "old.db") as old, TaskQueue(tmp_path / "new.db") as new:
+        assert shape(old._conn) == shape(new._conn)
+
+
+def test_upgraded_database_still_runs_the_queue(tmp_path: Path) -> None:
+    legacy_db(tmp_path / "old.db")
+    with TaskQueue(tmp_path / "old.db", owner="fresh") as q:
+        task = q.lease()
+        assert task is not None and task.lease is not None
+        q.start(task.lease)
+        q.succeed(task.lease, {"upgraded": True})
+        got = q.get(task.id)
+        assert got is not None and got.state == "succeeded"
+        q.add_task("new work after the upgrade")
+
+
+def test_a_partly_upgraded_file_finishes_upgrading(tmp_path: Path) -> None:
+    # A build from between items 1.7 and 3.1 has the newest column but no
+    # version number.
+    db = tmp_path / "half.db"
+    legacy_db(db)
+    conn = raw(db)
+    conn.execute("ALTER TABLE tasks ADD COLUMN executions INTEGER NOT NULL DEFAULT 0")
+    conn.execute("UPDATE tasks SET attempts = 1, executions = 1 WHERE id = 't-running'")
+    conn.close()
+    with TaskQueue(db) as q:
+        assert current_version(q._conn) == latest_version()
+        row = q._conn.execute("SELECT executions FROM tasks WHERE id = 't-running'").fetchone()
+        assert row[0] == 1
+
+
+# ------------------------------------------- an interrupted migration
+
+
+@pytest.mark.safety
+def test_failure_midway_rolls_the_whole_migration_back(tmp_path: Path) -> None:
+    directory = dir_with(tmp_path, "0003_half_done.sql", (
+        "CREATE TABLE half_done (id INTEGER);\n"
+        "INSERT INTO half_done VALUES (1);\n"
+        "INSERT INTO no_such_table VALUES (1);\n"
+    ))
+    conn = raw(tmp_path / "lab.db")
+    with pytest.raises(MigrationError, match="0003_half_done"):
+        migrate(conn, directory)
+    assert current_version(conn) == 2  # 1 and 2 committed, 3 did not
+    assert conn.execute(
+        "SELECT name FROM sqlite_master WHERE name = 'half_done'").fetchone() is None
+    assert not conn.in_transaction
+    assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+
+
+def test_a_migration_that_leaves_a_dangling_reference_is_rolled_back(tmp_path: Path) -> None:
+    directory = dir_with(tmp_path, "0003_orphan.sql", (
+        "INSERT INTO approvals (id, task_id, reason, action_hash, expires_at)\n"
+        "VALUES ('x', 'no-such-task', 'r', 'h', '2999-01-01');\n"
+    ))
+    conn = raw(tmp_path / "lab.db")
+    with pytest.raises(MigrationError):
+        migrate(conn, directory)
+    assert current_version(conn) == 2
+    assert conn.execute("SELECT COUNT(*) FROM approvals").fetchone()[0] == 0
+
+
+@pytest.mark.safety
+def test_old_row_that_breaks_a_new_rule_rolls_back_and_keeps_the_data(tmp_path: Path) -> None:
+    db = tmp_path / "old.db"
+    legacy_db(db)
+    conn = raw(db)
+    conn.execute("UPDATE tasks SET max_attempts = 0 WHERE id = 't-failed'")
+    conn.close()
+
+    with pytest.raises(MigrationError, match="0002_check_constraints"):
+        TaskQueue(db)
+
+    conn = raw(db)
+    assert current_version(conn) == 1  # the baseline committed, the rebuild did not
+    assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 6
+    assert conn.execute("SELECT max_attempts FROM tasks WHERE id = 't-failed'").fetchone()[0] == 0
+    names = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master")}
+    assert "tasks_new" not in names
+    assert "idx_tasks_runnable" in names
+
+
+@pytest.mark.safety
+def test_process_killed_mid_migration_leaves_the_last_good_version(tmp_path: Path) -> None:
+    db = tmp_path / "old.db"
+    legacy_db(db)
+    # Dies after migration 2's SQL ran but before it committed.
+    script = (
+        "import os, signal\n"
+        "from lab import migrations\n"
+        "migrations.AFTER[2] = lambda conn: os.kill(os.getpid(), signal.SIGKILL)\n"
+        "from lab.queue import TaskQueue\n"
+        f"TaskQueue({str(db)!r})\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script], cwd=str(ROOT),
+        env={**os.environ, "PYTHONPATH": str(ROOT)}, capture_output=True, text=True,
+        timeout=60)
+    assert proc.returncode == -9, proc.stderr
+
+    conn = raw(db)
+    assert current_version(conn) == 1
+    assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 6
+    assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    conn.close()
+
+    with TaskQueue(db) as q:  # the next start finishes the job
+        assert current_version(q._conn) == latest_version()
+        assert q._conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 6
+
+
+def test_processes_opening_one_fresh_file_together_all_succeed(tmp_path: Path) -> None:
+    db = tmp_path / "shared.db"
+    script = f"from lab.queue import TaskQueue\nTaskQueue({str(db)!r}).close()\n"
+    env = {**os.environ, "PYTHONPATH": str(ROOT)}
+    procs = [subprocess.Popen([sys.executable, "-c", script], cwd=str(ROOT), env=env,
+                              stderr=subprocess.PIPE, text=True) for _ in range(4)]
+    for p in procs:
+        _, err = p.communicate(timeout=60)
+        assert p.returncode == 0, err
+    conn = raw(db)
+    assert current_version(conn) == latest_version()
+    assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+# ---------------------------------------------------- the CHECK rules
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("attempts", -1),
+        ("max_attempts", 0),
+        ("payload", "not json"),
+        ("payload", '{"pad": "' + "x" * MAX_PAYLOAD_BYTES + '"}'),
+        ("result", "not json"),
+        ("result", '{"pad": "' + "x" * MAX_RESULT_BYTES + '"}'),
+        ("executions", 1),  # more runs than claims
+    ],
+)
+def test_schema_refuses_rows_that_break_the_budgets(
+    tmp_path: Path, column: str, value: object,
+) -> None:
+    with TaskQueue(tmp_path / "lab.db") as q:
+        task_id = q.add_task("target")
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            q._conn.execute(  # nosemgrep
+                f"UPDATE tasks SET {column} = ? WHERE id = ?", (value, task_id))
+
+
+def test_add_task_refuses_an_oversized_payload_with_a_clear_error(tmp_path: Path) -> None:
+    with TaskQueue(tmp_path / "lab.db") as q:
+        with pytest.raises(PayloadTooLarge, match="payload"):
+            q.add_task("big", {"pad": "x" * MAX_PAYLOAD_BYTES})
+        assert q._conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+
+
+def test_limit_counts_bytes_not_characters(tmp_path: Path) -> None:
+    # Each of these is 6 bytes once JSON-escaped, or 2 in raw UTF-8; either
+    # way the encoded size, not the character count, decides.
+    with TaskQueue(tmp_path / "lab.db") as q, pytest.raises(PayloadTooLarge):
+        q.add_task("wide", {"pad": "é" * MAX_PAYLOAD_BYTES})
+
+
+def test_payload_just_under_the_limit_is_accepted(tmp_path: Path) -> None:
+    with TaskQueue(tmp_path / "lab.db") as q:
+        overhead = len('{"pad": ""}')
+        task_id = q.add_task("fits", {"pad": "x" * (MAX_PAYLOAD_BYTES - overhead - 1)})
+        assert q.get(task_id) is not None
+
+
+def test_oversized_result_is_refused_and_the_task_stays_running(tmp_path: Path) -> None:
+    with TaskQueue(tmp_path / "lab.db") as q:
+        q.add_task("produces too much")
+        task = q.lease()
+        assert task is not None and task.lease is not None
+        q.start(task.lease)
+        with pytest.raises(PayloadTooLarge, match="result"):
+            q.succeed(task.lease, {"pad": "x" * MAX_RESULT_BYTES})
+        got = q.get(task.id)
+        assert got is not None and got.state == "running"
+        q.succeed(task.lease, {"ok": True})

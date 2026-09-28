@@ -1,3 +1,9 @@
+-- Fixture: the schema as it was before versioned migrations, before the
+-- leases.generation, approvals.intent and tasks.executions columns, and
+-- with user_version 0. Filled with rows in every table so an upgrade can
+-- be checked for lost data. Built from migrations/0001_baseline.sql.
+-- Do not "fix" this file: it stands for a database already in the field.
+
 -- Autonomous lab: task queue and audit schema.
 --
 -- Implements step 1 of the build order in the companion study's
@@ -64,11 +70,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- Only idempotent tasks may be auto-requeued after an interrupted
     -- run. Anything with side effects must be re-approved by a human.
     idempotent    INTEGER NOT NULL DEFAULT 0 CHECK (idempotent IN (0, 1)),
-    -- attempts counts claims (every lease, including ones that only
-    -- parked for approval); executions counts runs that actually started.
-    -- Retry budgets are spent by executions (item 1.7).
     attempts      INTEGER NOT NULL DEFAULT 0,
-    executions    INTEGER NOT NULL DEFAULT 0,
     max_attempts  INTEGER NOT NULL DEFAULT 3,
     last_error    TEXT,
     result        TEXT,                         -- JSON
@@ -103,9 +105,6 @@ CREATE TABLE IF NOT EXISTS leases (
     -- pass as the one that actually holds this lease. Issue #47.
     owner      TEXT NOT NULL,
     holder     TEXT NOT NULL,
-    -- 1, 2, 3... per task, one per claim. With the lease id it makes up
-    -- the LeaseToken every worker call must present (item 1.3, #55).
-    generation INTEGER NOT NULL DEFAULT 0,
     acquired_at TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at TEXT NOT NULL,
     released_at TEXT                    -- NULL while live
@@ -132,9 +131,6 @@ CREATE TABLE IF NOT EXISTS approvals (
     -- it to the exact normalised parameters that were shown to the human,
     -- so approving "email alice about X" cannot be reused to email bob.
     action_hash TEXT NOT NULL,
-    -- The exact intent the reviewer is shown, in the canonical form
-    -- action_hash is computed over (lab.policy.canonical). Item 1.4.
-    intent      TEXT,
     -- Single use. Set the moment the approval is spent, so a replay of the
     -- same token finds it already consumed.
     consumed_at TEXT,
@@ -192,3 +188,36 @@ CREATE TABLE IF NOT EXISTS operations (
 
 CREATE INDEX IF NOT EXISTS idx_operations_unresolved
     ON operations (state, task_id) WHERE state IN ('executing', 'uncertain');
+
+-- ------------------------------------------------------------------ data
+
+INSERT INTO agents (id, name, kind, capability_tier, notes)
+VALUES ('a1', 'reviewer-1', 'reviewer', 'notify', 'kept');
+
+INSERT INTO tasks (id, parent_id, title, payload, state, priority, attempts,
+                   max_attempts, idempotent, result, last_error)
+VALUES
+  ('t-queued', NULL, 'still queued', '{"n": 1}', 'queued', 100, 0, 3, 1, NULL, NULL),
+  ('t-running', NULL, 'was running', '{"n": 2}', 'running', 50, 1, 3, 1, NULL, NULL),
+  ('t-child', 't-queued', 'a child', '{}', 'queued', 100, 0, 3, 0, NULL, NULL),
+  ('t-approval', NULL, 'waiting on a human', '{"n": 3}', 'awaiting_approval', 100, 1, 3, 0, NULL, NULL),
+  ('t-done', NULL, 'finished', '{"n": 4}', 'succeeded', 100, 1, 3, 0, '{"ok": true}', NULL),
+  ('t-failed', NULL, 'gave up', '{}', 'failed', 100, 3, 3, 0, NULL, 'boom');
+
+INSERT INTO leases (id, task_id, owner, holder, expires_at, released_at)
+VALUES
+  ('l-live', 't-running', 'supervisor-old', 'holder-old', '2999-01-01 00:00:00', NULL),
+  ('l-done', 't-done', 'supervisor-old', 'holder-old', '2026-01-01 00:00:00', '2026-01-01 00:00:05');
+
+INSERT INTO approvals (id, task_id, reason, state, action_hash, expires_at)
+VALUES ('ap-1', 't-approval', 'send an email', 'pending', 'abc123', '2999-01-01 00:00:00');
+
+INSERT INTO events (task_id, kind, from_state, to_state, detail)
+VALUES
+  ('t-queued', 'created', NULL, 'queued', '{"title": "still queued"}'),
+  ('t-running', 'created', NULL, 'queued', NULL),
+  ('t-running', 'leased', 'queued', 'leased', NULL),
+  ('t-running', 'started', 'leased', 'running', NULL);
+
+INSERT INTO operations (id, task_id, tool, params_sha256, seq, state)
+VALUES ('op-1', 't-running', 'send_email', 'deadbeef', 0, 'executing');

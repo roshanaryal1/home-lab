@@ -36,7 +36,7 @@ from lab.broker import (
 )
 from lab.journal import OperationJournal
 from lab.policy import Decision, PolicyEngine
-from lab.queue import LeaseLost, LeaseToken, Task, TaskQueue
+from lab.queue import LeaseLost, LeaseToken, PayloadTooLarge, Task, TaskQueue
 from lab.worker import check_reference, run_in_worker
 
 log = logging.getLogger("lab.supervisor")
@@ -473,6 +473,8 @@ class Supervisor:
             try:
                 self.queue.succeed(token, result)
                 self.stats.succeeded += 1
+            except PayloadTooLarge as exc:
+                self._record_failure(task, token, exc)
             except LeaseLost:
                 # Another supervisor may already have re-run this. Do not
                 # write a result we no longer have the right to write.

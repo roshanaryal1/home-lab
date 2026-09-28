@@ -191,7 +191,7 @@ flag limits the blast radius but does not fix the cause.
 
 ### Defect 3: approvals not enforced, CONFIRMED by inspection
 
-`approvals` and the capability tiers exist in `lab/schema.sql`. Nothing in
+`approvals` and the capability tiers exist in the schema (`lab/migrations/`). Nothing in
 `lab/supervisor.py` consults them. There is no authorization check between
 leasing and execution. The tiers are currently documentation.
 

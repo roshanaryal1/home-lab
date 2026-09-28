@@ -19,6 +19,7 @@ import contextlib
 import dataclasses
 import json
 import sqlite3
+import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -26,7 +27,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Self
 
-SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+from lab.migrations import migrate
 
 # SQLite 3.7.0 through 3.51.2 carry the WAL-reset corruption bug, a data
 # race between two connections checkpointing and writing at the same
@@ -78,6 +79,23 @@ class TransitionError(RuntimeError):
 # How many child tasks one task may create (item 1.10). A task that
 # fans out without bound is a denial of service on the queue.
 MAX_CHILDREN_PER_TASK = 100
+
+
+# Mirrors the CHECK constraints in migrations/0002_check_constraints.sql.
+MAX_PAYLOAD_BYTES = 64 * 1024
+MAX_RESULT_BYTES = 1024 * 1024
+
+
+class PayloadTooLarge(ValueError):
+    """A task payload or result is over the size the schema allows."""
+
+
+def _encode_json(value: dict[str, Any], limit: int, what: str) -> str:
+    text = json.dumps(value)
+    size = len(text.encode("utf-8"))
+    if size > limit:
+        raise PayloadTooLarge(f"{what} is {size} bytes; the limit is {limit}")
+    return text
 
 
 class ChildLimitExceeded(RuntimeError):
@@ -180,7 +198,7 @@ class TaskQueue:
         self.db_path = str(db_path)
         self.owner = owner or f"supervisor-{uuid.uuid4().hex[:8]}"
         # Fresh every construction, unlike `owner`. See the `holder`
-        # column comment in schema.sql: this is what ordinary fencing
+        # column comment in migrations/0001_baseline.sql: this is what ordinary fencing
         # checks, `owner` is what recover()'s restart-reclaim checks.
         self._holder = uuid.uuid4().hex
         self.sqlite_version = sqlite3.sqlite_version
@@ -195,18 +213,20 @@ class TaskQueue:
         self._apply_durability()
 
     def _apply_schema(self) -> None:
-        self._conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-        # CREATE TABLE IF NOT EXISTS never alters an existing table. Until
-        # versioned migrations land (item 3.1, #64), add the one column a
-        # older database is missing so it can still be opened.
-        for table, column, ddl in (
-            ("leases", "generation", "INTEGER NOT NULL DEFAULT 0"),
-            ("approvals", "intent", "TEXT"),
-            ("tasks", "executions", "INTEGER NOT NULL DEFAULT 0"),
-        ):
-            cols = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
-            if column not in cols:
-                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+        # journal_mode cannot be changed inside a transaction, so it is set
+        # here and not in a migration. The file keeps the mode once set.
+        # Switching needs an exclusive lock and SQLite does not always run
+        # the busy handler for it, so several processes opening one fresh
+        # file can see "database is locked" here; retry until it settles.
+        deadline = time.monotonic() + BUSY_TIMEOUT_MS / 1000
+        while self._conn.execute("PRAGMA journal_mode").fetchone()[0] != "wal":
+            try:
+                self._conn.execute("PRAGMA journal_mode = WAL")
+            except sqlite3.OperationalError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.02)
+        migrate(self._conn)
 
     def _apply_durability(self) -> None:
         """Per-connection settings; SQLite does not persist any of these.
@@ -340,6 +360,7 @@ class TaskQueue:
         capability_tier: str = "autonomous",
     ) -> str:
         task_id = uuid.uuid4().hex
+        payload_json = _encode_json(payload or {}, MAX_PAYLOAD_BYTES, "payload")
         with self._tx():
             if parent_id is not None:
                 children = self._conn.execute(
@@ -352,7 +373,7 @@ class TaskQueue:
                 "INSERT INTO tasks (id, parent_id, title, payload, priority, "
                 "agent_kind, idempotent, max_attempts, weight, capability_tier) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (task_id, parent_id, title, json.dumps(payload or {}), priority,
+                (task_id, parent_id, title, payload_json, priority,
                  agent_kind, int(idempotent), max_attempts, weight,
                  capability_tier),
             )
@@ -380,13 +401,14 @@ class TaskQueue:
                 f"illegal transition {from_state} -> {to_state} for {task_id}"
             )
 
+        result_json = _encode_json(result, MAX_RESULT_BYTES, "result") if result else None
         delay = available_in if available_in is not None else timedelta()
         available_at = _ts(_utcnow() + delay)
         self._conn.execute(
             "UPDATE tasks SET state = ?, last_error = COALESCE(?, last_error), "
             "result = COALESCE(?, result), updated_at = datetime('now'), "
             "available_at = ? WHERE id = ?",
-            (to_state, error, json.dumps(result) if result else None,
+            (to_state, error, result_json,
              available_at, task_id),
         )
         self._record(task_id, to_state, from_state, to_state,
