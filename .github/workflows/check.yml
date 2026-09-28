@@ -21,20 +21,20 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Install dev dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e '.[dev]'
-          # Installs the package rather than relying on sys.path, so CI
-          # exercises the same import path a launchd job will use.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Install from the lockfile
+        # --locked fails if uv.lock is out of date with pyproject.toml, so
+        # CI never resolves a fresh set of versions. The interpreter is the
+        # exact patch in .python-version, uv-managed only (pyproject
+        # [tool.uv]), which is also what the Mac mini runs (ADR 0002).
+        run: uv sync --locked --extra dev
+      - name: Record runtime versions
+        run: uv run python -c "import sqlite3, sys; print('python', sys.version.split()[0], 'sqlite', sqlite3.sqlite_version)"
       - name: Lint
-        run: ruff check .
+        run: uv run ruff check .
       - name: Test
-        run: python -m pytest tests/ -q
+        run: uv run python -m pytest tests/ -q
       - name: Safety properties must still be covered
         # The two load-bearing guarantees are that a crash never blindly
         # replays a non-idempotent task, and that the heavy inference slot is
@@ -42,8 +42,8 @@ jobs:
         # be a silent green build, so assert the coverage still exists.
         run: |
           SAFETY="idempotent or destructive or heavy_task"
-          python -m pytest tests/ -q -k "$SAFETY" --no-header
-          FOUND=$(python -m pytest tests/ --collect-only -q -k "$SAFETY" 2>/dev/null | grep -c "::")
+          uv run python -m pytest tests/ -q -k "$SAFETY" --no-header
+          FOUND=$(uv run python -m pytest tests/ --collect-only -q -k "$SAFETY" 2>/dev/null | grep -c "::")
           echo "safety tests found: $FOUND"
           if [ "$FOUND" -lt 6 ]; then
             echo "expected at least 6 safety tests, found $FOUND"

@@ -22,6 +22,14 @@ packages = ["lab"]
 [tool.setuptools.package-data]
 lab = ["schema.sql"]
 
+[tool.uv]
+# Only uv-managed (python-build-standalone) interpreters, never the
+# runner's or Homebrew's. ADR 0002 chose uv-managed Python for
+# rebuildability, and item 1.9 needs it: the setup-python builds on the
+# GitHub runners link SQLite 3.45.1 (Linux) and 3.50.4 (macOS), both
+# carrying the WAL-reset bug, while the managed build ships a fixed one.
+python-preference = "only-managed"
+
 [tool.ruff]
 line-length = 100
 target-version = "py313"
