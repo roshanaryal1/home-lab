@@ -44,16 +44,36 @@ In scope, and taken seriously:
 Implemented and tested:
 
 - **Policy enforcement** (`lab/policy.py`, issue #9). Four capability
-  tiers enforced between leasing a task and executing it. Approvals are
-  bound to a hash of the exact normalised parameters, are single use, and
-  expire. Everything fails closed.
+  tiers enforced **per task**, between leasing it and executing it.
+  Approvals are bound to a hash of the task's normalised parameters, are
+  single use, and expire. Per-tool-call enforcement is not built yet, see
+  the known gaps below.
 - **Execution broker** (`lab/broker.py`, issue #10). Workers submit typed
   tool requests instead of touching the filesystem directly. Per-task
   workspaces, path confinement by resolved path so symlinks are caught as
   well as `..`, default-deny tool allowlists per task, byte and file-count
   ceilings, and an artifact manifest per execution.
-- **Durable task state** with bounded dispatch, lease renewal and a
-  fencing check, so a crash cannot cause duplicate execution.
+- **Durable task state** with bounded dispatch, lease renewal, atomic
+  state transitions (#44), per-instance lease fencing (#47) and durable
+  commits on a SQLite without the WAL-reset bug (item 1.9,
+  `tests/test_durability.py`).
+
+## Known gaps in what exists
+
+Reproduced by an independent review on 2026-09-28 and tracked, not fixed
+yet. Until these close, run the lab only with dummy data and review
+every draft by hand.
+
+- Approve-tier tools run without approval once a task allows them (#43).
+- A worker label is not checked, so one task can reach another's
+  workspace; handlers run in the supervisor process (#48).
+- Approval consumption does not re-check expiry or bind the exact action
+  (#49).
+- Workspace path checks race with symlink swaps, and sandboxed commands
+  inherit the supervisor's environment (#50).
+- Lease fencing lacks a generation counter and a host singleton lock
+  (#55); retries do not yet distinguish an unknown remote outcome (#56).
+- A worker crash or lease loss does not stop the running handler (#52).
 
 ## What does NOT exist yet
 

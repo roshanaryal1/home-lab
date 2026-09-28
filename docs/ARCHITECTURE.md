@@ -79,8 +79,8 @@ re-losing.
 | Heavy model | Qwen3-Coder-30B-A3B, MLX 4-bit | Chosen, **unbenchmarked** on the M6 | [ADR 0001](decisions/0001-heavy-model.md) |
 | Python runtime | uv-managed | Chosen; mini needs patch-version pin | [ADR 0002](decisions/0002-python-runtime.md) |
 | Memory | SQLite + `sqlite-vec` + FTS | Designed, no runtime code | [ADR 0003](decisions/0003-memory.md) |
-| Observation plane | n/a | Not started | [#32](https://github.com/roshanaryal1/home-lab/issues/32) |
-| Artifact router | n/a | Not started, blocked on #32 | [#33](https://github.com/roshanaryal1/home-lab/issues/33) |
+| Observation plane | `lab/observe.py`, `lab/slice.py` | First slice only (#39, #46): this repo's closed issues and merged PRs become queued proposals. General service not started | [#32](https://github.com/roshanaryal1/home-lab/issues/32) |
+| Artifact router | `lab/route.py` | v0 from the slice: one signal at a time, template draft, stops for review. Rubric that can refuse (item 7.2) not built | [#33](https://github.com/roshanaryal1/home-lab/issues/33) |
 | Publish plane | n/a | Blocked on the secret broker | [#15](https://github.com/roshanaryal1/home-lab/issues/15) |
 | Network egress control | n/a | Open | [#14](https://github.com/roshanaryal1/home-lab/issues/14) |
 | Resource ceilings per task | n/a | Open | [#16](https://github.com/roshanaryal1/home-lab/issues/16) |

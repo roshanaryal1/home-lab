@@ -1,4 +1,9 @@
-"""The execution broker: the only way a worker touches anything real.
+"""The execution broker: the intended single path from a worker to anything real.
+
+Not yet the *only* path. Handlers run inside the supervisor process, so
+nothing but convention stops one touching the filesystem directly
+(#48, improvement plan item 1.2), and per-tool-call tiers are not yet
+enforced (#43, item 1.1).
 
 Closes issue #10. Until now, isolation existed as instructions in
 `ops/mac-mini-setup.md` and nowhere in code, and a non-admin account
@@ -61,9 +66,10 @@ class QuotaExceeded(BrokerError):
     """The request would breach a declared ceiling."""
 
 
-# Which tier each tool requires. The broker derives the tier from the
-# tool being called rather than trusting the task's own declaration,
-# which is what stops a task under-declaring its authority.
+# Which tier each tool requires. Intended to be derived from the tool
+# being called rather than the task's own declaration. Not enforced yet:
+# submit() checks the per-task allowlist only and never reads the tier,
+# so an allowed approve-tier tool runs without approval (#43, item 1.1).
 TOOL_TIERS: dict[str, Tier] = {
     "fs.read": Tier.AUTONOMOUS,
     "fs.list": Tier.AUTONOMOUS,

@@ -160,7 +160,7 @@ Systematic pass over everything named, with a decision rather than a summary.
 
 | Tool | Where it goes | Why |
 |---|---|---|
-| **Laya or Kev-9B** (open Jev) | policy plane, router | 421M params, ~35 ms, typed output. Right tool for an authorization decision, and 10 days old so also paper P6 |
+| **Laya** (open Jev), Kev-9B as a comparison | router, as a shadow experiment only (item 8.3, #84) | Laya is 421M params, ~35 ms, typed output. Kev-9B is a 9B-base LoRA and competes with the heavy model for memory. A typed answer or confidence recommends, it never authorizes; adoption waits for a measured gain. Also paper P6 |
 | **MLX** | intelligence plane | unanimous in the study for this hardware |
 | **sqlite-vec + FTS5** | memory | study plurality; also what Hermes independently chose |
 | **OpenHands** *or* **Aider** | coding executor, step 6 | study plurality was OpenHands, Aider 5/12. Pick one after benchmarking, do not run both |

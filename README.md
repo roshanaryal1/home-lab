@@ -27,15 +27,15 @@ than quietly resolved.
 | Build step | State |
 |---|---|
 | 1. SQLite schema: tasks, leases, events, agents, approvals | done |
-| 2. Supervisor event loop and durable recovery | done |
+| 2. Supervisor event loop and durable recovery | done, with known gaps listed in `SECURITY.md` |
 | 3. Model adapter, one heavy + one light model | needs the M6 |
 | 4. Concurrency semaphores (heavy=1, light=2-3) | done, in the supervisor |
 | 5. Model swap manager with RAM/headroom policy | needs the M6 |
 | 6. Aider/OpenHands executor adapters | not started |
-| 7. Research evidence ledger and verification pipeline | not started |
+| 7. Research evidence ledger and verification pipeline | not started, [#90](https://github.com/roshanaryal1/home-lab/issues/90) |
 | 8. Dedicated-user permissions and task workspaces | checklist written |
 | 9. launchd + watchdog + queue-aware caffeinate | checklist written |
-| 10. Tailscale-only FastAPI dashboard and emergency stop | not started |
+| 10. Tailscale-only FastAPI dashboard and emergency stop | not started; metrics [#89](https://github.com/roshanaryal1/home-lab/issues/89), controls [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
 | 11. sqlite-vec / FTS retrieval | not started |
 | 12. Benchmark and tune before adding anything else | not started |
 
@@ -76,7 +76,7 @@ lab/schema.sql       task queue and audit schema, WAL-backed
 lab/queue.py         state machine, leases, retry, crash recovery
 lab/supervisor.py    asyncio loop, concurrency slots, dispatch
 ops/mac-mini-setup.md  setup checklist for the mini itself
-tests/               114 tests, no external dependencies
+tests/               pytest suite, no external dependencies
 ```
 
 ## Running the tests
