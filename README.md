@@ -35,7 +35,7 @@ than quietly resolved.
 | 7. Research evidence ledger and verification pipeline | ledger built: claim status is separate from task status, every claim opens its exact source ([#90](https://github.com/roshanaryal1/home-lab/issues/90)); the automated verification pipeline is not |
 | 8. Dedicated-user permissions and task workspaces | code done (operator-signed approvals); account setup is a checklist for the mini, [#70](https://github.com/roshanaryal1/home-lab/issues/70) |
 | 9. launchd + watchdog + queue-aware caffeinate | checklist written |
-| 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status` and the emergency stop exist; dashboard and operator controls not started, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
+| 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status`, `lab control` (pause, drain, stop) and `lab cancel` exist; dashboard, alerts and the dead-man switch are parked, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
 | 11. sqlite-vec / FTS retrieval | FTS5 baseline built with inspect, correct, revoke and delete ([#85](https://github.com/roshanaryal1/home-lab/issues/85)); embeddings must beat it on a measured task first |
 | 12. Benchmark and tune before adding anything else | not started, needs the M6 |
 
@@ -118,6 +118,8 @@ uv run python -m lab.cli approve <id> --by you --key operator.key --expect-hash 
 uv run python -m lab.cli operator init --dir ~/.lab-operator   # create the approval signing key
 uv run python -m lab.cli deny <id> --by you       # refuse it; the parked task is cancelled
 uv run python -m lab.cli tasks                    # task counts by state
+uv run python -m lab.cli control pause|resume|drain|stop --by you   # the whole-lab switch; `control show` reads it
+uv run python -m lab.cli cancel <task> --by you   # cancel work that has not started
 uv run python -m lab.cli emit [--min-failures 3]  # queue proposals from patterns in the event log
 uv run python -m lab.cli chain <task>             # the events that produced a proposal
 uv run python -m lab.cli ops                      # operations of unknown outcome
@@ -159,6 +161,7 @@ lab/audit.py         append-only hash chain and signed checkpoints
 lab/artifacts.py     content-addressed task outputs
 lab/backup.py, drills.py      verifying backup and logged recovery drills
 lab/metrics.py       `lab status`, derived from the event log
+lab/control.py       the operator mode switch: pause, drain, stop
 lab/emitter.py       proposals emitted from the event log, each with its event chain
 lab/model.py         bounded model adapter: pinned revisions, admission, strict tool calls
 lab/memory.py        inspectable memory: FTS5, provenance, expiry, revoke that reaches drafts

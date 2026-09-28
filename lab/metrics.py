@@ -85,6 +85,7 @@ class Metrics:
     pending_approvals: int
     health: str
     reasons: list[str] = field(default_factory=list)
+    control_mode: str = "running"
     model: None = None       # load time, peak memory, swap: added with the adapter (5.1)
 
     def as_dict(self) -> dict[str, Any]:
@@ -144,6 +145,11 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
     pending = int(conn.execute(
         "SELECT COUNT(*) FROM approvals WHERE state = 'pending'").fetchone()[0])
 
+    try:
+        control_mode = str(conn.execute("SELECT mode FROM control WHERE id = 1").fetchone()[0])
+    except (sqlite3.OperationalError, TypeError):
+        control_mode = "running"       # a database from before migration 12
+
     queued_age = oldest("queued")
     silent_for = _age(now, last_event)
     reasons: list[str] = []
@@ -151,11 +157,14 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
         reasons.append(f"{expired_running} task(s) marked running on an expired lease: "
                        "the worker died or hung")
     runnable = states.get("queued", 0) > 0
-    if runnable and live == 0 and (silent_for is None or silent_for > stall_seconds) \
+    quiet = silent_for is None or silent_for > stall_seconds
+    if runnable and live == 0 and control_mode == "running" and quiet \
             and (queued_age or 0) > stall_seconds:
         reasons.append(f"work has waited {int(queued_age or 0)}s with no live worker and "
                        f"no log activity for {int(silent_for or 0)}s")
     attention: list[str] = []
+    if control_mode != "running":
+        attention.append(f"lab is {control_mode} by the operator")
     if pending:
         attention.append(f"{pending} approval(s) waiting for a person")
     if unresolved:
@@ -178,6 +187,7 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
         last_event_age_seconds=silent_for, live_leases=live, counters=counters,
         retries=retries, recoveries=recoveries, unresolved_operations=unresolved,
         pending_approvals=pending, health=health, reasons=reasons,
+        control_mode=control_mode,
     )
 
 
@@ -195,6 +205,7 @@ def render(m: Metrics) -> str:
     lines = [f"health   {m.health.upper()}"
              + (f"  ({'; '.join(m.reasons)})" if m.reasons else "")]
     window = f"last {m.window_hours:g}h" if m.window_hours else "all time"
+    lines.append(f"mode     {m.control_mode}")
     lines.append(f"as of    {m.generated_at}   counters: {window}")
     lines.append("")
     lines.append("queue")
