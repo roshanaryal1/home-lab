@@ -115,10 +115,23 @@ Implemented and tested:
   once is cancelled before its handler runs, with no approval offered.
   The secret and external legs come from trusted registration and a
   fixed tool table (an unclassified tool counts as external); the
-  untrusted leg is true unless the task carries an operator mark, which
-  is only as strong as the queue's write access until origin tracking
-  lands (#69). No external tool or secret exists yet, so the rule is
-  proven by a deliberate test, not yet by production traffic.
+  untrusted leg is the task's derived `tainted` flag (item 4.2). No
+  external tool or secret exists yet, so the rule is proven by a
+  deliberate test, not yet by production traffic.
+- **Origin and authority ceilings** (`lab/origin.py`, `lab/untrusted.py`,
+  item 4.2, #69). Every task records source type, id, content hash,
+  acquisition time, sensitivity and delegation. `tainted` and
+  `sensitivity` are derived, not supplied: only an operator-sourced task
+  is untainted, a child of a tainted task is tainted whatever it claims,
+  sensitivity only rises through lineage, and a task with no recorded
+  origin is tainted. A tainted task's payload cannot carry a grant,
+  destination, policy or tier key. A result carries a `_provenance`
+  stamp the handler cannot forge. Untrusted text reaches later stages
+  only as fixed-schema `Evidence` (bounded excerpt, control and bidi
+  characters stripped, never parsed). `lab show` prints the origin, so an
+  approval cannot hide it. Limit: whoever can call `add_task` can still
+  assert an operator origin; separating that caller from the agent is
+  #70. Memory and summary lineage arrive with #85.
 - **Backup and restore** (`lab/backup.py`, item 3.4, #67). `lab backup`
   snapshots the live database with SQLite's online backup API (no torn
   copy, supervisor keeps running) and copies only artifact blobs the

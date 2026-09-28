@@ -29,6 +29,7 @@ from typing import Any, Self
 
 from lab.audit import append_event
 from lab.migrations import migrate
+from lab.origin import Origin, check_payload, provenance, resolve
 
 # SQLite 3.7.0 through 3.51.2 carry the WAL-reset corruption bug, a data
 # race between two connections checkpointing and writing at the same
@@ -170,6 +171,11 @@ class Task:
     last_error: str | None = None
     # Runs that actually started, as opposed to claims (attempts).
     executions: int = 0
+    # Where the input came from (item 4.2). Tainted unless the operator's own.
+    origin_type: str = "unknown"
+    origin_id: str | None = None
+    sensitivity: str = "internal"
+    tainted: bool = True
     # Set only on the Task returned by lease(); None everywhere else.
     lease: LeaseToken | None = None
 
@@ -189,6 +195,10 @@ class Task:
             agent_kind=row["agent_kind"],
             last_error=row["last_error"],
             executions=row["executions"],
+            origin_type=row["origin_type"],
+            origin_id=row["origin_id"],
+            sensitivity=row["sensitivity"],
+            tainted=bool(row["tainted"]),
         )
 
 
@@ -354,10 +364,25 @@ class TaskQueue:
         parent_id: str | None = None,
         weight: str = "light",
         capability_tier: str = "autonomous",
+        origin: Origin | None = None,
     ) -> str:
+        """Enqueue a task.
+
+        ``origin`` says where its input came from. Whether the task is
+        tainted, and how sensitive it is, are derived from that and from
+        the parent (lab.origin.resolve), never taken from the caller. With
+        no origin a task is unknown and tainted. A tainted task cannot
+        carry a grant, destination or policy in its payload.
+        """
         task_id = uuid.uuid4().hex
         payload_json = _encode_json(payload or {}, MAX_PAYLOAD_BYTES, "payload")
         with self._tx():
+            parent_row = None
+            if parent_id is not None:
+                parent_row = self._conn.execute(
+                    "SELECT * FROM tasks WHERE id = ?", (parent_id,)).fetchone()
+            resolved = resolve(origin, parent_id, parent_row)
+            check_payload(payload or {}, resolved.tainted)
             if parent_id is not None:
                 children = self._conn.execute(
                     "SELECT COUNT(*) FROM tasks WHERE parent_id = ?", (parent_id,)
@@ -367,14 +392,21 @@ class TaskQueue:
                         f"task {parent_id} already has {children} children")
             self._conn.execute(
                 "INSERT INTO tasks (id, parent_id, title, payload, priority, "
-                "agent_kind, idempotent, max_attempts, weight, capability_tier) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "agent_kind, idempotent, max_attempts, weight, capability_tier, "
+                "origin_type, origin_id, origin_sha256, acquired_at, sensitivity, "
+                "delegated_by, tainted) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (task_id, parent_id, title, payload_json, priority,
                  agent_kind, int(idempotent), max_attempts, weight,
-                 capability_tier),
+                 capability_tier, resolved.source_type, resolved.source_id,
+                 resolved.sha256, resolved.acquired_at, resolved.sensitivity,
+                 resolved.delegated_by, int(resolved.tainted)),
             )
             self._record(task_id, "created", None, "queued",
-                         {"title": title, "priority": priority})
+                         {"title": title, "priority": priority,
+                          "origin_type": resolved.source_type,
+                          "origin_id": resolved.source_id,
+                          "tainted": resolved.tainted})
         return task_id
 
     def _transition(
@@ -519,7 +551,12 @@ class TaskQueue:
 
     def succeed(self, token: LeaseToken, result: dict[str, Any] | None = None) -> None:
         with self._fenced(token):
-            self._transition(token.task_id, "succeeded", result=result)
+            # The origin travels with the result and the handler cannot
+            # forge it: whatever it put under the reserved key is replaced.
+            row = self._conn.execute(
+                "SELECT * FROM tasks WHERE id = ?", (token.task_id,)).fetchone()
+            stamped = {**(result or {}), "_provenance": provenance(row)}
+            self._transition(token.task_id, "succeeded", result=stamped)
             self._release_lease(token.task_id)
 
     def fail(self, token: LeaseToken, error: str,

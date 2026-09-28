@@ -398,7 +398,7 @@ class Supervisor:
         # because a human approval of one action does not make the
         # combination safe (item 4.1, ADR 0006).
         try:
-            check(held_legs(task.payload, self._tools.get(task.agent_kind or "", ()),
+            check(held_legs(task.tainted, self._tools.get(task.agent_kind or "", ()),
                             self._capabilities.get(task.agent_kind or "", AgentCapability())))
         except AuthorityViolation as exc:
             self.policy.audit(task.id, "authority_refused", {"reason": str(exc)})

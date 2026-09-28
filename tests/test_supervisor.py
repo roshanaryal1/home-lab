@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from lab.broker import ToolSession
+from lab.origin import Origin, SourceType
 from lab.queue import Task, TaskQueue
 from lab.supervisor import Supervisor, SupervisorConfig
 
@@ -309,7 +310,8 @@ async def test_a_handler_gets_only_its_registered_tools(tmp_path: Path) -> None:
 
     sup.register("reader", reader, tools={"fs.read"})
     task_id = sup.queue.add_task("read", agent_kind="reader",
-                                 payload={"tools": ["fs.write"]})
+                                 payload={"tools": ["fs.write"]},
+                                 origin=Origin(SourceType.OPERATOR))
     await sup.run(max_tasks=1)
     assert seen["ctx"].task_id == task_id and seen["ctx"].attempt == 1
     assert not seen["write"].ok and "ToolNotAllowed" in seen["write"].error
@@ -368,6 +370,7 @@ async def test_worker_tool_calls_go_through_the_broker(tmp_path: Path) -> None:
     await sup.run(max_tasks=1)
     result = json.loads(sup.queue._conn.execute(
         "SELECT result FROM tasks WHERE id = ?", (task_id,)).fetchone()[0])
+    result.pop("_provenance")
     assert result == {"read_back": "hi"}
     kinds = [r[0] for r in sup.queue._conn.execute(
         "SELECT kind FROM events WHERE task_id = ? AND kind LIKE 'tool_%'", (task_id,))]
