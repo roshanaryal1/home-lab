@@ -8,6 +8,15 @@ Nothing in the build changes until the decisions at the end are made.
 Every external claim here was checked against a primary source on 2026-09-25.
 Where something could not be verified, it says so.
 
+**Superseded framing, 2026-09-26:** this document's "intelligence plane"
+(§4, Phase 2) is the predecessor of what
+[ADR 0004](decisions/0004-operating-system.md) names as three separate
+planes: observation, routing, publishing. ADR 0004 is the current target
+and adds a correction this document does not have: one heavy inference
+slot, not the wide concurrency implied by "24/7 operation". Read this
+document for the research and defect history; read ADR 0004 for the
+current build target.
+
 ---
 
 ## 0. What I could not verify
