@@ -51,10 +51,14 @@ Three concrete reasons, each learned here rather than imported:
 3. **Tests marked `@pytest.mark.safety` are load-bearing**: a crash never
    blindly replays a non-idempotent task, the heavy inference slot is never
    breached, and the reproduced defects R01 to R11 stay fixed. CI fails if
-   fewer than 43 are collected, so removing one is never a silent green
+   fewer than 48 are collected, so removing one is never a silent green
    build; raise the floor in `.github/workflows/check.yml` when adding
    more. If a change touches `lab/queue.py` `recover()` or the supervisor
    semaphores, say so in the PR body.
+   **Schema changes are a new migration**, never an edit: add
+   `lab/migrations/NNNN_name.sql` with the next number (no PRAGMAs, no
+   BEGIN or COMMIT; the runner owns both) and extend
+   `tests/test_migrations.py`. A shipped migration is never edited.
 4. **No new runtime dependencies without justification.** This runs unattended;
    every dependency is a thing that can break at 3am. The test suite
    deliberately avoids `pytest-asyncio` for this reason.

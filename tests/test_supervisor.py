@@ -412,3 +412,26 @@ def test_only_reviewed_handlers_can_be_registered(tmp_path: Path, ref: str) -> N
     with pytest.raises(ValueError, match="not a reviewed handler"):
         sup.register_reviewed("x", ref)
     sup.close()
+
+
+@pytest.mark.asyncio
+async def test_oversized_result_fails_the_task_instead_of_hanging_it(
+    tmp_path: Path,
+) -> None:
+    from lab.queue import MAX_RESULT_BYTES
+
+    sup = make_supervisor(tmp_path)
+
+    async def greedy(task: Task, tools: ToolSession) -> dict:
+        return {"pad": "x" * MAX_RESULT_BYTES}
+
+    sup.register("demo", greedy)
+    task_id = sup.queue.add_task("too much output", agent_kind="demo", max_attempts=1)
+
+    await sup.run(max_tasks=1)
+    task = sup.queue.get(task_id)
+    assert task is not None
+    assert task.state == "failed"
+    assert task.last_error is not None and "PayloadTooLarge" in task.last_error
+    assert sup.queue.counts() == {"failed": 1}
+    sup.close()

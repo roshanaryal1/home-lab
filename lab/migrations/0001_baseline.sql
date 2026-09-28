@@ -16,10 +16,10 @@
 --     recovery, hence the explicit idempotent flag.
 --   * Capability tiers: autonomous, notify, approve, never.
 
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
--- Durability pragmas (synchronous, fullfsync) are per connection, so
--- they are set in TaskQueue._apply_durability, not here.
+-- Migration 1 of the versioned schema (item 3.1, #64). Never edit a
+-- migration that has shipped: add a new numbered file instead. PRAGMAs
+-- are per connection and cannot run inside a migration's transaction, so
+-- TaskQueue sets them (journal_mode, durability) around the runner.
 
 -- ---------------------------------------------------------------- agents
 

@@ -72,7 +72,7 @@ five minutes and a crash sending the same email twice.
 ## Layout
 
 ```
-lab/schema.sql       task queue and audit schema, WAL-backed
+lab/migrations/      numbered SQL migrations for the queue and audit schema
 lab/queue.py         state machine, leases, retry, crash recovery
 lab/supervisor.py    asyncio loop, concurrency slots, dispatch
 ops/mac-mini-setup.md  setup checklist for the mini itself

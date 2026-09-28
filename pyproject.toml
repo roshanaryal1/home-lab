@@ -20,7 +20,7 @@ dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "coverage>=7.6", "hypothesis>=6.1
 packages = ["lab"]
 
 [tool.setuptools.package-data]
-lab = ["schema.sql"]
+lab = ["migrations/*.sql"]
 
 [tool.uv]
 # Only uv-managed (python-build-standalone) interpreters, never the

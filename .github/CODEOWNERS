@@ -3,7 +3,7 @@
 
 # Safety-critical paths. Changes here need deliberate review even when solo.
 /lab/queue.py           @roshanaryal1
-/lab/schema.sql         @roshanaryal1
+/lab/migrations/        @roshanaryal1
 /lab/supervisor.py      @roshanaryal1
 /docs/PLAN.md           @roshanaryal1
 /ops/                   @roshanaryal1
