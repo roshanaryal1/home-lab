@@ -147,7 +147,6 @@ def test_r06_unsafe_task_is_not_requeued_after_ordinary_failure(q) -> None:
     assert q.lease() is None
 
 
-@pytest.mark.xfail(strict=True, reason="R07 open: worker exception swallowed, #52 (1.8)")
 @pytest.mark.asyncio
 async def test_r07_policy_error_does_not_strand_a_leased_task(tmp_path, monkeypatch) -> None:
     """R07: a policy error killed a worker, run() returned normally, and
@@ -167,6 +166,7 @@ async def test_r07_policy_error_does_not_strand_a_leased_task(tmp_path, monkeypa
     try:
         assert sup.queue.get(task_id).state != "leased"
         assert _live_leases(sup.queue, task_id) == 0
+        assert sup.stats.worker_errors == 1
     finally:
         sup.close()
 

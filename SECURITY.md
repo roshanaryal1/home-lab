@@ -68,7 +68,11 @@ Implemented and tested:
 - **Durable task state** with bounded dispatch, lease renewal, atomic
   state transitions (#44), lease tokens checked in the same transaction
   as each write with a generation per claim and a host singleton lock
-  (#47, #55, `tests/test_queue.py` item 1.3 section), and durable
+  (#47, #55, `tests/test_queue.py` item 1.3 section); lease loss or an
+  emergency stop cancels the running handler and kills its worker
+  process group, the stop revoking broker authority first, and a
+  supervisor-side error releases the task instead of stranding it
+  (item 1.8, `tests/test_stopping.py`); and durable
   commits on a SQLite without the WAL-reset bug (item 1.9,
   `tests/test_durability.py`).
 
@@ -85,7 +89,6 @@ every draft by hand.
   could open it; the separate lab account closes that (#70). Only code
   under `lab.handlers` can be loaded into a worker.
 - Retries do not yet distinguish an unknown remote outcome (#56).
-- A worker crash or lease loss does not stop the running handler (#52).
 
 ## What does NOT exist yet
 

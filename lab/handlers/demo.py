@@ -37,3 +37,12 @@ async def sleep_for(task: Task, tools: ToolSession) -> dict:
     import asyncio
     await asyncio.sleep(float(task.payload.get("seconds", 60)))
     return {"slept": True}
+
+
+async def record_pid_then_sleep(task: Task, tools: ToolSession) -> dict:
+    """Leave this worker's pid in the workspace, then sleep. Lets a test
+    check that stopping the task really ended the process."""
+    import asyncio
+    tools.submit("fs.write", path="pid", content=str(os.getpid()))
+    await asyncio.sleep(float(task.payload.get("seconds", 60)))
+    return {"slept": True}

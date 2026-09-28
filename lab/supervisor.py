@@ -105,6 +105,13 @@ class SupervisorConfig:
     # it is reached; the task is failed with the reason recorded, and
     # retried only under the usual idempotency rule.
     task_timeout_seconds: float = 3600.0
+    # A worker slot that fails this many times in a row stops and marks
+    # the supervisor unhealthy, rather than spinning on a broken
+    # dependency (item 1.8).
+    max_consecutive_worker_errors: int = 5
+    # On emergency stop, how long running handlers get to finish after
+    # authority is revoked, before they are cancelled and killed.
+    stop_grace_seconds: float = 2.0
 
     def resolved_owner(self) -> str:
         return self.owner or f"supervisor@{socket.gethostname()}"
@@ -117,6 +124,9 @@ class SupervisorStats:
     failed: int = 0
     denied: int = 0
     awaiting_approval: int = 0
+    worker_errors: int = 0
+    lease_losses: int = 0
+    stopped: int = 0
     recovered: dict[str, int] = field(default_factory=dict)
 
 
@@ -135,6 +145,15 @@ class Supervisor:
         self._handlers: dict[str, Handler] = {}
         self._stopping = asyncio.Event()
         self._max_tasks: int | None = None
+        # A handle on every running handler, so lease loss and emergency
+        # stop can end the work itself, not only stop recording it.
+        self._running: dict[str, asyncio.Task] = {}
+        self._interrupted: dict[str, str] = {}
+        self.unhealthy_reason: str | None = None
+
+    @property
+    def healthy(self) -> bool:
+        return self.unhealthy_reason is None
 
     # --------------------------------------------------------- handlers
 
@@ -207,7 +226,14 @@ class Supervisor:
             asyncio.create_task(self._worker("light"))
             for _ in range(self.config.light_slots)
         ]
-        await asyncio.gather(*workers, return_exceptions=True)
+        outcomes = await asyncio.gather(*workers, return_exceptions=True)
+        for outcome in outcomes:
+            if isinstance(outcome, BaseException) and not isinstance(
+                    outcome, asyncio.CancelledError):
+                # A worker slot died. Never absorbed silently (R07).
+                self.unhealthy_reason = self.unhealthy_reason or (
+                    f"worker slot crashed: {type(outcome).__name__}: {outcome}")
+                log.error("worker slot crashed: %r", outcome)
         return self.stats
 
     def _may_lease(self) -> bool:
@@ -218,6 +244,7 @@ class Supervisor:
 
     async def _worker(self, weight: str) -> None:
         """One slot. Leases only work it can run, then runs it."""
+        consecutive_errors = 0
         while not self._stopping.is_set():
             if not self._may_lease():
                 return
@@ -238,12 +265,73 @@ class Supervisor:
                 continue
 
             self.stats.leased += 1
-            await self._run_task(task)
+            try:
+                await self._run_task(task)
+                consecutive_errors = 0
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                # A supervisor-side error (policy store, audit write, a bug)
+                # must not strand the task leased or kill the slot quietly.
+                consecutive_errors += 1
+                self.stats.worker_errors += 1
+                log.exception("worker error on task %s", task.id)
+                self._release_after_error(task, exc)
+                if consecutive_errors >= self.config.max_consecutive_worker_errors:
+                    self.unhealthy_reason = (
+                        f"{weight} worker stopped after {consecutive_errors} "
+                        f"consecutive errors; last: {type(exc).__name__}: {exc}")
+                    log.error("%s", self.unhealthy_reason)
+                    return
 
     async def _sleep_or_stop(self, seconds: float) -> None:
         """Sleep, but wake immediately if asked to stop."""
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._stopping.wait(), timeout=seconds)
+
+    def _release_after_error(self, task: Task, exc: BaseException) -> None:
+        token = task.lease
+        with contextlib.suppress(Exception):
+            self.queue.record_event(task.id, "worker_error",
+                                    {"error": f"{type(exc).__name__}: {exc}"})
+        if token is None:
+            return
+        reason = f"supervisor error: {type(exc).__name__}: {exc}"
+        try:
+            if not self.queue.owns_lease(token):
+                return
+            current = self.queue.get(task.id)
+            if current is not None and current.state == "leased":
+                self.queue.release_unstarted(token, reason)
+            else:
+                self.queue.fail(token, reason)
+        except Exception:
+            # The database itself may be what failed. The lease then expires
+            # on its own and recovery decides, which is the safe default.
+            log.exception("could not release %s after a worker error", task.id)
+
+    def _interrupt(self, task_id: str, reason: str) -> None:
+        """Cancel a running handler, remembering why."""
+        work = self._running.get(task_id)
+        if work is not None and not work.done():
+            self._interrupted[task_id] = reason
+            work.cancel()
+
+    async def emergency_stop(self) -> None:
+        """Stop everything now: revoke authority, drain briefly, then kill.
+
+        Revoking comes first so that no tool call made during the grace
+        period can have an effect. Handlers still running when the grace
+        period ends are cancelled, which kills their worker processes.
+        Their tasks stay leased for recovery to decide on restart.
+        """
+        self._stopping.set()
+        self.broker.revoke()
+        running = [w for w in self._running.values() if not w.done()]
+        if running:
+            await asyncio.wait(running, timeout=self.config.stop_grace_seconds)
+        for task_id in list(self._running):
+            self._interrupt(task_id, "emergency_stop")
 
     async def _renew_while_running(self, token: LeaseToken) -> None:
         """Heartbeat the lease until cancelled.
@@ -258,7 +346,11 @@ class Supervisor:
         while True:
             await asyncio.sleep(interval)
             if not self.queue.renew_lease(token, ttl_seconds=ttl):
-                log.error("lost lease on %s while still running it", token.task_id)
+                log.error("lost lease on %s while still running it; stopping it",
+                          token.task_id)
+                # Stop the work, not only its result (item 1.8). Another
+                # worker may already own the task.
+                self._interrupt(token.task_id, "lease_lost")
                 return
 
     async def _run_task(self, task: Task) -> None:
@@ -304,13 +396,26 @@ class Supervisor:
         ctx = ExecutionContext(task_id=task.id, agent_kind=task.agent_kind or "",
                                attempt=task.attempts, lease=token)
         ceiling = asyncio.timeout(self.config.task_timeout_seconds)
+        work = asyncio.create_task(handler(task, self.broker.session(ctx)))
+        self._running[task.id] = work
         try:
             async with ceiling:
-                result = await handler(task, self.broker.session(ctx))
+                result = await work
         except asyncio.CancelledError:
-            # Shutdown mid-task. Leave it leased so recovery decides,
-            # rather than guessing here whether it is safe to replay.
-            raise
+            current = asyncio.current_task()
+            reason = self._interrupted.pop(task.id, None)
+            if (current is not None and current.cancelling()) or reason is None:
+                # Shutdown mid-task. Leave it leased so recovery decides,
+                # rather than guessing here whether it is safe to replay.
+                raise
+            if reason == "lease_lost":
+                self.stats.lease_losses += 1
+                self.queue.record_event(task.id, "stopped_on_lease_loss",
+                                        {"lease_id": token.lease_id})
+            else:
+                self.stats.stopped += 1
+                self.queue.record_event(task.id, "stopped", {"reason": reason})
+            log.warning("task %s stopped: %s", task.id, reason)
         except TimeoutError as exc:
             if not ceiling.expired():
                 # The handler's own timeout, not ours: an ordinary failure.
@@ -347,6 +452,11 @@ class Supervisor:
                 # write a result we no longer have the right to write.
                 log.error("cannot record success of %s: lease lost", task.id)
         finally:
+            self._running.pop(task.id, None)
+            if not work.done():
+                work.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await work
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat
