@@ -183,3 +183,14 @@ can read what, and that needs the machine. Parked until the M6.
 - [ ] Put the queue database, policy files and credentials under a
       directory the reviewed handlers' worker processes cannot open (#70
       acceptance: a handler that opens the DB path gets EACCES).
+
+## 12. Real-model injection run (item 4.7, #72)
+
+Parked until the model adapter (5.1) and the M6 exist. The scenarios and
+graders are in `lab/attacks.py`; they take any handler.
+
+- [ ] Wire the adapter as the `model` argument of `run_scenario` and run all nine
+      scenarios; require attack success 0 of 9 and record utility.
+- [ ] Run the AgentDojo suite against the same adapter; record its utility
+      and attack-success rates next to the stub's.
+- [ ] Repeat after every model or prompt change (gate G2, then nightly, 6.4).

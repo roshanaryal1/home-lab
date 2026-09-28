@@ -799,6 +799,8 @@ class ExecutionBroker:
             fetched = self._egress.fetch(request.params["url"], hosts, request.task_id)
         except EgressDenied as exc:
             return ToolResult(False, request.tool, error=f"EgressDenied: {exc}")
+        if self.policy is not None:
+            self.policy.taint(request.task_id, "read content fetched from the network")
         return ToolResult(True, request.tool, {
             "url": fetched.url, "status": fetched.status, "hops": fetched.hops,
             "content_type": fetched.content_type,
@@ -842,6 +844,8 @@ class ExecutionBroker:
         except EgressDenied as exc:
             return ToolResult(False, request.tool,
                               error=str(redactor.scrub(f"EgressDenied: {exc}")))
+        if self.policy is not None:
+            self.policy.taint(request.task_id, "read a response from a connector")
         return ToolResult(True, request.tool, redactor.scrub({
             "connector": name, "status": fetched.status,
             "evidence": fetched.evidence.as_payload(),

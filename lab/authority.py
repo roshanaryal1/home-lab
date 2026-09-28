@@ -56,8 +56,12 @@ TOOL_LEGS: dict[str, frozenset[Leg]] = {
     "fs.delete": frozenset(),
     "shell.run": frozenset(),
     # Outbound requests are an outside effect (a URL can carry data out),
-    # even though the host list bounds where.
-    "net.fetch": frozenset({Leg.EXTERNAL_ACTION}),
+    # even though the host list bounds where. What comes back is written by
+    # someone else, so a task that fetches also holds untrusted input
+    # whatever its own origin: found by the injection harness (item 4.7),
+    # where a trusted task that fetched a hostile page and held a
+    # credentialed connector was stopped only by the approval gate.
+    "net.fetch": frozenset({Leg.UNTRUSTED_INPUT, Leg.EXTERNAL_ACTION}),
     # A credentialed outside effect: sees a secret and acts externally, so
     # it may only run for trusted input (ADR 0006, the publish plane).
     "connector.call": frozenset({Leg.SENSITIVE_DATA, Leg.EXTERNAL_ACTION}),

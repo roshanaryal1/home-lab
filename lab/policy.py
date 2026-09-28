@@ -133,6 +133,18 @@ class PolicyEngine:
     def enforces_operator_signatures(self) -> bool:
         return self._operator_key is not None
 
+    def taint(self, task_id: str, reason: str) -> None:
+        """Mark a task as having read untrusted content (taint on read).
+
+        A task whose own input was the operator's becomes tainted the moment
+        it consumes text an outsider could have written, so anything it then
+        creates inherits that (lab.origin). One-way: nothing untaints.
+        """
+        cur = self._conn.execute(
+            "UPDATE tasks SET tainted = 1 WHERE id = ? AND tainted = 0", (task_id,))
+        if cur.rowcount:
+            append_event(self._conn, task_id, "task_tainted", detail={"reason": reason})
+
     def audit(self, task_id: str | None, kind: str, detail: dict[str, Any]) -> None:
         """Append a non-transition event to the hash-chained audit log."""
         append_event(self._conn, task_id, kind, detail=detail)
