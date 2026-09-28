@@ -44,6 +44,10 @@ Internal 512 GB, latency-sensitive state only:
 
 - [ ] macOS, applications, Python runtime.
 - [ ] Supervisor code and SQLite databases including WAL files.
+- [ ] Check the Python's linked SQLite before first start:
+      `python -c 'import sqlite3; print(sqlite3.sqlite_version)'` must be
+      3.51.3 or later, or 3.50.7+ / 3.44.6+. The supervisor refuses to
+      start otherwise (WAL-reset bug, https://sqlite.org/wal.html section 11).
 - [ ] Active repositories and worktrees.
 - [ ] Hot model weights, the ones in daily use.
 - [ ] Keep a substantial free-space reserve. Do not fill the internal

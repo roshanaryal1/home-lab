@@ -18,7 +18,8 @@
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
-PRAGMA synchronous = NORMAL;
+-- Durability pragmas (synchronous, fullfsync) are per connection, so
+-- they are set in TaskQueue._apply_durability, not here.
 
 -- ---------------------------------------------------------------- agents
 

@@ -27,6 +27,25 @@ from typing import Self
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
+# SQLite 3.7.0 through 3.51.2 carry the WAL-reset corruption bug, a data
+# race between two connections checkpointing and writing at the same
+# instant (https://sqlite.org/wal.html, section 11). It is fixed in
+# 3.51.3, with backports in 3.50.7 and 3.44.6. This lab runs two or more
+# connections on one WAL file, which is exactly the affected pattern.
+WAL_RESET_FIXED: tuple[tuple[int, int, int], ...] = ((3, 51, 3), (3, 50, 7), (3, 44, 6))
+
+# How long a connection waits on a competing writer before SQLITE_BUSY.
+BUSY_TIMEOUT_MS = 5000
+
+
+def sqlite_is_safe(version: str) -> bool:
+    """True when ``version`` carries the fix for the WAL-reset bug."""
+    parts = tuple(int(x) for x in version.split(".")[:3])
+    v = (*parts, 0, 0, 0)[:3]
+    if v >= WAL_RESET_FIXED[0]:
+        return True
+    return any(v[:2] == f[:2] and v >= f for f in WAL_RESET_FIXED[1:])
+
 # Terminal states never transition again.
 TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
 
@@ -50,6 +69,10 @@ LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
 
 class TransitionError(RuntimeError):
     """Raised when a caller attempts an illegal state transition."""
+
+
+class UnsafeSQLite(RuntimeError):
+    """Raised at start-up when the linked SQLite has the WAL-reset bug."""
 
 
 class LeaseLost(RuntimeError):
@@ -123,13 +146,37 @@ class TaskQueue:
         # column comment in schema.sql: this is what ordinary fencing
         # checks, `owner` is what recover()'s restart-reclaim checks.
         self._holder = uuid.uuid4().hex
+        self.sqlite_version = sqlite3.sqlite_version
+        if not sqlite_is_safe(self.sqlite_version):
+            raise UnsafeSQLite(
+                f"SQLite {self.sqlite_version} has the WAL-reset corruption bug; "
+                "use a Python linked against 3.51.3+, 3.50.7+ or 3.44.6+"
+            )
         self._conn = sqlite3.connect(self.db_path, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA foreign_keys = ON")
         self._apply_schema()
+        self._apply_durability()
 
     def _apply_schema(self) -> None:
         self._conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+
+    def _apply_durability(self) -> None:
+        """Per-connection settings; SQLite does not persist any of these.
+
+        NORMAL in WAL mode can lose the last commits on power loss, and on
+        macOS a plain fsync does not flush the drive cache, so fullfsync
+        is what makes FULL mean durable there. Crash recovery and the
+        retry rules both assume a committed transition survives. Applied
+        after the schema script so nothing in it can override them.
+        """
+        for pragma in (
+            "foreign_keys = ON",
+            f"busy_timeout = {BUSY_TIMEOUT_MS}",
+            "synchronous = FULL",
+            "fullfsync = ON",
+            "checkpoint_fullfsync = ON",
+        ):
+            self._conn.execute(f"PRAGMA {pragma}")
 
     def close(self) -> None:
         self._conn.close()
@@ -476,6 +523,7 @@ class TaskQueue:
                 "requeued": requeued,
                 "held_for_review": held,
                 "owner": self.owner,
+                "sqlite_version": self.sqlite_version,
             })
         return {"interrupted": interrupted, "requeued": requeued,
                 "held_for_review": held}
