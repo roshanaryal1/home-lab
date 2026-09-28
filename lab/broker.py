@@ -408,8 +408,9 @@ class ToolSession:
     """A handler's only way to call a tool. Cannot name a task.
 
     Holds its broker privately. In-process that is a convention, not a
-    boundary: handler code could still reach ``_broker``. The process
-    boundary that makes it one is the worker process (item 1.2, #48).
+    boundary: handler code could still reach ``_broker``. For reviewed
+    handlers run by ``lab.worker`` the session stays in the supervisor
+    and the worker process only sees a JSON channel to it.
     """
 
     def __init__(self, broker: ExecutionBroker, ctx: ExecutionContext) -> None:

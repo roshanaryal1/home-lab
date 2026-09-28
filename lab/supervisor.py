@@ -29,6 +29,7 @@ from typing import Self
 from lab.broker import ApprovalRequired, ExecutionBroker, ExecutionContext, ToolSession
 from lab.policy import Decision, PolicyEngine
 from lab.queue import LeaseLost, LeaseToken, Task, TaskQueue
+from lab.worker import check_reference, run_in_worker
 
 log = logging.getLogger("lab.supervisor")
 
@@ -141,6 +142,26 @@ class Supervisor:
         """
         self._handlers[agent_kind] = handler
         self._tools[agent_kind] = frozenset(tools)
+
+    def register_reviewed(self, agent_kind: str, ref: str,
+                          tools: frozenset[str] | set[str] = frozenset()) -> None:
+        """Register a reviewed handler that runs in its own worker process.
+
+        ``ref`` is ``lab.handlers.<module>:<function>``; anything else is
+        refused here, before a task can ever select it. This is the path
+        for real work (item 1.2): the handler gets no share of the
+        supervisor's memory, environment, database or lease token.
+        ``register()`` with an in-process callable remains for tests and
+        for code that is part of the supervisor itself.
+        """
+        check_reference(ref)
+        broker = self.broker
+
+        async def in_worker(task: Task, session: ToolSession) -> dict:
+            workspace = broker._workspace_for(task.id).root
+            return await run_in_worker(ref, task, session, workspace=workspace)
+
+        self.register(agent_kind, in_worker, tools)
 
     def _handler_for(self, task: Task) -> Handler | None:
         return self._handlers.get(task.agent_kind or "", None)

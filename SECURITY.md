@@ -69,11 +69,12 @@ Reproduced by an independent review on 2026-09-28 and tracked, not fixed
 yet. Until these close, run the lab only with dummy data and review
 every draft by hand.
 
-- Handlers get a tool session bound to their own task and live lease
-  (item 1.2, R02 closed at the API level), but they still run inside the
-  supervisor process as the same OS user, so handler code could reach
-  the database or another session directly. The worker process and the
-  lab account close that (#48, #70).
+- Handlers registered with `register_reviewed` run in their own worker
+  process with a minimal environment, no database path and no lease
+  token, and act only through the broker (item 1.2). They still run as
+  the same OS user, so a hostile handler that found the database file
+  could open it; the separate lab account closes that (#70). Only code
+  under `lab.handlers` can be loaded into a worker.
 - Approval consumption does not re-check expiry or bind the exact action
   (#49).
 - Workspace path checks race with symlink swaps, and sandboxed commands
