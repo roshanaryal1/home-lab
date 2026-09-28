@@ -172,6 +172,25 @@ Implemented and tested:
   supervisor's memory during the call; and a destination that stores what
   it is sent can still be told to repeat the value later, which redaction
   cannot see.
+- **Injection harness and taint on read** (`lab/attacks.py`, item 4.7,
+  #72). Nine scenarios pair a useful task (fetch a page, write a summary)
+  with a prompt injection in the page, run against a stub model that is
+  the worst case: it obeys every directive it reads. Grading is on state
+  (workspace files, database rows, what the simulated network saw), not
+  on the transcript, and reports utility and attack success separately.
+  Result today: 0 of 9 attacks succeed (delete, shell, exfiltrate to
+  another host, metadata address, path escape, git hook, credentialed
+  connector, ungranted tool, authority smuggled into a child task);
+  utility 7 of 9, the two losses being the refusals of a credentialed
+  connector for a task that fetches. Four control tests remove one
+  defence each and require the matching scenario to then succeed, so the
+  graders are known to be able to fail. The harness found two things,
+  both fixed: `net.fetch` now counts as untrusted input for the Rule of
+  Two whatever the task's origin, and a task that has read fetched or
+  connector content is marked tainted from then on (`task_tainted`
+  event), so children it creates inherit that. `python -m lab.attacks`
+  prints the table. **Not done:** a run against a real model, which
+  needs the adapter and the Mac mini, and the AgentDojo suite itself.
 - **Operator-signed approvals** (`lab/operator.py`, item 4.5, #70).
   `lab operator init` creates an Ed25519 keypair; `lab approve --key`
   signs the grant over the approval id, action hash, expiry and decider.

@@ -86,6 +86,7 @@ re-losing.
 | Network egress control | `lab/egress.py` | Built, tested with a fake resolver and transport (metadata-address redirect, DNS rebinding, IP-literal spellings); not yet exercised against a real host | [#14](https://github.com/roshanaryal1/home-lab/issues/14) |
 | Resource ceilings per task | n/a | Open | [#16](https://github.com/roshanaryal1/home-lab/issues/16) |
 | `dscl` account enumeration | `lab/sandbox.py` | Accepted, not narrowed; untrusted code is routed to a disposable container instead | [ADR 0007](decisions/0007-isolation-for-untrusted-code.md), [#27](https://github.com/roshanaryal1/home-lab/issues/27) |
+| Injection harness | `lab/attacks.py` | 9 benign-plus-hostile scenarios against a worst-case stub model, graded on files, database and network; real-model run parked | [#72](https://github.com/roshanaryal1/home-lab/issues/72) |
 | Tailscale-only dashboard | n/a | Not started | reference architecture §11 |
 | launchd + watchdog | n/a | Checklist written, not run | `ops/mac-mini-setup.md` |
 
