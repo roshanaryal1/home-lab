@@ -166,4 +166,13 @@ with Apple's container framework as the fallback if it is ever removed.
 4. Isolation documented but not implemented. Issue #10, filesystem
    portion; issue #17, process isolation.
 
+5. `recover()` acted on a scan taken before its transaction began, so it
+   could raise on a task that had just finished, or release a lease
+   another supervisor had taken in the meantime. It now re-checks each
+   task inside the transaction that changes it. Found by the race tests
+   in `tests/test_races.py` (item 2.4, #61).
+6. `resume_after_approval` changed the state and wrote its audit event as
+   two separate commits, so a crash between them left a transition with
+   no event. It now runs in one transaction.
+
 Regression checks: `tests/manual_confirm_defects.py`.
