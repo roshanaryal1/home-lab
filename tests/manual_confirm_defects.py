@@ -13,6 +13,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 
+from lab.broker import ToolSession
 from lab.queue import Task, TaskQueue
 from lab.supervisor import Supervisor, SupervisorConfig
 
@@ -26,7 +27,7 @@ async def check_bounded_leasing(tmp: Path) -> bool:
     sup = Supervisor(SupervisorConfig(db_path=tmp / "a.db", heavy_slots=1,
                                       light_slots=1, idle_poll_seconds=0.01))
 
-    async def slow(task: Task) -> dict:
+    async def slow(task: Task, tools: ToolSession) -> dict:
         await asyncio.sleep(0.3)
         return {}
 
@@ -66,7 +67,7 @@ async def check_long_task_keeps_its_lease(tmp: Path) -> bool:
     ))
     stolen = False
 
-    async def long_task(task: Task) -> dict:
+    async def long_task(task: Task, tools: ToolSession) -> dict:
         nonlocal stolen
         await asyncio.sleep(1.4)    # well past the 1 second lease TTL
         with TaskQueue(db, owner="supervisor-b") as other:

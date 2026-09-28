@@ -44,7 +44,7 @@ async def test_approved_task_actually_runs(tmp_path: Path) -> None:
                               owner="sup")
     ran: list[str] = []
 
-    async def handler(task):
+    async def handler(task, tools):
         ran.append(task.id)
         return {"sent": True}
 
@@ -82,7 +82,7 @@ async def test_denied_task_is_cancelled_and_never_runs(tmp_path: Path) -> None:
                               owner="sup")
     ran: list[str] = []
 
-    async def handler(task):
+    async def handler(task, tools):
         ran.append(task.id)
         return {}
 

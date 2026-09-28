@@ -208,7 +208,7 @@ async def test_supervisor_runs_an_autonomous_task(tmp_path: Path) -> None:
                                       idle_poll_seconds=0.01))
     ran = []
 
-    async def handler(task):
+    async def handler(task, tools):
         ran.append(task.id)
         return {}
 
@@ -227,7 +227,7 @@ async def test_supervisor_refuses_a_never_task(tmp_path: Path) -> None:
                                       idle_poll_seconds=0.01))
     ran = []
 
-    async def handler(task):
+    async def handler(task, tools):
         ran.append(task.id)
         return {}
 
@@ -248,7 +248,7 @@ async def test_supervisor_parks_a_task_needing_approval(tmp_path: Path) -> None:
                                       idle_poll_seconds=0.01))
     ran = []
 
-    async def handler(task):
+    async def handler(task, tools):
         ran.append(task.id)
         return {}
 

@@ -20,7 +20,13 @@ from pathlib import Path
 import pytest
 
 from lab import sandbox
-from lab.broker import ApprovalRequired, ExecutionBroker, ToolRequest, Workspace
+from lab.broker import (
+    ApprovalRequired,
+    ExecutionBroker,
+    ExecutionContext,
+    ToolSession,
+    Workspace,
+)
 from lab.policy import PolicyEngine
 from lab.queue import LeaseLost, Task, TaskQueue
 from lab.supervisor import Supervisor, SupervisorConfig
@@ -32,10 +38,17 @@ def q(tmp_path: Path) -> TaskQueue:
         yield queue
 
 
-def _broker(tmp_path: Path, q: TaskQueue, *task_ids: str) -> ExecutionBroker:
+def _broker(tmp_path: Path, q: TaskQueue,
+            *task_ids: str) -> tuple[ExecutionBroker, dict[str, ExecutionContext]]:
+    """A broker plus a live, leased context per named task."""
     for task_id in task_ids:
         q._conn.execute("INSERT INTO tasks (id, title) VALUES (?, ?)", (task_id, task_id))
-    return ExecutionBroker(tmp_path / "ws", policy=PolicyEngine(q._conn))
+    contexts = {}
+    while (task := q.lease()) is not None:
+        contexts[task.id] = ExecutionContext(task.id, "test", task.attempts, task.lease)
+    broker = ExecutionBroker(tmp_path / "ws", policy=PolicyEngine(q._conn),
+                             leases=q.owns_lease)
+    return broker, contexts
 
 
 def _expire(q: TaskQueue, task_id: str) -> None:
@@ -52,24 +65,34 @@ def _live_leases(q: TaskQueue, task_id: str) -> int:
 
 def test_r01_delete_needs_approval_and_policy_is_asked(tmp_path, q) -> None:
     """R01: fs.delete ran with no approval; the policy was never called."""
-    broker = _broker(tmp_path, q, "t1")
+    broker, ctx = _broker(tmp_path, q, "t1")
     ws = broker.open_workspace("t1", {"fs.write", "fs.delete"})
-    broker.submit(ToolRequest("fs.write", {"path": "f", "content": "x"}, "t1", "w"))
+    tools = broker.session(ctx["t1"])
+    tools.submit("fs.write", path="f", content="x")
     with pytest.raises(ApprovalRequired):
-        broker.submit(ToolRequest("fs.delete", {"path": "f"}, "t1", "w"))
+        tools.submit("fs.delete", path="f")
     assert (ws.root / "f").exists()
 
 
-@pytest.mark.xfail(strict=True, reason="R02 open: worker identity unchecked, #48 (1.2)")
 def test_r02_one_task_cannot_read_another_tasks_workspace(tmp_path, q) -> None:
-    """R02: a different worker label read another task's workspace."""
-    broker = _broker(tmp_path, q, "t1", "t2")
+    """R02: a different worker label read another task's workspace.
+
+    A session is bound to its own context, so t1's handler has no way to
+    name t2. Forging a context that names t2 with t1's lease is refused.
+    In-process this is an API boundary; the worker process (1.2b) and the
+    lab account (4.5) make it an OS one.
+    """
+    broker, ctx = _broker(tmp_path, q, "t1", "t2")
     broker.open_workspace("t1", {"fs.read"})
     ws2 = broker.open_workspace("t2", {"fs.read"})
     (ws2.root / "secret.txt").write_text("t2 only")
-    # t1's worker names t2's task id. Nothing binds the caller to t2.
-    result = broker.submit(ToolRequest("fs.read", {"path": "secret.txt"}, "t2", "worker-of-t1"))
-    assert not result.ok
+
+    mine = broker.session(ctx["t1"]).submit("fs.read", path="secret.txt")
+    assert not mine.ok and "t2 only" not in str(mine.detail)
+
+    forged = ExecutionContext("t2", "test", 1, ctx["t1"].lease)
+    stolen = broker.session(forged).submit("fs.read", path="secret.txt")
+    assert not stolen.ok and "ContextRevoked" in stolen.error
 
 
 def test_r03_a_never_owner_cannot_commit(tmp_path) -> None:
@@ -132,7 +155,7 @@ async def test_r07_policy_error_does_not_strand_a_leased_task(tmp_path, monkeypa
     the task stayed leased."""
     sup = Supervisor(SupervisorConfig(db_path=tmp_path / "lab.db", idle_poll_seconds=0.01))
 
-    async def handler(task: Task) -> dict:
+    async def handler(task: Task, tools: ToolSession) -> dict:
         return {}
 
     def broken(task: Task):
@@ -167,7 +190,7 @@ def test_r08_an_approval_expired_before_use_is_not_spent(q) -> None:
 def test_r09_directory_swapped_for_symlink_after_check(tmp_path, q, monkeypatch) -> None:
     """R09: a directory swapped for a symlink after the path check sent a
     write outside the workspace."""
-    broker = _broker(tmp_path, q, "t1")
+    broker, ctx = _broker(tmp_path, q, "t1")
     ws = broker.open_workspace("t1", {"fs.write"})
     (ws.root / "sub").mkdir()
     outside = tmp_path / "outside"
@@ -182,7 +205,7 @@ def test_r09_directory_swapped_for_symlink_after_check(tmp_path, q, monkeypatch)
         return checked
 
     monkeypatch.setattr(Workspace, "resolve", racing_resolve)
-    broker.submit(ToolRequest("fs.write", {"path": "sub/x.txt", "content": "pwn"}, "t1", "w"))
+    broker.session(ctx["t1"]).submit("fs.write", path="sub/x.txt", content="pwn")
     assert not (outside / "x.txt").exists()
 
 

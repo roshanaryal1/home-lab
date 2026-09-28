@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from lab.broker import ToolSession
 from lab.queue import Task, TaskQueue
 from lab.supervisor import Supervisor, SupervisorConfig
 
@@ -27,7 +28,7 @@ async def test_runs_a_task_to_success(tmp_path: Path) -> None:
     sup = make_supervisor(tmp_path)
     seen: list[str] = []
 
-    async def handler(task: Task) -> dict:
+    async def handler(task: Task, tools: ToolSession) -> dict:
         seen.append(task.title)
         return {"ok": True}
 
@@ -47,7 +48,7 @@ async def test_handler_exception_marks_task_failed_and_retries(
 ) -> None:
     sup = make_supervisor(tmp_path)
 
-    async def boom(task: Task) -> dict:
+    async def boom(task: Task, tools: ToolSession) -> dict:
         raise ValueError("handler exploded")
 
     sup.register("demo", boom)
@@ -86,7 +87,7 @@ async def test_only_one_heavy_task_runs_at_a_time(tmp_path: Path) -> None:
     concurrent = 0
     peak = 0
 
-    async def heavy(task: Task) -> dict:
+    async def heavy(task: Task, tools: ToolSession) -> dict:
         nonlocal concurrent, peak
         concurrent += 1
         peak = max(peak, concurrent)
@@ -110,7 +111,7 @@ async def test_light_tasks_run_concurrently(tmp_path: Path) -> None:
     concurrent = 0
     peak = 0
 
-    async def light(task: Task) -> dict:
+    async def light(task: Task, tools: ToolSession) -> dict:
         nonlocal concurrent, peak
         concurrent += 1
         peak = max(peak, concurrent)
@@ -133,7 +134,7 @@ async def test_priority_order_is_respected(tmp_path: Path) -> None:
     sup = make_supervisor(tmp_path, light_slots=1)
     order: list[str] = []
 
-    async def record(task: Task) -> dict:
+    async def record(task: Task, tools: ToolSession) -> dict:
         order.append(task.title)
         return {}
 
@@ -163,7 +164,7 @@ async def test_startup_recovers_interrupted_idempotent_task(
                                       owner=owner))
     ran: list[str] = []
 
-    async def handler(task: Task) -> dict:
+    async def handler(task: Task, tools: ToolSession) -> dict:
         ran.append(task.id)
         return {}
 
@@ -193,7 +194,7 @@ async def test_startup_does_not_rerun_interrupted_destructive_task(
                                       owner=owner))
     ran: list[str] = []
 
-    async def handler(task: Task) -> dict:
+    async def handler(task: Task, tools: ToolSession) -> dict:
         ran.append(task.id)
         return {}
 
@@ -238,7 +239,7 @@ async def test_a_second_supervisor_refuses_to_start(tmp_path: Path) -> None:
     second = make_supervisor(tmp_path)
     started = asyncio.Event()
 
-    async def hold(task: Task) -> dict:
+    async def hold(task: Task, tools: ToolSession) -> dict:
         started.set()
         await asyncio.sleep(0.2)
         return {}
@@ -262,28 +263,23 @@ async def test_a_second_supervisor_refuses_to_start(tmp_path: Path) -> None:
 async def test_tool_approval_parks_then_grant_reruns_the_call(tmp_path: Path) -> None:
     """Item 1.1 end to end: a handler's approve-tier call parks the task,
     a human grants that exact call, and the rerun performs it once."""
-    from lab.broker import ExecutionBroker, ToolRequest
-
     sup = make_supervisor(tmp_path)
-    broker = ExecutionBroker(tmp_path / "ws", policy=sup.policy)
     deleted: list[bool] = []
 
-    async def cleanup(task: Task) -> dict:
-        if task.id not in broker._workspaces:
-            ws = broker.open_workspace(task.id, {"fs.write", "fs.delete"})
-            (ws.root / "old.log").write_text("x")
-        result = broker.submit(ToolRequest("fs.delete", {"path": "old.log"},
-                                           task.id, "w1"))
+    async def cleanup(task: Task, tools: ToolSession) -> dict:
+        if not tools.submit("fs.list").detail.get("entries"):
+            tools.submit("fs.write", path="old.log", content="x")
+        result = tools.submit("fs.delete", path="old.log")
         deleted.append(result.ok)
         return {"deleted": result.ok}
 
-    sup.register("cleanup", cleanup)
+    sup.register("cleanup", cleanup, tools={"fs.write", "fs.list", "fs.delete"})
     task_id = sup.queue.add_task("clean", agent_kind="cleanup")
 
     stats = await sup.run(max_tasks=1)
     assert stats.awaiting_approval == 1 and deleted == []
     assert sup.queue.get(task_id).state == "awaiting_approval"
-    assert (broker._workspaces[task_id].root / "old.log").exists()
+    assert (sup.broker._workspaces[task_id].root / "old.log").exists()
 
     (pending,) = sup.policy.pending()
     assert sup.policy.grant(pending["id"], decided_by="operator") == task_id
@@ -292,4 +288,45 @@ async def test_tool_approval_parks_then_grant_reruns_the_call(tmp_path: Path) ->
     await sup.run(max_tasks=1)
     assert deleted == [True]
     assert sup.queue.get(task_id).state == "succeeded"
+    assert task_id not in sup.broker._workspaces, "closed once terminal"
+    sup.close()
+
+
+@pytest.mark.asyncio
+async def test_a_handler_gets_only_its_registered_tools(tmp_path: Path) -> None:
+    """Item 1.2: the allowlist comes from trusted registration, not the task."""
+    sup = make_supervisor(tmp_path)
+    seen: dict = {}
+
+    async def reader(task: Task, tools: ToolSession) -> dict:
+        seen["ctx"] = tools.context
+        seen["write"] = tools.submit("fs.write", path="x", content="y")
+        return {}
+
+    sup.register("reader", reader, tools={"fs.read"})
+    task_id = sup.queue.add_task("read", agent_kind="reader",
+                                 payload={"tools": ["fs.write"]})
+    await sup.run(max_tasks=1)
+    assert seen["ctx"].task_id == task_id and seen["ctx"].attempt == 1
+    assert not seen["write"].ok and "ToolNotAllowed" in seen["write"].error
+    sup.close()
+
+
+@pytest.mark.asyncio
+async def test_a_session_dies_with_its_lease(tmp_path: Path) -> None:
+    """Item 1.2: once the lease is gone, the handler's session cannot act."""
+    sup = make_supervisor(tmp_path)
+    seen: dict = {}
+
+    async def slow(task: Task, tools: ToolSession) -> dict:
+        sup.queue._conn.execute(
+            "UPDATE leases SET expires_at = datetime('now', '-1 second') "
+            "WHERE task_id = ?", (task.id,))
+        seen["after"] = tools.submit("fs.write", path="late", content="x")
+        return {}
+
+    sup.register("slow", slow, tools={"fs.write"})
+    sup.queue.add_task("slow", agent_kind="slow")
+    await sup.run(max_tasks=1)
+    assert not seen["after"].ok and "ContextRevoked" in seen["after"].error
     sup.close()

@@ -69,8 +69,11 @@ Reproduced by an independent review on 2026-09-28 and tracked, not fixed
 yet. Until these close, run the lab only with dummy data and review
 every draft by hand.
 
-- A worker label is not checked, so one task can reach another's
-  workspace; handlers run in the supervisor process (#48).
+- Handlers get a tool session bound to their own task and live lease
+  (item 1.2, R02 closed at the API level), but they still run inside the
+  supervisor process as the same OS user, so handler code could reach
+  the database or another session directly. The worker process and the
+  lab account close that (#48, #70).
 - Approval consumption does not re-check expiry or bind the exact action
   (#49).
 - Workspace path checks race with symlink swaps, and sandboxed commands

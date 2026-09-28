@@ -14,9 +14,9 @@ from lab.broker import (
     TOOL_TIERS,
     ApprovalRequired,
     ExecutionBroker,
+    ExecutionContext,
     PathEscape,
     ToolNotAllowed,
-    ToolRequest,
     ToolResult,
 )
 from lab.policy import PolicyEngine, Tier
@@ -35,23 +35,35 @@ def queue(tmp_path: Path) -> TaskQueue:
 
 
 @pytest.fixture()
-def broker(tmp_path: Path, queue: TaskQueue) -> ExecutionBroker:
-    return ExecutionBroker(workspace_root=tmp_path / "workspaces",
-                           policy=PolicyEngine(queue._conn))
+def contexts(queue: TaskQueue) -> dict[str, ExecutionContext]:
+    """Each fixture task leased, as the supervisor would, with its context."""
+    out = {}
+    while (task := queue.lease()) is not None:
+        assert task.lease is not None
+        out[task.id] = ExecutionContext(task.id, "test", task.attempts, task.lease)
+    return out
 
 
-def approved(broker: ExecutionBroker, request: ToolRequest) -> ToolResult:
-    """Submit, have a human grant the exact call it asks about, resubmit."""
+@pytest.fixture()
+def broker(tmp_path: Path, queue: TaskQueue, contexts) -> ExecutionBroker:
+    b = ExecutionBroker(workspace_root=tmp_path / "workspaces",
+                        policy=PolicyEngine(queue._conn), leases=queue.owns_lease)
+    b.test_contexts = contexts  # type: ignore[attr-defined]
+    return b
+
+
+def call(broker: ExecutionBroker, task_id: str, tool: str, **params) -> ToolResult:
+    """What a handler for ``task_id`` does: call through its own session."""
+    return broker.session(broker.test_contexts[task_id]).submit(tool, **params)
+
+
+def approved(broker: ExecutionBroker, task_id: str, tool: str, **params) -> ToolResult:
+    """Call, have a human grant the exact call it asks about, call again."""
     with pytest.raises(ApprovalRequired) as asked:
-        broker.submit(request)
+        call(broker, task_id, tool, **params)
     assert broker.policy is not None
     broker.policy.grant(asked.value.approval_id, decided_by="operator")
-    return broker.submit(request)
-
-
-def req(broker_task: str, tool: str, **params) -> ToolRequest:
-    return ToolRequest(tool=tool, params=params, task_id=broker_task,
-                       worker="w1")
+    return call(broker, task_id, tool, **params)
 
 
 # ---------------------------------------------------------- happy path
@@ -59,19 +71,19 @@ def req(broker_task: str, tool: str, **params) -> ToolRequest:
 
 def test_write_then_read_inside_the_workspace(broker) -> None:
     broker.open_workspace("t1", {"fs.write", "fs.read"})
-    w = broker.submit(req("t1", "fs.write", path="notes.txt", content="hello"))
+    w = call(broker, "t1", "fs.write", path="notes.txt", content="hello")
     assert w.ok
 
-    r = broker.submit(req("t1", "fs.read", path="notes.txt"))
+    r = call(broker, "t1", "fs.read", path="notes.txt")
     assert r.ok and r.detail["content"] == "hello"
 
 
 def test_list_returns_workspace_contents(broker) -> None:
     broker.open_workspace("t1", {"fs.write", "fs.list"})
-    broker.submit(req("t1", "fs.write", path="a.txt", content="x"))
-    broker.submit(req("t1", "fs.write", path="b.txt", content="y"))
+    call(broker, "t1", "fs.write", path="a.txt", content="x")
+    call(broker, "t1", "fs.write", path="b.txt", content="y")
 
-    result = broker.submit(req("t1", "fs.list", path="."))
+    result = call(broker, "t1", "fs.list", path=".")
     assert result.detail["entries"] == ["a.txt", "b.txt"]
 
 
@@ -86,7 +98,7 @@ def test_list_returns_workspace_contents(broker) -> None:
 ])
 def test_path_traversal_is_refused(broker, escape) -> None:
     broker.open_workspace("t1", {"fs.read", "fs.write"})
-    result = broker.submit(req("t1", "fs.write", path=escape, content="x"))
+    result = call(broker, "t1", "fs.write", path=escape, content="x")
     assert not result.ok
     assert "PathEscape" in result.error
 
@@ -99,7 +111,7 @@ def test_symlink_out_of_the_workspace_is_refused(broker, tmp_path) -> None:
     ws = broker.open_workspace("t1", {"fs.read"})
     (ws.root / "link.txt").symlink_to(secret)
 
-    result = broker.submit(req("t1", "fs.read", path="link.txt"))
+    result = call(broker, "t1", "fs.read", path="link.txt")
     assert not result.ok
     assert "PathEscape" in result.error
 
@@ -116,14 +128,14 @@ def test_workspace_resolve_raises_directly(broker) -> None:
 def test_a_tool_without_a_grant_is_refused(broker) -> None:
     """Default deny. Existing is not the same as being permitted."""
     broker.open_workspace("t1", {"fs.read"})
-    result = broker.submit(req("t1", "fs.write", path="x.txt", content="y"))
+    result = call(broker, "t1", "fs.write", path="x.txt", content="y")
     assert not result.ok
     assert "ToolNotAllowed" in result.error
 
 
 def test_an_unknown_tool_is_refused(broker) -> None:
     broker.open_workspace("t1", {"fs.read"})
-    result = broker.submit(req("t1", "shell.exec", cmd="rm -rf /"))
+    result = call(broker, "t1", "shell.exec", cmd="rm -rf /")
     assert not result.ok
     assert "ToolNotAllowed" in result.error
 
@@ -137,12 +149,13 @@ def test_a_grant_does_not_leak_between_tasks(broker) -> None:
     broker.open_workspace("t1", {"fs.write"})
     broker.open_workspace("t2", {"fs.read"})
 
-    result = broker.submit(req("t2", "fs.write", path="x.txt", content="y"))
+    result = call(broker, "t2", "fs.write", path="x.txt", content="y")
     assert not result.ok, "t2 was never granted fs.write"
 
 
 def test_no_workspace_means_no_execution(broker) -> None:
-    result = broker.submit(req("ghost", "fs.read", path="x.txt"))
+    # t1 holds a live lease but its workspace was never opened.
+    result = call(broker, "t1", "fs.read", path="x.txt")
     assert not result.ok
 
 
@@ -153,8 +166,8 @@ def test_byte_ceiling_is_enforced(broker) -> None:
     ws = broker.open_workspace("t1", {"fs.write"})
     ws.max_bytes = 10
 
-    assert broker.submit(req("t1", "fs.write", path="a", content="12345")).ok
-    over = broker.submit(req("t1", "fs.write", path="b", content="678901"))
+    assert call(broker, "t1", "fs.write", path="a", content="12345").ok
+    over = call(broker, "t1", "fs.write", path="b", content="678901")
     assert not over.ok
     assert "QuotaExceeded" in over.error
 
@@ -163,8 +176,8 @@ def test_file_count_ceiling_is_enforced(broker) -> None:
     ws = broker.open_workspace("t1", {"fs.write"})
     ws.max_files = 1
 
-    assert broker.submit(req("t1", "fs.write", path="a", content="x")).ok
-    over = broker.submit(req("t1", "fs.write", path="b", content="x"))
+    assert call(broker, "t1", "fs.write", path="a", content="x").ok
+    over = call(broker, "t1", "fs.write", path="b", content="x")
     assert not over.ok
     assert "QuotaExceeded" in over.error
 
@@ -174,7 +187,7 @@ def test_file_count_ceiling_is_enforced(broker) -> None:
 
 def test_closing_destroys_the_workspace(broker) -> None:
     ws = broker.open_workspace("t1", {"fs.write"})
-    broker.submit(req("t1", "fs.write", path="a.txt", content="x"))
+    call(broker, "t1", "fs.write", path="a.txt", content="x")
     root = ws.root
     assert root.exists()
 
@@ -193,7 +206,7 @@ def test_workspaces_are_not_shared(broker) -> None:
 
 def test_manifest_records_what_the_task_produced(broker) -> None:
     broker.open_workspace("t1", {"fs.write"})
-    broker.submit(req("t1", "fs.write", path="out/report.md", content="hi"))
+    call(broker, "t1", "fs.write", path="out/report.md", content="hi")
 
     m = broker.manifest("t1")
     assert m["file_count"] == 1
@@ -235,7 +248,7 @@ def test_shell_run_refuses_without_os_isolation(broker, monkeypatch) -> None:
     from lab import sandbox
     monkeypatch.setattr(sandbox, "available", lambda: False)
     broker.open_workspace("t1", {"shell.run"})
-    result = approved(broker, req("t1", "shell.run", argv=["/bin/echo", "hi"]))
+    result = approved(broker, "t1", "shell.run", argv=["/bin/echo", "hi"])
     assert not result.ok
     assert "refusing to run unconfined" in result.error
 
@@ -253,9 +266,8 @@ def test_shell_run_is_confined_to_the_workspace(broker, tmp_path) -> None:
     secret.write_text("do not read me")
 
     broker.open_workspace("t1", {"shell.run"})
-    result = approved(broker,
-        req("t1", "shell.run", argv=["/bin/cat", str(secret)])
-    )
+    result = approved(broker, "t1", "shell.run", argv=["/bin/cat", str(secret)])
+
     assert not result.ok
     assert "do not read me" not in str(result.detail)
 
@@ -265,9 +277,8 @@ def test_shell_run_works_inside_the_workspace(broker) -> None:
     ws = broker.open_workspace("t1", {"shell.run"})
     (ws.root / "hello.txt").write_text("world")
 
-    result = approved(broker,
-        req("t1", "shell.run", argv=["/bin/cat", "hello.txt"])
-    )
+    result = approved(broker, "t1", "shell.run", argv=["/bin/cat", "hello.txt"])
+
     assert result.ok
     assert "world" in result.detail["stdout"]
 
@@ -280,7 +291,7 @@ def test_shell_run_requires_the_approve_tier(broker) -> None:
 @needs_sandbox
 def test_shell_run_rejects_a_malformed_argv(broker) -> None:
     broker.open_workspace("t1", {"shell.run"})
-    assert not approved(broker, req("t1", "shell.run", argv="rm -rf /")).ok
+    assert not approved(broker, "t1", "shell.run", argv="rm -rf /").ok
 
 
 # ------------------------------------------------ item 1.1, R01 (#43)
@@ -291,10 +302,10 @@ def test_shell_run_rejects_a_malformed_argv(broker) -> None:
 
 def test_r01_allowed_delete_without_approval_does_not_run(broker, queue) -> None:
     ws = broker.open_workspace("t1", {"fs.write", "fs.delete"})
-    assert broker.submit(req("t1", "fs.write", path="keep.txt", content="x")).ok
+    assert call(broker, "t1", "fs.write", path="keep.txt", content="x").ok
 
     with pytest.raises(ApprovalRequired) as asked:
-        broker.submit(req("t1", "fs.delete", path="keep.txt"))
+        call(broker, "t1", "fs.delete", path="keep.txt")
 
     assert (ws.root / "keep.txt").read_text() == "x", "the effect must not happen"
     row = queue._conn.execute(
@@ -315,9 +326,9 @@ def test_policy_is_consulted_on_every_call(broker, monkeypatch) -> None:
 
     monkeypatch.setattr(broker.policy, "authorize_tool", spy)
     broker.open_workspace("t1", {"fs.write", "fs.read", "fs.list"})
-    broker.submit(req("t1", "fs.write", path="a", content="1"))
-    broker.submit(req("t1", "fs.read", path="a"))
-    broker.submit(req("t1", "fs.list"))
+    call(broker, "t1", "fs.write", path="a", content="1")
+    call(broker, "t1", "fs.read", path="a")
+    call(broker, "t1", "fs.list")
     assert calls == [("fs.write", Tier.NOTIFY), ("fs.read", Tier.AUTONOMOUS),
                      ("fs.list", Tier.AUTONOMOUS)]
 
@@ -325,18 +336,18 @@ def test_policy_is_consulted_on_every_call(broker, monkeypatch) -> None:
 def test_a_granted_call_runs_once_and_only_as_approved(broker) -> None:
     ws = broker.open_workspace("t1", {"fs.write", "fs.delete"})
     for name in ("a.txt", "b.txt"):
-        broker.submit(req("t1", "fs.write", path=name, content="x"))
+        call(broker, "t1", "fs.write", path=name, content="x")
 
-    assert approved(broker, req("t1", "fs.delete", path="a.txt")).ok
+    assert approved(broker, "t1", "fs.delete", path="a.txt").ok
     assert not (ws.root / "a.txt").exists()
 
     # The approval named a.txt. It does not stretch to b.txt, and it is spent.
     with pytest.raises(ApprovalRequired):
-        broker.submit(req("t1", "fs.delete", path="b.txt"))
+        call(broker, "t1", "fs.delete", path="b.txt")
     assert (ws.root / "b.txt").exists()
-    broker.submit(req("t1", "fs.write", path="a.txt", content="again"))
+    call(broker, "t1", "fs.write", path="a.txt", content="again")
     with pytest.raises(ApprovalRequired):
-        broker.submit(req("t1", "fs.delete", path="a.txt"))
+        call(broker, "t1", "fs.delete", path="a.txt")
 
 
 def test_asking_twice_opens_one_request(broker, queue) -> None:
@@ -344,17 +355,17 @@ def test_asking_twice_opens_one_request(broker, queue) -> None:
     ids = set()
     for _ in range(3):
         with pytest.raises(ApprovalRequired) as asked:
-            broker.submit(req("t1", "fs.delete", path="x"))
+            call(broker, "t1", "fs.delete", path="x")
         ids.add(asked.value.approval_id)
     assert len(ids) == 1
     n = queue._conn.execute("SELECT COUNT(*) FROM approvals").fetchone()[0]
     assert n == 1
 
 
-def test_no_policy_engine_means_nothing_runs(tmp_path) -> None:
-    broker = ExecutionBroker(workspace_root=tmp_path / "ws")
+def test_no_policy_engine_means_nothing_runs(tmp_path, queue, contexts) -> None:
+    broker = ExecutionBroker(workspace_root=tmp_path / "ws", leases=queue.owns_lease)
     ws = broker.open_workspace("t1", {"fs.write", "fs.read"})
-    result = broker.submit(req("t1", "fs.write", path="a", content="x"))
+    result = broker.session(contexts["t1"]).submit("fs.write", path="a", content="x")
     assert not result.ok and "PolicyUnavailable" in result.error
     assert not (ws.root / "a").exists()
 
@@ -365,7 +376,7 @@ def test_a_failed_audit_write_refuses_the_call(broker, queue) -> None:
         "CREATE TRIGGER no_audit BEFORE INSERT ON events "
         "BEGIN SELECT RAISE(ABORT, 'audit disk full'); END"
     )
-    result = broker.submit(req("t1", "fs.write", path="a", content="x"))
+    result = call(broker, "t1", "fs.write", path="a", content="x")
     assert not result.ok and "PolicyUnavailable" in result.error
     assert not (ws.root / "a").exists()
 
@@ -373,22 +384,22 @@ def test_a_failed_audit_write_refuses_the_call(broker, queue) -> None:
 def test_never_tier_is_refused_even_when_allowed(broker, monkeypatch) -> None:
     monkeypatch.setitem(TOOL_TIERS, "fs.read", Tier.NEVER)
     broker.open_workspace("t1", {"fs.read"})
-    result = broker.submit(req("t1", "fs.read", path="a"))
+    result = call(broker, "t1", "fs.read", path="a")
     assert not result.ok and "PolicyDenied" in result.error
 
 
 @pytest.mark.parametrize("tool", ["registry", "manifest", "_tool_fs_read", "fs.nope"])
 def test_only_registered_tools_dispatch(broker, tool) -> None:
     broker.open_workspace("t1", {"fs.read"})
-    result = broker.submit(req("t1", tool))
+    result = call(broker, "t1", tool)
     assert not result.ok and "ToolNotAllowed" in result.error
 
 
 def test_every_decision_is_audited(broker, queue) -> None:
     broker.open_workspace("t1", {"fs.write", "fs.delete"})
-    broker.submit(req("t1", "fs.write", path="a", content="x"))
+    call(broker, "t1", "fs.write", path="a", content="x")
     with pytest.raises(ApprovalRequired):
-        broker.submit(req("t1", "fs.delete", path="a"))
+        call(broker, "t1", "fs.delete", path="a")
     kinds = [r[0] for r in queue._conn.execute(
-        "SELECT kind FROM events WHERE task_id = 't1' ORDER BY id")]
+        "SELECT kind FROM events WHERE task_id = 't1' AND kind LIKE 'tool_%' ORDER BY id")]
     assert kinds == ["tool_allow", "tool_needs_approval"]
