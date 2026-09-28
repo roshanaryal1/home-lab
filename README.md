@@ -69,12 +69,47 @@ idempotent or it is not. On restart, stranded tasks become
 waits for a human. This is the difference between a crash costing you
 five minutes and a crash sending the same email twice.
 
+## Security status
+
+Three protections do not exist yet, and nothing else in this repo makes up
+for them: a separate non-admin lab account ([#70](https://github.com/roshanaryal1/home-lab/issues/70)),
+network egress control, and a secret broker. Until they close, run the lab
+only with dummy data, review every draft by hand and connect no real
+credentials. [SECURITY.md](SECURITY.md) has the full list of what is and
+is not enforced.
+
+Ideas taken from outside projects do not change that. They are reviewed
+against these gaps first; see the
+[agent-scripts review](docs/reviews/2026-09-29-agent-scripts.md).
+
+## Skill library checks
+
+`lab skills` is a read-only check on a directory of skills. It never runs,
+imports or writes anything it scans.
+
+```sh
+uv run python -m lab.cli skills validate --root path/to/skills   # exit 1 on any problem
+uv run python -m lab.cli skills inventory --root path/to/skills [--json]
+```
+
+`validate` checks that every skill has a SKILL.md with a safe frontmatter
+(no aliases, anchors or tags), a non-empty name and description, a name that
+matches its directory, no duplicate names, no symlink leaving the library,
+size limits, and none of a short list of forbidden commands (permission
+prompts disabled, a download piped into a shell) in SKILL.md, executable
+files or a `scripts/` or `bin/` directory. `inventory` lists each
+skill with a content hash so any change to a skill is visible. Syncing a
+library between machines is deliberately not built: it waits until one
+machine is named the canonical copy and changes to skills have an approval
+step ([#87](https://github.com/roshanaryal1/home-lab/issues/87)).
+
 ## Layout
 
 ```
 lab/migrations/      numbered SQL migrations for the queue and audit schema
 lab/queue.py         state machine, leases, retry, crash recovery
 lab/supervisor.py    asyncio loop, concurrency slots, dispatch
+lab/skills.py        read-only skill validator and inventory
 ops/mac-mini-setup.md  setup checklist for the mini itself
 tests/               pytest suite, no external dependencies
 ```
