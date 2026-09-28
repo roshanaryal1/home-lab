@@ -277,6 +277,16 @@ Implemented and tested:
   moved. Tested against a stub endpoint; no real model has been run, and
   the records are not signed, only self-hashed, so they detect accident
   and casual edits, not an adversary who recomputes the hash.
+- **Sleep prevention and logs** (`lab/keepawake.py`, `lab/logsetup.py`, H5a).
+  `lab keepawake` is read-only on the database: it holds `caffeinate -i`
+  while a task is queued, leased or running or the log moved within the
+  grace period, and never for approvals waiting on a person or while the
+  lab is paused or stopped. The daemon logs as one JSON object per line
+  (`ts`, `level`, `logger`, `msg`) with ASCII escaping, so text from a
+  task, page or model cannot forge a second record or move a terminal
+  cursor; files are 0600 in a 0700 directory and rotate at 5 MB keeping
+  five (`LAB_LOG_DIR` or `--log-dir`; point it at the external SSD for the
+  long-term set).
 - **The unattended loop** (`lab/loop.py`, `lab tick`, H1). Proposals are
   summarized by a bounded model and routed with no person in between. The
   summarizer is registered with no tools, no secret and no external action,

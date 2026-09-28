@@ -32,6 +32,7 @@ DEFAULT_MAX_AGE = 90.0
 WATCHDOG_INTERVAL_SECONDS = 30
 TICK_LABEL = "com.homelab.tick"
 TICK_INTERVAL_SECONDS = 300
+KEEPAWAKE_LABEL = "com.homelab.keepawake"
 
 
 def heartbeat_path(db: str | Path) -> Path:
@@ -142,3 +143,10 @@ def tick_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
     job's environment; without them the job exits 1 and does nothing."""
     return _plist(TICK_LABEL, [python, "-m", "lab.cli", "--db", db, "tick"], workdir,
                   UserName=user, RunAtLoad=False, StartInterval=TICK_INTERVAL_SECONDS)
+
+
+def keepawake_plist(*, python: str, workdir: str, db: str) -> bytes:
+    """``lab keepawake`` as a daemon: read-only on the database, holds
+    ``caffeinate`` only while work is pending."""
+    return _plist(KEEPAWAKE_LABEL, [python, "-m", "lab.cli", "--db", db, "keepawake"], workdir,
+                  RunAtLoad=True, KeepAlive=True, ThrottleInterval=30)

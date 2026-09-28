@@ -44,6 +44,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 import unicodedata
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
@@ -56,6 +57,7 @@ from lab import (
     control,
     drills,
     emitter,
+    keepawake,
     loop,
     metrics,
     publish,
@@ -469,6 +471,11 @@ def build_parser() -> argparse.ArgumentParser:
         m_end.add_argument("--reason", required=True)
     mem_sub.add_parser("sweep", help="retire expired memories")
 
+    ka = sub.add_parser("keepawake", help="hold the machine awake only while work is pending")
+    ka.add_argument("--once", action="store_true", help="print the decision and exit")
+    ka.add_argument("--grace", type=float, default=keepawake.DEFAULT_GRACE_SECONDS)
+    ka.add_argument("--interval", type=float, default=30.0)
+
     tk = sub.add_parser("tick", help="one pass of the loop: observe, summarize, route")
     tk.add_argument("--repo", default=None, help="also observe this owner/repo on GitHub")
     tk.add_argument("--mock-reply", default=None,
@@ -542,6 +549,33 @@ def build_parser() -> argparse.ArgumentParser:
     chk.add_argument("--checkpoint", type=Path, required=True)
 
     return parser
+
+
+def cmd_keepawake(args: argparse.Namespace) -> int:
+    """Read-only on the database. On the mini this runs as a LaunchDaemon."""
+    if not args.db.exists():
+        print(f"No database at {args.db}", file=sys.stderr)
+        return 1
+    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    conn.execute("PRAGMA busy_timeout = 5000")
+    holder = keepawake.Holder()
+    try:
+        while True:
+            decision = keepawake.decide(conn, args.grace)
+            print(f"{'hold' if decision.hold else 'release'}: {decision.reason}", flush=True)
+            if args.once:
+                return 0
+            try:
+                holder.apply(decision)
+            except OSError as exc:
+                print(f"keepawake: cannot start caffeinate: {exc}", file=sys.stderr)
+                return 1
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        holder.close()
+        conn.close()
 
 
 def cmd_tick(args: argparse.Namespace) -> int:
@@ -994,6 +1028,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_watchdog(args)
     if args.command == "tick":
         return cmd_tick(args)
+    if args.command == "keepawake":
+        return cmd_keepawake(args)
     if args.command == "eval":
         from lab import evals
         return evals.main(args.eval_args)
