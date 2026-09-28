@@ -27,7 +27,7 @@ from lab.broker import (
     ToolSession,
     Workspace,
 )
-from lab.policy import PolicyEngine
+from lab.policy import PolicyEngine, action_hash
 from lab.queue import LeaseLost, Task, TaskQueue
 from lab.supervisor import Supervisor, SupervisorConfig
 
@@ -172,9 +172,12 @@ async def test_r07_policy_error_does_not_strand_a_leased_task(tmp_path, monkeypa
         sup.close()
 
 
-@pytest.mark.xfail(strict=True, reason="R08 open: consume ignores expiry, #49 (1.4)")
 def test_r08_an_approval_expired_before_use_is_not_spent(q) -> None:
-    """R08: an approval that expired between lookup and use was spent."""
+    """R08: an approval that expired between lookup and use was spent.
+
+    Consumption is one UPDATE that re-checks expiry and the intent hash
+    at the moment of use (item 1.4), so the late consumer gets nothing.
+    """
     task_id = q.add_task("delete", capability_tier="approve")
     policy = PolicyEngine(q._conn)
     task = q.get(task_id)
@@ -183,7 +186,10 @@ def test_r08_an_approval_expired_before_use_is_not_spent(q) -> None:
     # Lookup succeeded a moment ago; the window closes before consumption.
     q._conn.execute("UPDATE approvals SET expires_at = datetime('now', '-1 second') "
                     "WHERE id = ?", (approval_id,))
-    assert policy._consume(approval_id) is False
+    assert policy._consume(approval_id, action_hash(task)) is False
+    consumed = q._conn.execute("SELECT consumed_at FROM approvals WHERE id = ?",
+                               (approval_id,)).fetchone()[0]
+    assert consumed is None
 
 
 @pytest.mark.xfail(strict=True, reason="R09 open: check-then-use path race, #50 (1.5)")

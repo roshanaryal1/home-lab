@@ -147,7 +147,7 @@ def test_show_renders_the_exact_parameters(db, capsys) -> None:
     out = capsys.readouterr().out
     assert "alice@example.com" in out
     assert "4200" in out
-    assert "Changing any parameter invalidates this approval" in out
+    assert "Changing any parameter" in out and "invalidates this approval" in out
 
 
 def test_show_redacts_credentials(db, capsys) -> None:

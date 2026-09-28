@@ -64,38 +64,50 @@ class PolicyResult:
         return self.decision is Decision.ALLOW
 
 
+# Part of every intent. Bumping it invalidates every outstanding grant,
+# which is the point: an approval given under one policy is not an
+# approval under the next.
+POLICY_VERSION = "2026-09-29.1"
+
+
+def canonical(obj: object) -> str:
+    """The defined serialization an intent is shown and hashed in.
+
+    Sorted keys, no insignificant whitespace, UTF-8 text rather than
+    escapes. Close to RFC 8785 for the JSON this lab produces (strings,
+    integers, booleans, nulls, lists, objects); not a full implementation.
+    """
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def intent_hash(intent: dict) -> str:
+    return hashlib.sha256(canonical(intent).encode("utf-8")).hexdigest()
+
+
+def task_intent(task: Task) -> dict:
+    """What a task-level approval authorizes: this task, this payload."""
+    return {"kind": "task", "task": task.id, "agent_kind": task.agent_kind,
+            "payload": task.payload, "policy_version": POLICY_VERSION}
+
+
+def tool_intent(task_id: str, tool: str, params: dict,
+                preconditions: dict | None = None) -> dict:
+    """What a tool-call approval authorizes (item 1.4).
+
+    ``preconditions`` is the state the call will act on, as the broker
+    measured it (for example a hash of the workspace). If that state has
+    changed by the time the call is made again, the intent differs and
+    the old grant does not apply. The lease generation is deliberately
+    absent: approving parks the task, and the rerun that uses the grant
+    always holds a newer lease.
+    """
+    return {"kind": "tool", "task": task_id, "tool": tool, "params": params,
+            "preconditions": preconditions or {}, "policy_version": POLICY_VERSION}
+
+
 def action_hash(task: Task) -> str:
-    """Stable fingerprint of exactly what is about to happen.
-
-    Sorted keys so that two logically identical payloads hash the same,
-    and a changed parameter always hashes differently. This is what binds
-    an approval to one action rather than to a capability.
-    """
-    material = json.dumps(
-        {"task": task.id, "kind": task.agent_kind, "payload": task.payload},
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(material.encode("utf-8")).hexdigest()
-
-
-def tool_action(task_id: str, tool: str, params: dict) -> str:
-    """Canonical text of one tool call, as a human reviewer is shown it.
-
-    Sorted keys and fixed separators, so the same call always renders
-    (and hashes) the same, and any changed argument renders differently.
-    """
-    return json.dumps(
-        {"task": task_id, "tool": tool, "params": params},
-        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-    )
-
-
-def tool_action_hash(task_id: str, tool: str, params: dict) -> str:
-    """Fingerprint binding an approval to one exact tool call (item 1.1)."""
-    return hashlib.sha256(
-        tool_action(task_id, tool, params).encode("utf-8")
-    ).hexdigest()
+    """Fingerprint of a task-level intent. Changes with any parameter."""
+    return intent_hash(task_intent(task))
 
 
 class PolicyEngine:
@@ -149,35 +161,35 @@ class PolicyEngine:
             )
 
         # approve tier: requires a valid, unexpired, unconsumed approval
-        # bound to this exact action.
+        # bound to this exact action. Lookup, consumption and the audit
+        # record commit together, and the consuming UPDATE re-checks
+        # every condition, so an approval that expires between lookup
+        # and use is not spent (R08).
         wanted = action_hash(task)
-        row = self._conn.execute(
-            "SELECT id FROM approvals "
-            "WHERE task_id = ? AND action_hash = ? AND state = 'granted' "
-            f"AND consumed_at IS NULL AND expires_at > {NOW_MS} "
-            "ORDER BY requested_at LIMIT 1",
-            (task.id, wanted),
-        ).fetchone()
-
-        if row is None:
+        with self._tx():
+            row = self._conn.execute(
+                "SELECT id FROM approvals "
+                "WHERE task_id = ? AND action_hash = ? AND state = 'granted' "
+                f"AND consumed_at IS NULL AND expires_at > {NOW_MS} "
+                "ORDER BY requested_at LIMIT 1",
+                (task.id, wanted),
+            ).fetchone()
+            if row is None:
+                return self._record(
+                    task, tier, Decision.NEEDS_APPROVAL,
+                    "no valid, unexpired, unconsumed approval for this exact action",
+                )
+            if not self._consume(row["id"], wanted):
+                return self._record(
+                    task, tier, Decision.NEEDS_APPROVAL,
+                    "approval was consumed, expired or changed before use",
+                )
             return self._record(
-                task, tier, Decision.NEEDS_APPROVAL,
-                "no valid, unexpired, unconsumed approval for this exact action",
+                task, tier, Decision.ALLOW, "approval consumed", row["id"]
             )
-
-        if not self._consume(row["id"]):
-            # Lost a race with another worker for the same token.
-            return self._record(
-                task, tier, Decision.NEEDS_APPROVAL,
-                "approval was consumed by another worker first",
-            )
-
-        return self._record(
-            task, tier, Decision.ALLOW, "approval consumed", row["id"]
-        )
 
     def authorize_tool(self, task_id: str, tool: str, params: dict,
-                       tier: Tier) -> PolicyResult:
+                       tier: Tier, preconditions: dict | None = None) -> PolicyResult:
         """The per-call gate. The broker calls this before every tool runs.
 
         ``tier`` comes from the broker's trusted registry, never from the
@@ -188,8 +200,9 @@ class PolicyEngine:
         call is refused. Every decision is audited, and if the audit
         write fails the caller sees an exception, never an allow.
         """
-        action = tool_action(task_id, tool, params)
-        wanted = tool_action_hash(task_id, tool, params)
+        intent = tool_intent(task_id, tool, params, preconditions)
+        action = canonical(intent)
+        wanted = intent_hash(intent)
 
         def record(decision: Decision, reason: str,
                    approval_id: str | None = None) -> PolicyResult:
@@ -214,7 +227,7 @@ class PolicyEngine:
                 "ORDER BY requested_at LIMIT 1",
                 (task_id, wanted),
             ).fetchone()
-            if row is not None and self._consume(row["id"]):
+            if row is not None and self._consume(row["id"], wanted):
                 return record(Decision.ALLOW, "approval consumed", row["id"])
 
             pending = self._conn.execute(
@@ -227,24 +240,27 @@ class PolicyEngine:
             else:
                 approval_id = uuid.uuid4().hex
                 self._conn.execute(
-                    "INSERT INTO approvals (id, task_id, reason, action_hash, "
-                    "expires_at) VALUES (?, ?, ?, ?, ?)",
-                    (approval_id, task_id, f"tool call {action}", wanted,
+                    "INSERT INTO approvals (id, task_id, reason, action_hash, intent, "
+                    "expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (approval_id, task_id, f"tool call {tool}", wanted, action,
                      _ts(_utcnow())),
                 )
             return record(Decision.NEEDS_APPROVAL,
                           f"no approval for this exact call: {action}", approval_id)
 
-    def _consume(self, approval_id: str) -> bool:
-        """Spend an approval exactly once.
+    def _consume(self, approval_id: str, wanted_hash: str) -> bool:
+        """Reserve an approval for exactly this intent, exactly once.
 
-        The unconsumed condition lives in the WHERE clause rather than in
-        a prior SELECT, so concurrent workers cannot both succeed.
+        Every condition is in the one UPDATE rather than a prior SELECT:
+        granted, unspent, unexpired at this moment, and bound to the
+        intent being executed. Two consumers cannot both succeed, and an
+        approval that expired after it was looked up is not spent (R08).
         """
         cur = self._conn.execute(
-            "UPDATE approvals SET consumed_at = "
-            f"{NOW_MS} WHERE id = ? AND consumed_at IS NULL",
-            (approval_id,),
+            f"UPDATE approvals SET consumed_at = {NOW_MS} "
+            "WHERE id = ? AND state = 'granted' AND consumed_at IS NULL "
+            f"AND expires_at > {NOW_MS} AND action_hash = ?",
+            (approval_id, wanted_hash),
         )
         return cur.rowcount == 1
 
@@ -279,9 +295,10 @@ class PolicyEngine:
         """Open a pending approval request for a human to decide."""
         approval_id = uuid.uuid4().hex
         self._conn.execute(
-            "INSERT INTO approvals (id, task_id, reason, action_hash, "
-            "expires_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO approvals (id, task_id, reason, action_hash, intent, "
+            "expires_at) VALUES (?, ?, ?, ?, ?, ?)",
             (approval_id, task.id, reason, action_hash(task),
+             canonical(task_intent(task)),
              _ts(_utcnow())),  # pending requests carry no grant window yet
         )
         return approval_id

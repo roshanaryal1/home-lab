@@ -128,6 +128,9 @@ CREATE TABLE IF NOT EXISTS approvals (
     -- it to the exact normalised parameters that were shown to the human,
     -- so approving "email alice about X" cannot be reused to email bob.
     action_hash TEXT NOT NULL,
+    -- The exact intent the reviewer is shown, in the canonical form
+    -- action_hash is computed over (lab.policy.canonical). Item 1.4.
+    intent      TEXT,
     -- Single use. Set the moment the approval is spent, so a replay of the
     -- same token finds it already consumed.
     consumed_at TEXT,

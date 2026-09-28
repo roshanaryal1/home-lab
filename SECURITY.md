@@ -51,6 +51,11 @@ Implemented and tested:
   before every call; an approve-tier call needs an approval for that
   exact tool and arguments, and without a policy engine or an audit
   record nothing runs (`tests/test_broker.py`, item 1.1 section).
+  Each approval binds an immutable intent (task, tool, arguments, the
+  workspace state it acts on, policy version), stored and shown in
+  `lab.cli show`; it is consumed by one UPDATE that re-checks grant,
+  expiry and hash, so a changed file, a new policy version or an expiry
+  at the moment of use voids it (item 1.4, R08).
 - **Execution broker** (`lab/broker.py`, issue #10). Workers submit typed
   tool requests instead of touching the filesystem directly. Per-task
   workspaces, path confinement by resolved path so symlinks are caught as
@@ -75,8 +80,6 @@ every draft by hand.
   the same OS user, so a hostile handler that found the database file
   could open it; the separate lab account closes that (#70). Only code
   under `lab.handlers` can be loaded into a worker.
-- Approval consumption does not re-check expiry or bind the exact action
-  (#49).
 - Workspace path checks race with symlink swaps, and sandboxed commands
   inherit the supervisor's environment (#50).
 - Retries do not yet distinguish an unknown remote outcome (#56), and
