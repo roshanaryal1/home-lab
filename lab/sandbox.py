@@ -97,6 +97,24 @@ def available() -> bool:
     return platform.system() == "Darwin" and Path(SANDBOX_EXEC).exists()
 
 
+# Characters that would end or reshape an SBPL string literal. A path
+# containing one is refused rather than escaped: nothing legitimate in a
+# lab workspace path needs them.
+_PROFILE_UNSAFE = frozenset('"\\\n\r\0')
+
+# Written by a command and later executed by something outside the
+# sandbox (git, a login shell). Never writable from inside a workspace.
+PROTECTED_NAMES = (".bashrc", ".bash_profile", ".profile", ".zshrc", ".zshenv",
+                   ".zprofile", ".zlogin", ".envrc")
+
+
+def _profile_path(path: Path) -> str:
+    text = str(path)
+    if _PROFILE_UNSAFE.intersection(text):
+        raise SandboxUnavailable(f"refusing a path that could alter the profile: {text!r}")
+    return text
+
+
 def build_profile(
     workspace: Path,
     *,
@@ -108,7 +126,7 @@ def build_profile(
     Deny by default. Everything permitted is permitted explicitly, and
     the workspace is the only writable location.
     """
-    root = workspace.resolve()
+    root = _profile_path(workspace.resolve())
     lines = [
         "(version 1)",
         "(deny default)",
@@ -142,7 +160,13 @@ def build_profile(
         '(deny file-read* (subpath "/etc") (subpath "/private/etc"))',
     ]
     for path in extra_readable:
-        lines.append(f'(allow file-read* (subpath "{path.resolve()}"))')
+        lines.append(f'(allow file-read* (subpath "{_profile_path(path.resolve())}"))')
+
+    # Later rules win: carve the hook directory and shell start-up files
+    # back out of the writable workspace (item 1.5).
+    lines.append(f'(deny file-write* (subpath "{root}/.git/hooks"))')
+    for name in PROTECTED_NAMES:
+        lines.append(f'(deny file-write* (literal "{root}/{name}"))')
 
     if allow_network:
         # Not reachable yet: nothing calls this with network on, and
@@ -177,16 +201,16 @@ def run(
     if not root.is_dir():
         raise SandboxUnavailable(f"workspace does not exist: {root}")
 
-    profile = root / ".sandbox.sb"
-    profile.write_text(
-        build_profile(root, allow_network=allow_network,
-                      extra_readable=extra_readable),
-        encoding="utf-8",
-    )
+    # Passed inline with -p, never written to disk. The profile used to be
+    # written to <workspace>/.sandbox.sb, so a symlink planted there made
+    # the supervisor overwrite a file outside the workspace before any
+    # command started (R10, item 1.5).
+    profile = build_profile(root, allow_network=allow_network,
+                            extra_readable=extra_readable)
 
     try:
         completed = subprocess.run(
-            [SANDBOX_EXEC, "-f", str(profile), *argv],
+            [SANDBOX_EXEC, "-p", profile, *argv],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -197,8 +221,6 @@ def run(
         return SandboxResult(
             ok=False, returncode=-1, stdout="", stderr="timed out"
         )
-    finally:
-        profile.unlink(missing_ok=True)
 
     stderr = completed.stderr
     # Seatbelt surfaces refusals as EPERM, which tools report in their

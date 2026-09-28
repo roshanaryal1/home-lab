@@ -57,10 +57,14 @@ Implemented and tested:
   expiry and hash, so a changed file, a new policy version or an expiry
   at the moment of use voids it (item 1.4, R08).
 - **Execution broker** (`lab/broker.py`, issue #10). Workers submit typed
-  tool requests instead of touching the filesystem directly. Per-task
-  workspaces, path confinement by resolved path so symlinks are caught as
-  well as `..`, default-deny tool allowlists per task, byte and file-count
-  ceilings, and an artifact manifest per execution.
+  tool requests instead of touching the filesystem directly. Private
+  (0700) per-task workspaces; file tools walk paths by descriptor with
+  O_NOFOLLOW in every component, so a symlink, or a directory swapped for
+  one, is refused at the moment of use (item 1.5, R09); git hooks and
+  shell start-up files cannot be written or deleted; the Seatbelt
+  profile is passed inline and never written into the workspace (R10);
+  default-deny tool allowlists per task, byte and file-count ceilings,
+  and an artifact manifest per execution.
 - **Durable task state** with bounded dispatch, lease renewal, atomic
   state transitions (#44), lease tokens checked in the same transaction
   as each write with a generation per claim and a host singleton lock
@@ -80,8 +84,8 @@ every draft by hand.
   the same OS user, so a hostile handler that found the database file
   could open it; the separate lab account closes that (#70). Only code
   under `lab.handlers` can be loaded into a worker.
-- Workspace path checks race with symlink swaps, and sandboxed commands
-  inherit the supervisor's environment (#50).
+- Sandboxed commands inherit the supervisor's environment, and
+  timeouts and output are not bounded (#50, item 1.10).
 - Retries do not yet distinguish an unknown remote outcome (#56), and
   broker calls do not yet carry the lease token (item 1.2, #48).
 - A worker crash or lease loss does not stop the running handler (#52).
