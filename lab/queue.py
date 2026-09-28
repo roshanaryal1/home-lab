@@ -605,7 +605,8 @@ class TaskQueue:
 
     def resume_after_approval(self, task_id: str) -> None:
         """Return an approved task to the queue so a worker can pick it up."""
-        self._transition(task_id, "queued")
+        with self._tx():
+            self._transition(task_id, "queued")
 
     def cancel(self, task_id: str, reason: str = "cancelled") -> None:
         with self._tx():
@@ -642,14 +643,14 @@ class TaskQueue:
         lease TTL. That delay is the price of never double-running a task,
         and it is the right trade.
         """
-        stranded = self._conn.execute(
+        stranded_sql = (
             "SELECT t.id, t.idempotent, t.executions, t.max_attempts "
             "FROM tasks t "
             "JOIN leases l ON l.task_id = t.id AND l.released_at IS NULL "
             "WHERE t.state IN ('leased', 'running') "
-            f"  AND (l.expires_at <= {NOW_MS} OR l.owner = ?)",
-            (self.owner,),
-        ).fetchall()
+            f"  AND (l.expires_at <= {NOW_MS} OR l.owner = ?)"
+        )
+        stranded = self._conn.execute(stranded_sql, (self.owner,)).fetchall()
 
         interrupted = requeued = held = 0
         for row in stranded:
@@ -658,18 +659,26 @@ class TaskQueue:
             # already-reconciled task's writes half-applied just because
             # a later row in the same batch failed.
             with self._tx():
-                self._transition(row["id"], "interrupted",
+                # The scan above ran outside this transaction. The task may
+                # have finished, or been reclaimed and leased afresh, since.
+                # Only act on what is still stranded at the moment of writing.
+                current = self._conn.execute(
+                    stranded_sql + " AND t.id = ?", (self.owner, row["id"])
+                ).fetchone()
+                if current is None:
+                    continue
+                self._transition(current["id"], "interrupted",
                                  error="lease expired or owner restarted")
-                self._release_lease(row["id"])
+                self._release_lease(current["id"])
                 interrupted += 1
 
-                if row["idempotent"] and row["executions"] < row["max_attempts"]:
-                    self._transition(row["id"], "queued")
+                if current["idempotent"] and current["executions"] < current["max_attempts"]:
+                    self._transition(current["id"], "queued")
                     requeued += 1
                 else:
                     held += 1
 
-        if stranded:
+        if interrupted:
             self._record(None, "recovery", detail={
                 "interrupted": interrupted,
                 "requeued": requeued,
