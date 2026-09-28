@@ -248,6 +248,23 @@ class Ledger:
                                    contradicts, sources, row["kind"]))
         return views
 
+    def invalidate_source(self, source_id: str, reason: str) -> int:
+        """Withdraw every link that rests on ``source_id`` and re-derive the
+        claims that leaned on it. Used when a source is revoked (a memory,
+        a retracted page). Returns how many links were withdrawn."""
+        rows = self._conn.execute(
+            "SELECT e.id, e.claim_id, c.task_id FROM claim_evidence e "
+            "JOIN evidence_snapshots s ON s.id = e.snapshot_id "
+            "JOIN claims c ON c.id = e.claim_id WHERE s.source_id = ?", (source_id,)).fetchall()
+        claims = sorted({r["claim_id"] for r in rows})
+        for row in rows:
+            self._conn.execute("DELETE FROM claim_evidence WHERE id = ?", (row["id"],))
+            append_event(self._conn, row["task_id"], "evidence_withdrawn", detail={
+                "claim": row["claim_id"], "source_id": source_id, "reason": reason})
+        for claim_id in claims:
+            self._recompute(claim_id, keep_verified=False)
+        return len(rows)
+
     def support_sources(self, claim_id: int) -> set[tuple[str, str]]:
         """(source_id, source_type) of every snapshot that supports a claim."""
         return {(r["source_id"], r["source_type"]) for r in self._conn.execute(

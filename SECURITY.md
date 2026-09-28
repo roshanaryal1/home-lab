@@ -190,6 +190,22 @@ Implemented and tested:
   audit event. Limits: "independent" means a different source id, not
   proof the sources did not copy each other, and deciding whether a quote
   really supports a claim is still a person's judgement.
+- **Inspectable memory** (`lab/memory.py`, migration 9, item 8.4, #85).
+  ADR 0003's rule is enforced: an outsider's content never becomes
+  curated memory by itself. Curated memory needs a named promoter and is
+  refused when it came from a tainted task; evidence memory always
+  records its source and hash, is always untrusted, and always expires
+  (30 days by default). Every entry carries source, hash, time, creator,
+  trust, expiry and an embedding version (NULL: the FTS5 baseline, no
+  embedding). Retrieval rebuilds the query token by token so a search
+  string cannot use FTS syntax, returns fixed-schema data with
+  provenance, and only from active, unexpired rows. Revoking removes a
+  memory from the index in the same transaction, names the tasks that
+  read it, and, given the ledger, withdraws evidence that cited it so the
+  claims and routes built on it fall back; deleting blanks the text and
+  keeps a tombstone with its hash; correcting replaces it and links back.
+  Limits: a memory a task already copied elsewhere (a file, a prompt)
+  is not recalled by revoking it, and there is no embedding retrieval yet.
 - **Router rubric** (`lab/rubric.py`, item 7.2, closes #33). Routes a
   research task by evidence weight alone, with no model call: a post
   needs one usable claim; a blog needs at least three distinct incident

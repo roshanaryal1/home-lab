@@ -24,6 +24,7 @@ Usage:
     python3 -m lab.cli artifacts list <task-id>
     python3 -m lab.cli artifacts verify
     python3 -m lab.cli ledger show|review|verify ...
+    python3 -m lab.cli memory search|inspect|add-curated|add-evidence|correct|revoke|delete|sweep
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
@@ -51,6 +52,7 @@ from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
 from lab.journal import OperationJournal
 from lab.ledger import Ledger, LedgerError
+from lab.memory import Memory, MemoryRefused
 from lab.policy import PolicyEngine, task_intent
 from lab.queue import TaskQueue
 
@@ -373,6 +375,35 @@ def build_parser() -> argparse.ArgumentParser:
     op_init.add_argument("--dir", type=Path, required=True,
                          help="a directory the agent's OS account cannot read")
 
+    mem = sub.add_parser("memory", help="inspect, search, correct, revoke and delete memory")
+    mem.add_argument("--store", type=Path, default=None)
+    mem_sub = mem.add_subparsers(dest="memory_command", required=True)
+    m_search = mem_sub.add_parser("search")
+    m_search.add_argument("query")
+    m_search.add_argument("--limit", type=int, default=5)
+    m_inspect = mem_sub.add_parser("inspect")
+    m_inspect.add_argument("id", type=int)
+    m_cur = mem_sub.add_parser("add-curated", help="a fact a person promotes")
+    m_cur.add_argument("text")
+    m_cur.add_argument("--source", required=True)
+    m_cur.add_argument("--by", required=True)
+    m_ev = mem_sub.add_parser("add-evidence", help="a source-backed, untrusted, expiring note")
+    m_ev.add_argument("text")
+    m_ev.add_argument("--source", required=True)
+    m_ev.add_argument("--sha256", required=True)
+    m_ev.add_argument("--by", required=True)
+    m_cor = mem_sub.add_parser("correct")
+    m_cor.add_argument("id", type=int)
+    m_cor.add_argument("text")
+    m_cor.add_argument("--by", required=True)
+    m_cor.add_argument("--reason", required=True)
+    for name in ("revoke", "delete"):
+        m_end = mem_sub.add_parser(name)
+        m_end.add_argument("id", type=int)
+        m_end.add_argument("--by", required=True)
+        m_end.add_argument("--reason", required=True)
+    mem_sub.add_parser("sweep", help="retire expired memories")
+
     rt = sub.add_parser("route", help="route a research task to post, blog, paper or nothing")
     rt.add_argument("task_id")
     rt.add_argument("--want", choices=["post", "blog", "paper"], default=None,
@@ -550,6 +581,47 @@ def cmd_artifacts(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespa
     return 1 if problems else 0
 
 
+def cmd_memory(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    memory = Memory(queue._conn)
+    ledger = Ledger(queue._conn, ArtifactStore(args.store or args.db.parent / "artifacts",
+                                               queue._conn))
+    cmd = args.memory_command
+    try:
+        if cmd == "search":
+            hits = memory.search(args.query, limit=args.limit)
+            for hit in hits:
+                print(f"#{hit.id} [{hit.kind}, {hit.trust}] {_escape(hit.source_id)}: "
+                      f"{_escape(hit.excerpt)}")
+            print(f"{len(hits)} result(s)")
+        elif cmd == "inspect":
+            row = memory.inspect(args.id)
+            for key in ("kind", "state", "trust", "source_id", "source_sha256", "created_by",
+                        "created_at", "expires_at", "embedding_version", "corrected_from",
+                        "ended_by", "ended_reason"):
+                print(f"{key:<18}{_escape(row[key])}")
+            print(f"{'read by tasks':<18}{memory.used_by(args.id)}")
+            print(f"text\n  {_escape(row['text']) or '(deleted)'}")
+        elif cmd == "add-curated":
+            print(f"memory {memory.add_curated(args.text, args.source, args.by)} added")
+        elif cmd == "add-evidence":
+            print(f"memory {memory.add_evidence(args.text, args.source, args.sha256, args.by)} "
+                  "added (untrusted, expires)")
+        elif cmd == "correct":
+            new_id = memory.correct(args.id, args.text, args.by, args.reason, ledger=ledger)
+            print(f"memory {new_id} replaces {args.id}")
+        elif cmd == "revoke":
+            print(f"revoked: {memory.revoke(args.id, args.by, args.reason, ledger=ledger)}")
+        elif cmd == "delete":
+            memory.delete(args.id, args.by, args.reason, ledger=ledger)
+            print(f"memory {args.id} deleted; the row remains as a tombstone")
+        else:
+            print(f"{memory.sweep_expired()} expired memory(ies) retired")
+    except (MemoryRefused, LedgerError) as exc:
+        print(f"memory: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_route(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     ledger = Ledger(queue._conn, ArtifactStore(args.store or args.db.parent / "artifacts",
                                                queue._conn))
@@ -608,6 +680,7 @@ def cmd_ledger(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace)
 
 
 COMMANDS = {
+    "memory": cmd_memory,
     "route": cmd_route,
     "ledger": cmd_ledger,
     "artifacts": cmd_artifacts,
