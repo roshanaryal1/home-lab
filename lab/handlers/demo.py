@@ -54,3 +54,23 @@ async def reject_input(task: Task, tools: ToolSession) -> dict[str, Any]:
     from lab.broker import PermanentFailure
     raise PermanentFailure("payload has no 'note'")
 
+
+
+async def hold_memory(task: Task, tools: ToolSession) -> dict[str, Any]:
+    """Touch payload["mb"] megabytes and hold them; used to test the memory ceiling."""
+    import asyncio
+    block = bytearray(int(task.payload.get("mb", 100)) * 1024 * 1024)
+    for i in range(0, len(block), 4096):
+        block[i] = 1                      # touch every page so it is resident
+    await asyncio.sleep(float(task.payload.get("seconds", 30)))
+    return {"held": len(block)}
+
+
+async def spin_cpu(task: Task, tools: ToolSession) -> dict[str, Any]:
+    """Burn CPU for payload["seconds"] of wall time; used to test the CPU ceiling."""
+    import time
+    end = time.monotonic() + float(task.payload.get("seconds", 30))
+    n = 0
+    while time.monotonic() < end:
+        n += 1
+    return {"spun": n}

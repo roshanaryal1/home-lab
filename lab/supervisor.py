@@ -45,7 +45,7 @@ from lab.operator import load_public
 from lab.policy import Decision, PolicyEngine
 from lab.queue import LeaseLost, LeaseToken, PayloadTooLarge, Task, TaskQueue
 from lab.vault import Vault
-from lab.worker import check_reference, run_in_worker
+from lab.worker import CeilingExceeded, check_reference, run_in_worker
 
 log = logging.getLogger("lab.supervisor")
 
@@ -124,6 +124,12 @@ class SupervisorConfig:
     # it is reached; the task is failed with the reason recorded, and
     # retried only under the usual idempotency rule.
     task_timeout_seconds: float = 3600.0
+    # Ceilings for a reviewed handler's worker process (H2, #16). The model
+    # runs on a separate server, so these bound handler code, not inference.
+    # A breach kills the process group and fails the task without retry.
+    task_max_rss_mb: int | None = 2048
+    task_max_cpu_seconds: float | None = 900.0
+    ceiling_poll_seconds: float = 0.5
     # Path to the operator's public key (item 4.5). When set, only
     # approvals signed with the matching private key are honoured. Falls
     # back to $LAB_OPERATOR_PUBKEY. Unset means approvals are not
@@ -251,7 +257,11 @@ class Supervisor:
 
         async def in_worker(task: Task, session: ToolSession) -> dict[str, Any]:
             workspace = broker._workspace_for(task.id).root
-            return await run_in_worker(ref, task, session, workspace=workspace)
+            return await run_in_worker(
+                ref, task, session, workspace=workspace,
+                max_rss_mb=self.config.task_max_rss_mb,
+                max_cpu_seconds=self.config.task_max_cpu_seconds,
+                poll_seconds=self.config.ceiling_poll_seconds)
 
         self.register(agent_kind, in_worker, tools, sensitive_data=sensitive_data,
                       external_action=external_action, egress_hosts=egress_hosts,
@@ -580,6 +590,12 @@ class Supervisor:
                 log.error("cannot hold %s: lease lost", task.id)
             log.warning("task %s held for reconciliation: %s", task.id, exc)
         except PermanentFailure as exc:
+            if isinstance(exc, CeilingExceeded):
+                self.queue.record_event(task.id, "resource_ceiling_exceeded", {
+                    "resource": exc.resource,
+                    ("limit_mb" if exc.resource == "memory" else "limit_seconds"): exc.limit,
+                    **({"observed_mb": round(exc.observed)} if exc.observed is not None
+                       else {})})
             try:
                 self.queue.fail(token, f"permanent: {exc}", retry=False)
                 self.stats.failed += 1

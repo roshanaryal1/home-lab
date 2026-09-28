@@ -76,7 +76,7 @@ Run the lab only with dummy data, review every draft by hand and connect
 no real credentials until three things are true, because none of them can
 be finished without the Mac mini: a separate non-admin lab account that
 cannot read the operator's approval key ([#70](https://github.com/roshanaryal1/home-lab/issues/70)),
-a per-task memory ceiling ([#16](https://github.com/roshanaryal1/home-lab/issues/16)),
+per-task memory and CPU ceilings sized on the mini (the mechanism exists, [#16](https://github.com/roshanaryal1/home-lab/issues/16)),
 and the Keychain path exercised on the mini. The egress gateway and the
 secret broker now exist and are tested, but only against fake networks and
 dummy credentials. [SECURITY.md](SECURITY.md) has the full list of what is
