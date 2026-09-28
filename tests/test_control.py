@@ -171,3 +171,85 @@ def test_cli_control_and_status(tmp_path: Path, capsys: pytest.CaptureFixture[st
     assert main(["--db", str(db), "control", "resume", "--by", "roshan"]) == 0
     with TaskQueue(db, owner="t") as q:
         assert control.get(q._conn).mode == "running"
+
+
+# ------------------------------------------------- signed resume (H3)
+
+
+def _keys(tmp_path: Path):
+    from lab import operator as op
+    private_path, public_path = op.generate(tmp_path / "keys")
+    return op.load_private(private_path), public_path
+
+
+@pytest.mark.safety
+@pytest.mark.asyncio
+async def test_an_unsigned_resume_is_ignored_when_an_operator_key_is_configured(
+        tmp_path: Path) -> None:
+    private, public = _keys(tmp_path)
+    sup = _sup(tmp_path, operator_public_key=public)
+    ran: list[str] = []
+
+    async def handler(task: Task, tools: ToolSession) -> dict:
+        ran.append(task.id)
+        return {}
+
+    sup.register("h", handler)
+    control.set_mode(sup.queue._conn, "paused", by="roshan")
+    task_id = sup.queue.add_task("t", agent_kind="h")
+    run = asyncio.create_task(sup.run())
+    # The agent account writes the row directly, with no signature.
+    sup.queue._conn.execute("UPDATE control SET mode = 'running', generation = generation + 1")
+    await asyncio.sleep(0.3)
+    assert ran == [], "an unsigned resume must not start work"
+
+    control.set_mode(sup.queue._conn, "running", by="roshan", signer=private)
+    await _until(lambda: ran == [task_id])
+    sup.stop()
+    await asyncio.wait_for(run, 5)
+    sup.close()
+
+
+@pytest.mark.safety
+def test_a_signature_from_another_key_or_another_generation_is_not_a_resume(
+        tmp_path: Path) -> None:
+    from lab import operator as op
+    private, public = _keys(tmp_path)
+    other_path, _ = op.generate(tmp_path / "other")
+    other = op.load_private(other_path)
+    pub = op.load_public(public)
+    with TaskQueue(tmp_path / "lab.db", owner="t") as q:
+        control.set_mode(q._conn, "paused", by="a")
+        control.set_mode(q._conn, "running", by="a", signer=other)
+        assert control.effective(q._conn, pub).mode == "paused"      # wrong key
+
+        control.set_mode(q._conn, "running", by="a", signer=private)
+        good = control.get(q._conn)
+        assert control.effective(q._conn, pub).mode == "running"
+
+        # replay: the same signature copied onto a later generation
+        control.set_mode(q._conn, "paused", by="a")
+        q._conn.execute("UPDATE control SET mode = 'running', signature = ?, "
+                        "generation = generation + 1", (good.signature,))
+        assert control.effective(q._conn, pub).mode == "paused"
+
+
+def test_without_an_operator_key_resume_works_as_before(tmp_path: Path) -> None:
+    with TaskQueue(tmp_path / "lab.db", owner="t") as q:
+        control.set_mode(q._conn, "paused", by="a")
+        control.set_mode(q._conn, "running", by="a")
+        assert control.effective(q._conn, None).mode == "running"
+
+
+def test_cli_resume_signs_with_the_operator_key(tmp_path: Path,
+                                                capsys: pytest.CaptureFixture[str]) -> None:
+    from lab import operator as op
+    private_path, public_path = op.generate(tmp_path / "keys")
+    db = tmp_path / "lab.db"
+    TaskQueue(db, owner="t").close()
+    main(["--db", str(db), "control", "pause", "--by", "roshan"])
+    assert main(["--db", str(db), "control", "resume", "--by", "roshan",
+                 "--key", str(private_path)]) == 0
+    capsys.readouterr()
+    with TaskQueue(db, owner="t") as q:
+        assert control.effective(q._conn, op.load_public(public_path)).mode == "running"

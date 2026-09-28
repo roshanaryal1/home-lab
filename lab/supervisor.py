@@ -173,6 +173,7 @@ class Supervisor:
         pubkey_path = config.operator_public_key or os.environ.get("LAB_OPERATOR_PUBKEY")
         self.policy = PolicyEngine(
             self.queue._conn, load_public(Path(pubkey_path)) if pubkey_path else None)
+        self._control_key = load_public(Path(pubkey_path)) if pubkey_path else None
         if not self.policy.enforces_operator_signatures:
             log.warning("approvals are NOT signature-checked: set operator_public_key "
                         "or LAB_OPERATOR_PUBKEY before connecting real credentials")
@@ -349,7 +350,7 @@ class Supervisor:
 
     def _leasing_paused(self) -> bool:
         try:
-            return not control.get(self.queue._conn).leasing_allowed
+            return not control.effective(self.queue._conn, self._control_key).leasing_allowed
         except Exception:
             log.exception("cannot read the control mode; not leasing")
             return True

@@ -484,6 +484,8 @@ def build_parser() -> argparse.ArgumentParser:
     ctl.add_argument("action", choices=["show", "pause", "resume", "drain", "stop"])
     ctl.add_argument("--by", default="operator", help="an audit label")
     ctl.add_argument("--reason", default=None)
+    ctl.add_argument("--key", default=None,
+                     help="operator private key; signs a resume (or LAB_OPERATOR_KEY)")
 
     cn = sub.add_parser("cancel", help="cancel a task that has not started running")
     cn.add_argument("task_id")
@@ -829,12 +831,25 @@ _CONTROL_MODES = {"pause": "paused", "resume": "running", "drain": "draining",
 
 
 def cmd_control(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    signer = None
+    if args.action == "resume":
+        key_path = args.key or os.environ.get("LAB_OPERATOR_KEY")
+        if key_path:
+            try:
+                signer = operator_keys.load_private(Path(key_path))
+            except operator_keys.OperatorKeyError as exc:
+                print(f"control: {exc}", file=sys.stderr)
+                return 1
+        else:
+            print("warning: no operator key; this resume is UNSIGNED and a supervisor that "
+                  "has the operator's public key will ignore it", file=sys.stderr)
     if args.action != "show":
-        control.set_mode(queue._conn, _CONTROL_MODES[args.action],
-                         by=_escape(args.by), reason=_escape(args.reason) if args.reason else None)
+        control.set_mode(queue._conn, _CONTROL_MODES[args.action], by=_escape(args.by),
+                         reason=_escape(args.reason) if args.reason else None, signer=signer)
     state = control.get(queue._conn)
     print(f"mode {state.mode}"
-          + (f"   set by {_escape(state.set_by)} at {state.set_at}" if state.set_by else ""))
+          + (f"   set by {_escape(state.set_by)} at {state.set_at}" if state.set_by else "")
+          + (", resume signed" if state.signature else ""))
     if state.reason:
         print(f"reason {_escape(state.reason)}")
     return 0
