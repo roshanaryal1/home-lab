@@ -28,6 +28,8 @@ import hashlib
 import json
 import sqlite3
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import StrEnum
@@ -82,6 +84,26 @@ class PolicyEngine:
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
+
+    @contextmanager
+    def _tx(self) -> Iterator[None]:
+        """Wrap a compound operation in one atomic transaction.
+
+        Mirrors ``TaskQueue._tx`` in lab/queue.py: same connection (this
+        class is always constructed from a TaskQueue's ``_conn``), same
+        problem. ``grant``/``deny`` update the approvals table and then
+        separately release the parked task; a crash between the two left
+        an approval marked granted with the task never returned to the
+        queue. Issue #44.
+        """
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        else:
+            self._conn.execute("COMMIT")
 
     # --------------------------------------------------------- decisions
 
@@ -200,26 +222,28 @@ class PolicyEngine:
         Returns the task id if a task was released back to the queue, so
         the caller can report that something will actually happen.
         """
-        cur = self._conn.execute(
-            "UPDATE approvals SET state = 'granted', decided_by = ?, "
-            f"decided_at = {NOW_MS}, expires_at = ? "
-            "WHERE id = ? AND state = 'pending'",
-            (decided_by, _ts(_utcnow() + valid_for), approval_id),
-        )
-        if cur.rowcount == 0:
-            return None
-        return self._release_task(approval_id, "queued")
+        with self._tx():
+            cur = self._conn.execute(
+                "UPDATE approvals SET state = 'granted', decided_by = ?, "
+                f"decided_at = {NOW_MS}, expires_at = ? "
+                "WHERE id = ? AND state = 'pending'",
+                (decided_by, _ts(_utcnow() + valid_for), approval_id),
+            )
+            if cur.rowcount == 0:
+                return None
+            return self._release_task(approval_id, "queued")
 
     def deny(self, approval_id: str, decided_by: str,
              reason: str = "denied") -> str | None:
-        cur = self._conn.execute(
-            "UPDATE approvals SET state = 'denied', decided_by = ?, "
-            f"decided_at = {NOW_MS} WHERE id = ? AND state = 'pending'",
-            (decided_by, approval_id),
-        )
-        if cur.rowcount == 0:
-            return None
-        return self._release_task(approval_id, "cancelled", reason)
+        with self._tx():
+            cur = self._conn.execute(
+                "UPDATE approvals SET state = 'denied', decided_by = ?, "
+                f"decided_at = {NOW_MS} WHERE id = ? AND state = 'pending'",
+                (decided_by, approval_id),
+            )
+            if cur.rowcount == 0:
+                return None
+            return self._release_task(approval_id, "cancelled", reason)
 
     def _release_task(self, approval_id: str, to_state: str,
                       reason: str | None = None) -> str | None:

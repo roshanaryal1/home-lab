@@ -303,3 +303,63 @@ def test_capability_tier_is_constrained(q: TaskQueue) -> None:
 def test_wal_mode_is_active(q: TaskQueue) -> None:
     mode = q._conn.execute("PRAGMA journal_mode").fetchone()[0]
     assert mode.lower() == "wal"
+
+
+# ---------------------------------------------------------------- issue 44
+#
+# park_for_approval() calls _transition() then _release_lease() as two
+# separate statements. Before the _tx() wrapper, a crash between them
+# committed the transition (autocommit) but never released the lease,
+# so a subsequently-approved task could never be leased again: its
+# lease looked permanently live to owns_lease()/recover() alike.
+
+
+def test_crash_mid_park_leaves_no_partial_state(
+    q: TaskQueue, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_id = q.add_task("send an email")
+    q.lease()
+
+    def boom(*_a, **_kw):
+        raise RuntimeError("simulated crash between transition and release")
+
+    monkeypatch.setattr(q, "_release_lease", boom)
+    with pytest.raises(RuntimeError):
+        q.park_for_approval(task_id, "needs a human")
+
+    # Rolled back, not half-applied: state must NOT show awaiting_approval
+    # with no way back, and the lease must still be exactly what it was
+    # before the crash, not silently dropped or left ambiguous.
+    task = q.get(task_id)
+    assert task.state == "leased"
+    assert q.owns_lease(task_id)
+
+
+def test_successful_park_still_releases_the_lease(q: TaskQueue) -> None:
+    """The fix must not turn a normal park into a permanent hold."""
+    task_id = q.add_task("send an email")
+    q.lease()
+    q.park_for_approval(task_id, "needs a human")
+
+    task = q.get(task_id)
+    assert task.state == "awaiting_approval"
+    assert not q.owns_lease(task_id)
+
+
+def test_crash_mid_succeed_leaves_no_partial_state(
+    q: TaskQueue, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_id = q.add_task("build the thing")
+    q.lease()
+    q.start(task_id)
+
+    monkeypatch.setattr(
+        q, "_release_lease",
+        lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("crash")),
+    )
+    with pytest.raises(RuntimeError):
+        q.succeed(task_id, result={"ok": True})
+
+    task = q.get(task_id)
+    assert task.state == "running"
+    assert q.owns_lease(task_id)
