@@ -29,6 +29,8 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
+from lab.audit import append_event
+
 NOW_MS = "strftime('%Y-%m-%d %H:%M:%f', 'now')"
 
 
@@ -135,5 +137,4 @@ class OperationJournal:
             detail["tool"] = tool
         if error:
             detail["error"] = error
-        self._conn.execute("INSERT INTO events (task_id, kind, detail) VALUES (?, ?, ?)",
-                           (task_id, kind, json.dumps(detail)))
+        append_event(self._conn, task_id, kind, detail=detail)
