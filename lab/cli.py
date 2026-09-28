@@ -25,6 +25,7 @@ Usage:
     python3 -m lab.cli artifacts verify
     python3 -m lab.cli ledger show|review|verify ...
     python3 -m lab.cli memory search|inspect|add-curated|add-evidence|correct|revoke|delete|sweep
+    python3 -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
@@ -47,14 +48,17 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from lab import audit, backup, drills, metrics, rubric, skills
+from lab import audit, backup, drills, metrics, publish, rubric, skills
 from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
+from lab.connectors import ConnectorError, load_connectors
+from lab.egress import EgressGateway
 from lab.journal import OperationJournal
 from lab.ledger import Ledger, LedgerError
 from lab.memory import Memory, MemoryRefused
 from lab.policy import PolicyEngine, task_intent
 from lab.queue import TaskQueue
+from lab.vault import Vault
 
 DEFAULT_DB = Path.home() / ".local" / "share" / "home-lab" / "lab.db"
 
@@ -375,6 +379,17 @@ def build_parser() -> argparse.ArgumentParser:
     op_init.add_argument("--dir", type=Path, required=True,
                          help="a directory the agent's OS account cannot read")
 
+    pub = sub.add_parser("publish", help="credentialed sends: receipts and reconciliation")
+    pub_sub = pub.add_subparsers(dest="publish_command", required=True)
+    pub_sub.add_parser("list", help="every send and whether it is confirmed")
+    p_show = pub_sub.add_parser("show", help="one send, with what was approved")
+    p_show.add_argument("key", help="idempotency key or a prefix of at least 6 characters")
+    p_rec = pub_sub.add_parser("reconcile", help="ask the provider whether a send happened")
+    p_rec.add_argument("key")
+    p_rec.add_argument("--connectors", type=Path, required=True,
+                       help="the connectors JSON the supervisor uses")
+    p_rec.add_argument("--by", default="reconcile")
+
     mem = sub.add_parser("memory", help="inspect, search, correct, revoke and delete memory")
     mem.add_argument("--store", type=Path, default=None)
     mem_sub = mem.add_subparsers(dest="memory_command", required=True)
@@ -581,6 +596,42 @@ def cmd_artifacts(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespa
     return 1 if problems else 0
 
 
+def cmd_publish(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    conn = queue._conn
+    cmd = args.publish_command
+    try:
+        if cmd == "list":
+            rows = conn.execute("SELECT * FROM publications ORDER BY id").fetchall()
+            for r in rows:
+                print(f"{r['idempotency_key'][:12]}  {r['state']:<9} {r['connector']:<12} "
+                      f"{_escape(r['host'])}{_escape(r['path'])}  "
+                      f"provider id {_escape(r['provider_id'] or '-')}")
+            print(f"{len(rows)} publication(s)")
+            return 0
+        if cmd == "show":
+            r = publish.find(conn, args.key)
+            for key in ("idempotency_key", "state", "task_id", "connector", "host", "method",
+                        "path", "body_sha256", "status_code", "provider_id", "response_sha256",
+                        "confirmed_via", "created_at", "updated_at"):
+                print(f"{key:<16}{_escape(r[key])}")
+            return 0
+        connectors = load_connectors(args.connectors)
+        gateway = EgressGateway(audit=lambda kind, d: policy.audit(d.get("task_id") or None,
+                                                                    kind, d))
+        result = publish.reconcile(conn, args.key, gateway=gateway, vault=Vault(),
+                                   connectors=connectors, journal=OperationJournal(conn),
+                                   decided_by=_escape(args.by))
+    except (publish.PublishError, ConnectorError) as exc:
+        print(f"publish: {exc}", file=sys.stderr)
+        return 1
+    print(f"{result.outcome.upper()}: {_escape(result.detail)}")
+    if result.provider_id:
+        print(f"provider id {_escape(result.provider_id)}")
+    if result.operation:
+        print(f"operation {result.operation[:12]} resolved as happened")
+    return 0 if result.outcome == "confirmed" else 2
+
+
 def cmd_memory(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     memory = Memory(queue._conn)
     ledger = Ledger(queue._conn, ArtifactStore(args.store or args.db.parent / "artifacts",
@@ -680,6 +731,7 @@ def cmd_ledger(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace)
 
 
 COMMANDS = {
+    "publish": cmd_publish,
     "memory": cmd_memory,
     "route": cmd_route,
     "ledger": cmd_ledger,

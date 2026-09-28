@@ -36,7 +36,7 @@ flowchart TB
         direction TB
         obs["Observation plane<br/>issue #32, first slice only<br/>watches event log, emits proposals"]
         router["Artifact router<br/>issue #33, rubric built over the evidence ledger<br/>post / blog / paper by evidence weight"]
-        publish["Publish plane<br/>connectors and secret broker built (dummy credentials)<br/>reviewed publishing with receipts, issue #86, not built"]
+        publish["Publish plane<br/>connectors, secret broker, receipts and reconciliation built<br/>tested against a dummy provider only"]
         obs -->|"proposal, as an ordinary queue row"| router
         router -->|"draft + evidence chain"| publish
     end
@@ -83,7 +83,7 @@ re-losing.
 | Observation plane | `lab/observe.py`, `lab/slice.py` | First slice only (#39, #46): this repo's closed issues and merged PRs become queued proposals. General service not started | [#32](https://github.com/roshanaryal1/home-lab/issues/32) |
 | Artifact router | `lab/rubric.py`, `lab/route.py` | Rubric built (7.2): routes a research task by evidence weight over the ledger, refuses thin evidence upward, states conflicts, bounded stop rule. The single-signal v0 in `route.py` remains for the vertical slice. Human review of every route | [#33](https://github.com/roshanaryal1/home-lab/issues/33) |
 | Secret broker and connectors | `lab/vault.py`, `lab/connectors.py` | Built and tested with dummy credentials and a fake transport; Keychain path unexercised until the mini | [#15](https://github.com/roshanaryal1/home-lab/issues/15) |
-| Publish plane | n/a | Connectors exist; reviewed publishing with receipts (8.6) not built | [#86](https://github.com/roshanaryal1/home-lab/issues/86) |
+| Publish plane | `lab/publish.py`, `lab/broker.py` | Reviewed publishing built against a dummy provider: approval bound to destination and draft hash, write-ahead receipts, idempotency keys, reconciliation of lost responses. No real destination yet | [#86](https://github.com/roshanaryal1/home-lab/issues/86) |
 | Network egress control | `lab/egress.py` | Built, tested with a fake resolver and transport (metadata-address redirect, DNS rebinding, IP-literal spellings); not yet exercised against a real host | [#14](https://github.com/roshanaryal1/home-lab/issues/14) |
 | Resource ceilings per task | n/a | Open | [#16](https://github.com/roshanaryal1/home-lab/issues/16) |
 | `dscl` account enumeration | `lab/sandbox.py` | Accepted, not narrowed; untrusted code is routed to a disposable container instead | [ADR 0007](decisions/0007-isolation-for-untrusted-code.md), [#27](https://github.com/roshanaryal1/home-lab/issues/27) |

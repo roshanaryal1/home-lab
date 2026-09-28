@@ -36,6 +36,7 @@ from lab.broker import (
     PermanentFailure,
     ToolSession,
 )
+from lab.connectors import load_connectors
 from lab.egress import EgressGateway, parse_allowlist, socket_transport, system_resolver
 from lab.journal import OperationJournal
 from lab.operator import load_public
@@ -126,6 +127,8 @@ class SupervisorConfig:
     # back to $LAB_OPERATOR_PUBKEY. Unset means approvals are not
     # signature-checked, which is acceptable only on dummy data.
     operator_public_key: str | Path | None = None
+    # JSON list of connector definitions (lab.connectors.load_connectors).
+    connectors_file: str | Path | None = None
     # A worker slot that fails this many times in a row stops and marks
     # the supervisor unhealthy, rather than spinning on a broken
     # dependency (item 1.8).
@@ -177,6 +180,9 @@ class Supervisor:
         self.broker = ExecutionBroker(Path(root), policy=self.policy,
                                       leases=self.queue.owns_lease, journal=self.journal,
                                       egress=self.egress, vault=vault or Vault())
+        if config.connectors_file:
+            for connector in load_connectors(Path(config.connectors_file)).values():
+                self.broker.add_connector(connector)
         self.artifacts = ArtifactStore(
             config.artifact_root or Path(config.db_path).parent / "artifacts",
             self.queue._conn)

@@ -51,7 +51,7 @@ a task runner:
 |---|---|---|
 | Observation: notice work from the event stream, emit proposals | [#32](https://github.com/roshanaryal1/home-lab/issues/32) | first slice only: this repo's closed issues and merged PRs become proposals |
 | Router: post / blog / paper by evidence weight | [#33](https://github.com/roshanaryal1/home-lab/issues/33) | rubric built over the evidence ledger: deterministic rules, refuses thin evidence upward, inspectable chain; still needs a human to review every route |
-| Publish: post/email on your behalf | [#86](https://github.com/roshanaryal1/home-lab/issues/86) | connectors and the secret broker exist, tested with dummy credentials; reviewed publishing with receipts is not built |
+| Publish: post/email on your behalf | [#86](https://github.com/roshanaryal1/home-lab/issues/86) | reviewed publishing built and tested against a dummy provider: approval bound to destination and draft hash, write-ahead receipts, idempotency keys, reconciliation of lost responses; no real destination has been used |
 
 Build order and reasoning are in ADR 0004; the rules that limit what an
 agent may hold, and the staged rollout, are in ADR 0006.
@@ -126,6 +126,7 @@ uv run python -m lab.cli artifacts verify         # re-hash every stored output
 uv run python -m lab.cli backup --to DIR          # online snapshot, then restore-check to prove it
 uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything
 uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
+uv run python -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE   # receipts for credentialed sends; ask the provider about a lost response
 uv run python -m lab.cli memory search|inspect|add-evidence|correct|revoke|delete   # inspectable FTS5 memory
 uv run python -m lab.cli route <task> [--want paper]   # post, blog, paper or nothing, by evidence weight; thin evidence refused upward
 uv run python -m lab.cli ledger show <task>       # claims, their evidence and status; review, verify
@@ -150,7 +151,7 @@ lab/authority.py     the Rule of Two, enforced per task (ADR 0006)
 lab/origin.py        where a task's input came from, and the taint that follows it
 lab/broker.py        typed tools, workspaces, per-call audit
 lab/egress.py        the only outbound path: default-deny, resolve-then-pin
-lab/vault.py, connectors.py   secrets injected per call, one destination each
+lab/vault.py, connectors.py, publish.py   secrets injected per call, one destination each, receipts and reconciliation
 lab/audit.py         append-only hash chain and signed checkpoints
 lab/artifacts.py     content-addressed task outputs
 lab/backup.py, drills.py      verifying backup and logged recovery drills
