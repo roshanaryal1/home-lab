@@ -118,7 +118,7 @@ uv run python -m lab.cli approve <id> --by you --key operator.key --expect-hash 
 uv run python -m lab.cli operator init --dir ~/.lab-operator   # create the approval signing key
 uv run python -m lab.cli deny <id> --by you       # refuse it; the parked task is cancelled
 uv run python -m lab.cli tasks                    # task counts by state
-uv run python -m lab.cli control pause|resume|drain|stop --by you   # the whole-lab switch; `control show` reads it
+uv run python -m lab.cli control pause|resume|drain|stop --by you   # the whole-lab switch; resume takes --key operator.key; `control show` reads it
 uv run python -m lab.cli watchdog [--max-age 90] [--dry-run]   # kill a hung supervisor; launchd restarts it
 uv run python -m lab.cli cancel <task> --by you   # cancel work that has not started
 uv run python -m lab.cli tick [--repo owner/repo]     # one pass: observe, summarize with the model, route

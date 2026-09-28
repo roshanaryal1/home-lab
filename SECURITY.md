@@ -330,9 +330,13 @@ Implemented and tested:
   nothing new; draining also exits when idle; stopped runs the emergency
   stop (authority revoked first, then handlers cancelled and worker
   processes killed) and stays stopped across a restart until a person
-  resumes. Each change is a hash-chained `control_changed` event. Limit:
-  until the lab account exists (#70) the agent account can write this row,
-  which matters only for resume; pause and stop remove authority. `lab
+  resumes. Each change is a hash-chained `control_changed` event. Resume
+  is signed: `lab control resume --key operator.key` signs `(generation,
+  "running")`, and a supervisor that has the operator's public key treats an
+  unsigned, forged or replayed `running` row as still paused. Pause, drain
+  and stop remove authority and need no signature. Limit: without a
+  configured key the switch is unsigned, and until the lab account exists
+  (#70) the private key is only as safe as the account holding it. `lab
   cancel` refuses running work and points to `control stop`.
   Nothing acts on it yet.
 - **Injection harness and taint on read** (`lab/attacks.py`, item 4.7,
