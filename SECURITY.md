@@ -84,10 +84,7 @@ every draft by hand.
   the same OS user, so a hostile handler that found the database file
   could open it; the separate lab account closes that (#70). Only code
   under `lab.handlers` can be loaded into a worker.
-- Sandboxed commands inherit the supervisor's environment, and
-  timeouts and output are not bounded (#50, item 1.10).
-- Retries do not yet distinguish an unknown remote outcome (#56), and
-  broker calls do not yet carry the lease token (item 1.2, #48).
+- Retries do not yet distinguish an unknown remote outcome (#56).
 - A worker crash or lease loss does not stop the running handler (#52).
 
 ## What does NOT exist yet
@@ -98,8 +95,14 @@ absent is worse than no policy:
 - **No network egress control.** Nothing restricts outbound connections.
   There is no network tool yet, so nothing makes them either, but that is
   an absence of opportunity, not a control.
-- **No CPU or memory ceilings.** Workspace size and file count are
-  capped; compute is not. Arrives with the model adapter.
+- **No memory ceiling per task.** Commands get only PATH, HOME, TMPDIR
+  and LANG; parameters are schema-checked; timeouts are clamped to 300 s;
+  output is capped at 256 KiB per stream; the command's whole process
+  group is killed at the deadline and on exit; tool calls, child tasks
+  and each run's wall-clock time are capped (item 1.10,
+  `tests/test_limits.py`). Memory is not, and arrives with the model
+  adapter (#16, #74). A fork bomb inside the deadline is contained by the
+  group kill, not prevented.
 - **No secret broker.** There is nowhere to inject secrets yet, so there
   is nothing to leak, but credential handling is unimplemented.
 **Do not connect real credentials until the three absences above are

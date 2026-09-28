@@ -292,7 +292,9 @@ def test_shell_run_requires_the_approve_tier(broker) -> None:
 @needs_sandbox
 def test_shell_run_rejects_a_malformed_argv(broker) -> None:
     broker.open_workspace("t1", {"shell.run"})
-    assert not approved(broker, "t1", "shell.run", argv="rm -rf /").ok
+    # Refused before policy: nobody is asked to approve a malformed call.
+    result = call(broker, "t1", "shell.run", argv="rm -rf /")
+    assert not result.ok and "InvalidParams" in result.error
 
 
 # ------------------------------------------------ item 1.1, R01 (#43)

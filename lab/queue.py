@@ -75,6 +75,15 @@ class TransitionError(RuntimeError):
     """Raised when a caller attempts an illegal state transition."""
 
 
+# How many child tasks one task may create (item 1.10). A task that
+# fans out without bound is a denial of service on the queue.
+MAX_CHILDREN_PER_TASK = 100
+
+
+class ChildLimitExceeded(RuntimeError):
+    """A task tried to create more children than MAX_CHILDREN_PER_TASK."""
+
+
 class UnsafeSQLite(RuntimeError):
     """Raised at start-up when the linked SQLite has the WAL-reset bug."""
 
@@ -322,16 +331,24 @@ class TaskQueue:
         capability_tier: str = "autonomous",
     ) -> str:
         task_id = uuid.uuid4().hex
-        self._conn.execute(
-            "INSERT INTO tasks (id, parent_id, title, payload, priority, "
-            "agent_kind, idempotent, max_attempts, weight, capability_tier) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (task_id, parent_id, title, json.dumps(payload or {}), priority,
-             agent_kind, int(idempotent), max_attempts, weight,
-             capability_tier),
-        )
-        self._record(task_id, "created", None, "queued",
-                     {"title": title, "priority": priority})
+        with self._tx():
+            if parent_id is not None:
+                children = self._conn.execute(
+                    "SELECT COUNT(*) FROM tasks WHERE parent_id = ?", (parent_id,)
+                ).fetchone()[0]
+                if children >= MAX_CHILDREN_PER_TASK:
+                    raise ChildLimitExceeded(
+                        f"task {parent_id} already has {children} children")
+            self._conn.execute(
+                "INSERT INTO tasks (id, parent_id, title, payload, priority, "
+                "agent_kind, idempotent, max_attempts, weight, capability_tier) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, parent_id, title, json.dumps(payload or {}), priority,
+                 agent_kind, int(idempotent), max_attempts, weight,
+                 capability_tier),
+            )
+            self._record(task_id, "created", None, "queued",
+                         {"title": title, "priority": priority})
         return task_id
 
     def _transition(

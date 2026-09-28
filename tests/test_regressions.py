@@ -13,7 +13,6 @@ removed, so this file cannot quietly go stale in either direction.
 from __future__ import annotations
 
 import os
-import subprocess
 from datetime import timedelta
 from pathlib import Path
 
@@ -214,23 +213,17 @@ def test_r09_directory_swapped_for_symlink_after_check(tmp_path, q, monkeypatch)
     assert not (outside / "x.txt").exists()
 
 
-class _FakeCompleted:
-    returncode = 0
-    stdout = ""
-    stderr = ""
-
-
 def _fake_sandbox(monkeypatch) -> dict:
     """Stand in for sandbox-exec so the host-side behaviour is testable on
     any platform; the kernel sandbox is not what R10 and R11 are about."""
     seen: dict = {}
 
-    def fake_run(cmd, **kwargs):
+    def fake_execute(cmd, **kwargs):
         seen["cmd"], seen["kwargs"] = cmd, kwargs
-        return _FakeCompleted()
+        return sandbox._Execution(0, b"", b"", False, False)
 
     monkeypatch.setattr(sandbox, "available", lambda: True)
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(sandbox, "_execute", fake_execute)
     return seen
 
 
@@ -247,7 +240,6 @@ def test_r10_planted_profile_link_does_not_overwrite_outside_file(tmp_path, monk
     assert canary.read_text() == "original"
 
 
-@pytest.mark.xfail(strict=True, reason="R11 open: sandbox inherits full environment, #50 (1.10)")
 def test_r11_supervisor_environment_does_not_reach_commands(tmp_path, monkeypatch) -> None:
     """R11: sandboxed commands received the supervisor's full environment."""
     seen = _fake_sandbox(monkeypatch)
