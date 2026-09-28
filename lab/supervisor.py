@@ -21,12 +21,13 @@ import fcntl
 import logging
 import os
 import socket
+import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self
 
-from lab import control
+from lab import control, service
 from lab.artifacts import ArtifactError, ArtifactStore
 from lab.authority import AgentCapability, AuthorityViolation, check, held_legs
 from lab.broker import (
@@ -128,6 +129,9 @@ class SupervisorConfig:
     # back to $LAB_OPERATOR_PUBKEY. Unset means approvals are not
     # signature-checked, which is acceptable only on dummy data.
     operator_public_key: str | Path | None = None
+    # How often the event loop writes its heartbeat for the watchdog
+    # (item 6.2). A blocked loop stops beating, which is the point.
+    heartbeat_seconds: float = 10.0
     # JSON list of connector definitions (lab.connectors.load_connectors).
     connectors_file: str | Path | None = None
     # A worker slot that fails this many times in a row stops and marks
@@ -285,6 +289,7 @@ class Supervisor:
 
         self._max_tasks = max_tasks
         watcher = asyncio.create_task(self._watch_control())
+        beater = asyncio.create_task(self._beat())
         workers = [
             asyncio.create_task(self._worker("heavy"))
             for _ in range(self.config.heavy_slots)
@@ -293,9 +298,14 @@ class Supervisor:
             for _ in range(self.config.light_slots)
         ]
         outcomes = await asyncio.gather(*workers, return_exceptions=True)
-        watcher.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await watcher
+        for helper in (watcher, beater):
+            helper.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await helper
+        # A clean exit leaves no heartbeat, so the watchdog never mistakes
+        # an orderly stop for a hang.
+        with contextlib.suppress(OSError):
+            service.heartbeat_path(self.config.db_path).unlink()
         for outcome in outcomes:
             if isinstance(outcome, BaseException) and not isinstance(
                     outcome, asyncio.CancelledError):
@@ -304,6 +314,15 @@ class Supervisor:
                     f"worker slot crashed: {type(outcome).__name__}: {outcome}")
                 log.error("worker slot crashed: %r", outcome)
         return self.stats
+
+    async def _beat(self) -> None:
+        """Write the heartbeat from the event loop. See ``lab.service``."""
+        while True:
+            try:
+                service.write_heartbeat(self.config.db_path)
+            except OSError:
+                log.exception("cannot write the heartbeat")
+            await asyncio.sleep(self.config.heartbeat_seconds)
 
     async def _watch_control(self) -> None:
         """Obey the operator's mode switch (item 6.3).
@@ -637,3 +656,37 @@ class Supervisor:
 
     def __exit__(self, *exc_info: object) -> None:
         self.close()
+
+
+def main(argv: list[str] | None = None) -> int:
+    """The daemon entry point launchd runs: ``python -m lab.supervisor --db PATH``."""
+    import argparse
+    import signal
+
+    parser = argparse.ArgumentParser(prog="lab.supervisor")
+    parser.add_argument("--db", required=True, type=Path)
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
+    async def run() -> None:
+        sup = Supervisor(SupervisorConfig(db_path=args.db))
+        from lab import handlers
+        handlers.register_all(sup)
+        loop = asyncio.get_running_loop()
+        loop.add_signal_handler(signal.SIGTERM, sup.stop)
+        loop.add_signal_handler(signal.SIGINT, sup.stop)
+        try:
+            await sup.run()
+        finally:
+            sup.close()
+
+    try:
+        asyncio.run(run())
+    except AlreadyRunning as exc:
+        print(f"supervisor: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

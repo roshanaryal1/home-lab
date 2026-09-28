@@ -94,7 +94,7 @@ re-losing.
 | Skill store | `lab/skillstore.py`, `lab/skills.py` | Skills as immutable versions with lineage, operator-signed promotion, tier that a skill cannot lower, known-good marks and one-step rollback. The validator/inventory (8.7a) feeds it. No agent loads from it yet | [#87](https://github.com/roshanaryal1/home-lab/issues/87) |
 | Injection harness | `lab/attacks.py` | 9 benign-plus-hostile scenarios against a worst-case stub model, graded on files, database and network; real-model run parked | [#72](https://github.com/roshanaryal1/home-lab/issues/72) |
 | Tailscale-only dashboard | n/a | Not started | reference architecture §11 |
-| launchd + watchdog | n/a | Checklist written, not run | `ops/mac-mini-setup.md` |
+| launchd + watchdog | `lab/service.py`, `ops/launchd/`, `lab watchdog` | Built: heartbeat written from the event loop, a periodic watchdog that kills a supervisor whose heartbeat is stale (pid and start time checked), and generated LaunchDaemon definitions. Not yet installed or exercised on the M6 | [#78](https://github.com/roshanaryal1/home-lab/issues/78), `ops/mac-mini-setup.md` §16 |
 
 ## Related documents
 
