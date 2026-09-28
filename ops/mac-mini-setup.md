@@ -210,3 +210,16 @@ The adapter is done against a mock. These need the M6.
       admission and the machine does not swap.
 - [ ] Run the malformed tool-call cases against the real model and record
       how often it emits a call the parser refuses.
+
+## 14. Real-model evaluation runs (item 7.3, #81)
+
+The runner and record format are done and tested against a stub endpoint.
+
+- [ ] With the inference server up (section 13), run
+      `uv run python -m lab.cli eval run --endpoint http://127.0.0.1:PORT/v1 ...`
+      on the mini and commit the record from `evals/runs/`.
+- [ ] Confirm the record says `ON TARGET`, names the macOS build, and holds
+      the `pmset` power settings.
+- [ ] `lab eval rerun` the record on the same commit; expect identical
+      answers at temperature 0 with a fixed seed, and note any that move.
+- [ ] Repeat for the smaller baseline model (5.2) with the same task file.
