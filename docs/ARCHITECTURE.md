@@ -84,7 +84,7 @@ re-losing.
 | Publish plane | n/a | Blocked on the secret broker | [#15](https://github.com/roshanaryal1/home-lab/issues/15) |
 | Network egress control | n/a | Open | [#14](https://github.com/roshanaryal1/home-lab/issues/14) |
 | Resource ceilings per task | n/a | Open | [#16](https://github.com/roshanaryal1/home-lab/issues/16) |
-| `dscl` account enumeration | n/a | Open decision | [#27](https://github.com/roshanaryal1/home-lab/issues/27) |
+| `dscl` account enumeration | `lab/sandbox.py` | Accepted, not narrowed; untrusted code is routed to a disposable container instead | [ADR 0007](decisions/0007-isolation-for-untrusted-code.md), [#27](https://github.com/roshanaryal1/home-lab/issues/27) |
 | Tailscale-only dashboard | n/a | Not started | reference architecture §11 |
 | launchd + watchdog | n/a | Checklist written, not run | `ops/mac-mini-setup.md` |
 

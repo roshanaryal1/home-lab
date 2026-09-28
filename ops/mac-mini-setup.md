@@ -130,3 +130,20 @@ The supervisor and queue are machine-independent and are already
 tested. Steps 3 onward of the build order (model adapter, residency
 policy, swap manager) are the parts that need the M6 and cannot be
 meaningfully exercised on a laptop.
+
+## 9. Isolation measurements (item 4.6, ADR 0007)
+
+Parked until the M6 is on the desk. None of this is run yet.
+
+- [ ] Install Apple's `container` tool (macOS 26 or later, Apple silicon);
+      record the version and the macOS build it ran on.
+- [ ] Start and stop one container from a small Linux image, 20 times.
+      Record start-up time (median and worst) and resident memory of the
+      container's VM at idle and while running a Python test suite.
+- [ ] With the heavy model loaded and generating, start one container.
+      Record memory pressure and swap before and during. Pass only if no
+      swap growth.
+- [ ] Confirm from inside a container that the host's directory service
+      is unreachable (`getent passwd` shows only the guest's accounts) and
+      that only the mounted workspace is visible.
+- [ ] Write the numbers into ADR 0007, replacing "not measured yet".
