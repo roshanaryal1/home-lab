@@ -88,6 +88,7 @@ re-losing.
 | Resource ceilings per task | n/a | Open | [#16](https://github.com/roshanaryal1/home-lab/issues/16) |
 | `dscl` account enumeration | `lab/sandbox.py` | Accepted, not narrowed; untrusted code is routed to a disposable container instead | [ADR 0007](decisions/0007-isolation-for-untrusted-code.md), [#27](https://github.com/roshanaryal1/home-lab/issues/27) |
 | Operational metrics | `lab/metrics.py`, `lab status` | Built: queue depth and ages, worker health, counters for denials, retries, lease losses and forced terminations, all queries over the event log with no second store; model metrics wait for 5.1 | [#89](https://github.com/roshanaryal1/home-lab/issues/89) |
+| Utility evals | `lab/evals.py`, `evals/tasks.jsonl` | 24 fixed tasks graded deterministically; sealed provenance record; rerun from the record alone. Tested against a stub endpoint; real-model runs wait for the M6 | [#81](https://github.com/roshanaryal1/home-lab/issues/81) |
 | Injection harness | `lab/attacks.py` | 9 benign-plus-hostile scenarios against a worst-case stub model, graded on files, database and network; real-model run parked | [#72](https://github.com/roshanaryal1/home-lab/issues/72) |
 | Tailscale-only dashboard | n/a | Not started | reference architecture §11 |
 | launchd + watchdog | n/a | Checklist written, not run | `ops/mac-mini-setup.md` |

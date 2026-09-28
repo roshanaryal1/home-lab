@@ -23,6 +23,7 @@ Usage:
     python3 -m lab.cli audit check --key KEYFILE --checkpoint FILE
     python3 -m lab.cli artifacts list <task-id>
     python3 -m lab.cli artifacts verify
+    python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
     python3 -m lab.cli backup --to DIR [--artifacts DIR]
     python3 -m lab.cli restore-check MANIFEST --into DIR
@@ -369,6 +370,10 @@ def build_parser() -> argparse.ArgumentParser:
     op_init.add_argument("--dir", type=Path, required=True,
                          help="a directory the agent's OS account cannot read")
 
+    ev = sub.add_parser("eval", add_help=False,
+                        help="run the fixed task set against a model endpoint, with provenance")
+    ev.add_argument("eval_args", nargs=argparse.REMAINDER)
+
     st = sub.add_parser("status", help="queue, worker health and counters, from the event log")
     st.add_argument("--json", action="store_true")
     st.add_argument("--since-hours", type=float, default=None,
@@ -544,6 +549,9 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_operator(args)
     if args.command == "status":
         return cmd_status(args)
+    if args.command == "eval":
+        from lab import evals
+        return evals.main(args.eval_args)
     if args.command in ("backup", "restore-check"):
         return cmd_backup(args)
     if args.command == "drill":

@@ -126,6 +126,8 @@ uv run python -m lab.cli artifacts verify         # re-hash every stored output
 uv run python -m lab.cli backup --to DIR          # online snapshot, then restore-check to prove it
 uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything
 uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
+uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record
+uv run python -m lab.cli eval rerun <record>      # repeat a run from its record alone, then compare
 uv run python -m lab.attacks                      # benign-plus-hostile scenarios against a stub model
 ```
 
@@ -151,7 +153,9 @@ lab/artifacts.py     content-addressed task outputs
 lab/backup.py, drills.py      verifying backup and logged recovery drills
 lab/metrics.py       `lab status`, derived from the event log
 lab/model.py         bounded model adapter: pinned revisions, admission, strict tool calls
+lab/evals.py         fixed task set run against any endpoint, sealed provenance records
 lab/attacks.py       injection harness
+evals/tasks.jsonl    the 24 tasks (arithmetic, extraction, format, code, tool calls, injection)
 lab/skills.py        read-only skill validator and inventory
 THREATS.md           OWASP agentic top 10 mapped to controls and tests
 docs/decisions/      ADRs 0001 to 0007

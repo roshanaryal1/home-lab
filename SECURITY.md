@@ -172,6 +172,19 @@ Implemented and tested:
   supervisor's memory during the call; and a destination that stores what
   it is sent can still be told to repeat the value later, which redaction
   cannot see.
+- **Evaluation records** (`lab/evals.py`, `evals/tasks.jsonl`, item 7.3,
+  #81). A fixed 24-task set runs against any OpenAI-compatible loopback
+  endpoint and is graded by deterministic checks only. Each run writes a
+  record sealed with its own hash: lab commit and dirty flag, model name
+  and pinned weight and tokenizer revisions, Python, SQLite and library
+  versions, macOS build and power settings on a Mac, sampling settings,
+  the task file's hash, and every answer with tokens and latency.
+  `lab eval rerun` rebuilds a run from the record alone and refuses if the
+  record was edited, the task file changed, or the checkout is at a
+  different commit (unless told otherwise), then reports which answers
+  moved. Tested against a stub endpoint; no real model has been run, and
+  the records are not signed, only self-hashed, so they detect accident
+  and casual edits, not an adversary who recomputes the hash.
 - **Status and counters** (`lab/metrics.py`, `lab status`, #89). Queue
   depth per state, the age of the oldest queued, running and
   approval-waiting task, live leases, last success, and counters for
