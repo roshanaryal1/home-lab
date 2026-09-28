@@ -43,7 +43,9 @@ Three concrete reasons, each learned here rather than imported:
 
 1. **Every change goes through a pull request.** `main` is protected.
 2. **Tests must pass**, and behaviour changes need tests. Run
-   `python3 -m pytest tests/ -q`.
+   `uv sync --locked --extra dev && uv run python -m pytest tests/ -q`.
+   If you change dependencies, commit the updated `uv.lock`; CI fails
+   when it is out of date.
 3. **Two safety properties are load-bearing** and must keep passing:
    a crash never blindly replays a non-idempotent task, and the heavy
    inference slot is never breached. If a change touches `lab/queue.py`

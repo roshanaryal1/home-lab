@@ -118,7 +118,8 @@ ssh <admin>@<tailnet-host>
 sudo -u lab -i
 git clone <this repo> ~/home-lab
 cd ~/home-lab
-python3 -m pytest tests/ -q     # expect all green before going further
+uv sync --locked --extra dev    # Python from .python-version, deps from uv.lock
+uv run python -m pytest tests/ -q   # expect all green before going further
 ```
 
 The supervisor and queue are machine-independent and are already

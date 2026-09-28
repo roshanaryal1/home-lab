@@ -82,7 +82,8 @@ tests/               114 tests, no external dependencies
 ## Running the tests
 
 ```sh
-python3 -m pytest tests/ -q
+uv sync --locked --extra dev   # exact Python from .python-version, deps from uv.lock
+uv run python -m pytest tests/ -q
 ```
 
 No dependencies beyond the standard library and pytest. Async tests run

@@ -107,3 +107,11 @@ is exactly where it could change behaviour or disappear.
 **That control is currently unverified on the deployment target.** Running
 `pytest tests/test_sandbox.py` on the mini is the check, and it should
 happen before anything executes code there.
+
+**Amendment, 2026-09-29, item 2.1.** The pin now lives in the repo:
+`.python-version` names `3.13.15` and `uv.lock` is committed, with
+`[tool.uv] python-preference = "only-managed"` so no system interpreter
+is ever picked up. CI installs with `uv sync --locked`. This also
+matters for item 1.9: the managed 3.13.15 build links SQLite 3.53.1,
+while the runners' setup-python builds link 3.45.1 and 3.50.4, which
+carry the WAL-reset bug.
