@@ -39,6 +39,9 @@ In scope, and taken seriously:
 - Any path by which a model output becomes an executed instruction without
   passing policy.
 
+The risk-by-risk mapping to the OWASP agentic top 10, with the control, its
+test and the open issue for each gap, is in [THREATS.md](THREATS.md).
+
 ## What exists, as of 2026-09-25
 
 Implemented and tested:
