@@ -5,7 +5,8 @@ internal + 1 TB external SSD). Not a 24/7 worker pool that runs whatever
 it's told: the target is a system that notices work, decides what it's
 worth, and does it safely without waiting to be asked. See
 [ADR 0004](docs/decisions/0004-operating-system.md) for the framing and
-what's actually missing to get there.
+what's actually missing to get there, or
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a current-state diagram.
 
 This is the **build**. The **design** came first, from a controlled
 study: one frozen prompt was given to eleven frontier LLM systems,
