@@ -49,7 +49,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from lab import audit, backup, drills, emitter, metrics, publish, rubric, skills
+from lab import audit, backup, control, drills, emitter, metrics, publish, rubric, skills
 from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
 from lab.connectors import ConnectorError, load_connectors
@@ -454,6 +454,16 @@ def build_parser() -> argparse.ArgumentParser:
         m_end.add_argument("--reason", required=True)
     mem_sub.add_parser("sweep", help="retire expired memories")
 
+    ctl = sub.add_parser("control", help="pause, resume, drain or stop the whole lab")
+    ctl.add_argument("action", choices=["show", "pause", "resume", "drain", "stop"])
+    ctl.add_argument("--by", default="operator", help="an audit label")
+    ctl.add_argument("--reason", default=None)
+
+    cn = sub.add_parser("cancel", help="cancel a task that has not started running")
+    cn.add_argument("task_id")
+    cn.add_argument("--by", default="operator")
+    cn.add_argument("--reason", default="cancelled by operator")
+
     em = sub.add_parser("emit", help="queue proposals from patterns in the event log")
     em.add_argument("--min-failures", type=int, default=3,
                     help="failures of one kind and reason before it is proposed")
@@ -753,6 +763,43 @@ def cmd_memory(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace)
     return 0
 
 
+_CONTROL_MODES = {"pause": "paused", "resume": "running", "drain": "draining",
+                  "stop": "stopped"}
+
+
+def cmd_control(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    if args.action != "show":
+        control.set_mode(queue._conn, _CONTROL_MODES[args.action],
+                         by=_escape(args.by), reason=_escape(args.reason) if args.reason else None)
+    state = control.get(queue._conn)
+    print(f"mode {state.mode}"
+          + (f"   set by {_escape(state.set_by)} at {state.set_at}" if state.set_by else ""))
+    if state.reason:
+        print(f"reason {_escape(state.reason)}")
+    return 0
+
+
+def cmd_cancel(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    rows = queue._conn.execute(
+        "SELECT id, state, title FROM tasks WHERE id LIKE ? || '%'", (args.task_id,)).fetchall()
+    if len(rows) != 1:
+        print(f"cancel: {'no task' if not rows else 'ambiguous prefix'} matching "
+              f"{_escape(args.task_id)}", file=sys.stderr)
+        return 1
+    row = rows[0]
+    if row["state"] in ("running", "leased"):
+        print(f"cancel: {row['id'][:12]} is {row['state']}; use `control stop` to end running "
+              "work", file=sys.stderr)
+        return 1
+    try:
+        queue.cancel(row["id"], f"{_escape(args.reason)} (by {_escape(args.by)})")
+    except Exception as exc:
+        print(f"cancel: {_escape(exc)}", file=sys.stderr)
+        return 1
+    print(f"cancelled {row['id'][:12]}: {_escape(row['title'])}")
+    return 0
+
+
 def cmd_emit(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     created = emitter.emit_proposals(queue, min_failures=args.min_failures)
     print(f"{len(created)} proposal(s) queued")
@@ -832,6 +879,8 @@ def cmd_ledger(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace)
 
 
 COMMANDS = {
+    "control": cmd_control,
+    "cancel": cmd_cancel,
     "emit": cmd_emit,
     "chain": cmd_chain,
     "skillstore": cmd_skillstore,

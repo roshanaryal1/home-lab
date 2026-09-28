@@ -297,6 +297,17 @@ Implemented and tested:
   `lab status` exits 2 when unhealthy (a running task on an expired
   lease, or work waiting with no live worker and a silent log), which is
   what the watchdog (#78) and the dead-man switch (#79) will act on.
+  It also reports the operator mode.
+- **Operator controls** (`lab/control.py`, `lab control`, `lab cancel`, item
+  6.3, #79). One database row, read by the supervisor before every lease,
+  holds `running`, `paused`, `draining` or `stopped`. Paused leases
+  nothing new; draining also exits when idle; stopped runs the emergency
+  stop (authority revoked first, then handlers cancelled and worker
+  processes killed) and stays stopped across a restart until a person
+  resumes. Each change is a hash-chained `control_changed` event. Limit:
+  until the lab account exists (#70) the agent account can write this row,
+  which matters only for resume; pause and stop remove authority. `lab
+  cancel` refuses running work and points to `control stop`.
   Nothing acts on it yet.
 - **Injection harness and taint on read** (`lab/attacks.py`, item 4.7,
   #72). Nine scenarios pair a useful task (fetch a page, write a summary)

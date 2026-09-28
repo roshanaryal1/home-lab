@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self
 
+from lab import control
 from lab.artifacts import ArtifactError, ArtifactStore
 from lab.authority import AgentCapability, AuthorityViolation, check, held_legs
 from lab.broker import (
@@ -283,6 +284,7 @@ class Supervisor:
                         self.stats.recovered)
 
         self._max_tasks = max_tasks
+        watcher = asyncio.create_task(self._watch_control())
         workers = [
             asyncio.create_task(self._worker("heavy"))
             for _ in range(self.config.heavy_slots)
@@ -291,6 +293,9 @@ class Supervisor:
             for _ in range(self.config.light_slots)
         ]
         outcomes = await asyncio.gather(*workers, return_exceptions=True)
+        watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await watcher
         for outcome in outcomes:
             if isinstance(outcome, BaseException) and not isinstance(
                     outcome, asyncio.CancelledError):
@@ -299,6 +304,36 @@ class Supervisor:
                     f"worker slot crashed: {type(outcome).__name__}: {outcome}")
                 log.error("worker slot crashed: %r", outcome)
         return self.stats
+
+    async def _watch_control(self) -> None:
+        """Obey the operator's mode switch (item 6.3).
+
+        ``stopped`` runs the emergency stop once; ``draining`` ends the
+        supervisor when nothing is in flight. ``paused`` needs no action
+        here: workers simply do not lease.
+        """
+        while not self._stopping.is_set():
+            try:
+                mode = control.get(self.queue._conn).mode
+            except Exception:
+                log.exception("cannot read the control mode")
+                mode = "running"
+            if mode == "stopped":
+                log.error("operator stop requested")
+                await self.emergency_stop()
+                return
+            if mode == "draining" and not any(
+                    not w.done() for w in self._running.values()):
+                self._stopping.set()
+                return
+            await self._sleep_or_stop(self.config.idle_poll_seconds)
+
+    def _leasing_paused(self) -> bool:
+        try:
+            return not control.get(self.queue._conn).leasing_allowed
+        except Exception:
+            log.exception("cannot read the control mode; not leasing")
+            return True
 
     def _may_lease(self) -> bool:
         """Budget check, shared across workers so max_tasks is a total."""
@@ -312,6 +347,11 @@ class Supervisor:
         while not self._stopping.is_set():
             if not self._may_lease():
                 return
+            if self._leasing_paused():
+                if self._max_tasks is not None:
+                    return          # a one-shot run does not wait out a pause
+                await self._sleep_or_stop(self.config.idle_poll_seconds)
+                continue
 
             task = self.queue.lease(
                 ttl_seconds=self.config.lease_ttl_seconds, weight=weight
