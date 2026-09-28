@@ -119,6 +119,10 @@ class TaskQueue:
     def __init__(self, db_path: str | Path, owner: str | None = None) -> None:
         self.db_path = str(db_path)
         self.owner = owner or f"supervisor-{uuid.uuid4().hex[:8]}"
+        # Fresh every construction, unlike `owner`. See the `holder`
+        # column comment in schema.sql: this is what ordinary fencing
+        # checks, `owner` is what recover()'s restart-reclaim checks.
+        self._holder = uuid.uuid4().hex
         self._conn = sqlite3.connect(self.db_path, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
@@ -272,9 +276,9 @@ class TaskQueue:
             task_id = row["id"]
             expires_at = _ts(_utcnow() + timedelta(seconds=ttl_seconds))
             self._conn.execute(
-                "INSERT INTO leases (id, task_id, owner, expires_at) "
-                "VALUES (?, ?, ?, ?)",
-                (uuid.uuid4().hex, task_id, self.owner, expires_at),
+                "INSERT INTO leases (id, task_id, owner, holder, expires_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, task_id, self.owner, self._holder, expires_at),
             )
             self._conn.execute(
                 "UPDATE tasks SET state = 'leased', attempts = attempts + 1, "
@@ -293,11 +297,18 @@ class TaskQueue:
     # ------------------------------------------------- lease ownership
 
     def owns_lease(self, task_id: str) -> bool:
-        """True if this instance holds a live, unexpired lease on the task."""
+        """True if this instance holds a live, unexpired lease on the task.
+
+        Keyed on ``holder``, not ``owner``. ``owner`` is a stable name
+        shared across a process restart on purpose (recover() uses it);
+        two live instances can share it. ``holder`` is unique per
+        TaskQueue construction, which is what makes this check mean
+        "this specific instance", not "some instance with this name".
+        """
         row = self._conn.execute(
-            "SELECT 1 FROM leases WHERE task_id = ? AND owner = ? "
+            "SELECT 1 FROM leases WHERE task_id = ? AND holder = ? "
             f"AND released_at IS NULL AND expires_at > {NOW_MS}",
-            (task_id, self.owner),
+            (task_id, self._holder),
         ).fetchone()
         return row is not None
 
@@ -311,34 +322,33 @@ class TaskQueue:
         """
         expires_at = _ts(_utcnow() + timedelta(seconds=ttl_seconds))
         cur = self._conn.execute(
-            "UPDATE leases SET expires_at = ? WHERE task_id = ? AND owner = ? "
+            "UPDATE leases SET expires_at = ? WHERE task_id = ? AND holder = ? "
             f"AND released_at IS NULL AND expires_at > {NOW_MS}",
-            (expires_at, task_id, self.owner),
+            (expires_at, task_id, self._holder),
         )
         return cur.rowcount > 0
 
     def _require_lease(self, task_id: str) -> None:
-        """Fencing check. Refuse to commit a result we no longer own.
+        """Fencing check. Refuse to commit a result this holder does not
+        currently, live, own. Unconditionally: no shortcut.
 
-        Only applies to tasks that are actually leased or running. For a
-        task in any other state the problem is an illegal transition, and
-        that is a more useful error than a missing lease, so defer to
-        ``_transition``.
+        Issue #47 (HL03). The previous version skipped this check
+        entirely whenever this caller had never held any lease row at
+        all for the task, on the theory that the task was probably
+        still ``queued`` and ``_transition`` would give a clearer error.
+        That reasoning only holds when nobody else has a live lease on
+        it either. If a *different* holder's live lease already put
+        the task in ``running``, the shortcut let this caller, with no
+        relationship to the task whatsoever, walk straight through to
+        ``_transition`` and succeed, since running -> succeeded is a
+        legal transition on its own. There is no safe shortcut for
+        this check; it must always hold.
         """
-        ever = self._conn.execute(
-            "SELECT 1 FROM leases WHERE task_id = ? AND owner = ? LIMIT 1",
-            (task_id, self.owner),
-        ).fetchone()
-        if ever is None:
-            # This caller never held a lease on this task, so the real
-            # problem is an illegal transition. Let _transition say so,
-            # which is the more useful message.
-            return
         if not self.owns_lease(task_id):
             self._record(task_id, "lease_lost", detail={"owner": self.owner})
             raise LeaseLost(
-                f"lease on {task_id} is no longer held by {self.owner}; "
-                "refusing to commit a result that another worker may own"
+                f"no live lease on {task_id} is held by this instance "
+                f"(owner {self.owner}); refusing to commit a result"
             )
 
     def start(self, task_id: str) -> None:
