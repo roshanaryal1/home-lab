@@ -93,6 +93,7 @@ re-losing.
 - [`docs/decisions/0004-operating-system.md`](decisions/0004-operating-system.md), the framing this diagram implements
 - [`docs/decisions/0005-multi-tenant-proposal-review.md`](decisions/0005-multi-tenant-proposal-review.md), what's adopted vs deferred from a larger enterprise-platform proposal
 - [`docs/decisions/0006-authority-rules-and-rollout.md`](decisions/0006-authority-rules-and-rollout.md), the Rule of Two per plane and the staged rollout of research agents tied to gates G1 to G6
+- [`THREATS.md`](../THREATS.md), the OWASP agentic top 10 mapped to controls, tests and open issues
 - [`docs/PLAN.md`](PLAN.md), the research and defect history that led here
 - [`docs/PIPELINE.md`](PIPELINE.md), which papers each piece of this feeds
 - [`docs/SUBSYSTEMS.md`](SUBSYSTEMS.md), design detail for four specific subsystems
