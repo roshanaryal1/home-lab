@@ -107,6 +107,15 @@ Implemented and tested:
   output silently. `lab artifacts verify` re-hashes every blob and is what
   a restore drill runs (`tests/test_artifacts.py`). Artifacts are not yet
   encrypted or size-quota'd across tasks.
+- **Rule of Two** (`lab/authority.py`, item 4.1, #68, ADR 0006). A task
+  that would hold untrusted input, a secret and an external action at
+  once is cancelled before its handler runs, with no approval offered.
+  The secret and external legs come from trusted registration and a
+  fixed tool table (an unclassified tool counts as external); the
+  untrusted leg is true unless the task carries an operator mark, which
+  is only as strong as the queue's write access until origin tracking
+  lands (#69). No external tool or secret exists yet, so the rule is
+  proven by a deliberate test, not yet by production traffic.
 - **Backup and restore** (`lab/backup.py`, item 3.4, #67). `lab backup`
   snapshots the live database with SQLite's online backup API (no torn
   copy, supervisor keeps running) and copies only artifact blobs the

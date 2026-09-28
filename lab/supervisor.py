@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Self
 
 from lab.artifacts import ArtifactError, ArtifactStore
+from lab.authority import AgentCapability, AuthorityViolation, check, held_legs
 from lab.broker import (
     ApprovalRequired,
     ExecutionBroker,
@@ -158,6 +159,7 @@ class Supervisor:
             config.artifact_root or Path(config.db_path).parent / "artifacts",
             self.queue._conn)
         self._tools: dict[str, frozenset[str]] = {}
+        self._capabilities: dict[str, AgentCapability] = {}
         self.stats = SupervisorStats()
         self._handlers: dict[str, Handler] = {}
         self._stopping = asyncio.Event()
@@ -175,17 +177,24 @@ class Supervisor:
     # --------------------------------------------------------- handlers
 
     def register(self, agent_kind: str, handler: Handler,
-                 tools: frozenset[str] | set[str] = frozenset()) -> None:
+                 tools: frozenset[str] | set[str] = frozenset(), *,
+                 sensitive_data: bool = False, external_action: bool = False) -> None:
         """Register reviewed handler code and the tools it may request.
 
         The allowlist lives here, in trusted registration, not on the
-        task: a task cannot widen the tools its handler is given.
+        task: a task cannot widen the tools its handler is given. The
+        two flags declare what the handler can reach beyond its tools
+        (a secret, an outside effect) so the Rule of Two can be checked
+        before it runs (item 4.1).
         """
         self._handlers[agent_kind] = handler
         self._tools[agent_kind] = frozenset(tools)
+        self._capabilities[agent_kind] = AgentCapability(sensitive_data, external_action)
 
     def register_reviewed(self, agent_kind: str, ref: str,
-                          tools: frozenset[str] | set[str] = frozenset()) -> None:
+                          tools: frozenset[str] | set[str] = frozenset(), *,
+                          sensitive_data: bool = False,
+                          external_action: bool = False) -> None:
         """Register a reviewed handler that runs in its own worker process.
 
         ``ref`` is ``lab.handlers.<module>:<function>``; anything else is
@@ -202,7 +211,8 @@ class Supervisor:
             workspace = broker._workspace_for(task.id).root
             return await run_in_worker(ref, task, session, workspace=workspace)
 
-        self.register(agent_kind, in_worker, tools)
+        self.register(agent_kind, in_worker, tools, sensitive_data=sensitive_data,
+                      external_action=external_action)
 
     def _handler_for(self, task: Task) -> Handler | None:
         return self._handlers.get(task.agent_kind or "", None)
@@ -381,6 +391,20 @@ class Supervisor:
             self.stats.failed += 1
             log.error("no handler for task %s (kind=%s)",
                       task.id, task.agent_kind)
+            return
+
+        # The Rule of Two comes first: a task holding untrusted input, a
+        # secret and an outside effect never reaches the approval path,
+        # because a human approval of one action does not make the
+        # combination safe (item 4.1, ADR 0006).
+        try:
+            check(held_legs(task.payload, self._tools.get(task.agent_kind or "", ()),
+                            self._capabilities.get(task.agent_kind or "", AgentCapability())))
+        except AuthorityViolation as exc:
+            self.policy.audit(task.id, "authority_refused", {"reason": str(exc)})
+            self.queue.cancel(task.id, f"denied by authority rule: {exc}")
+            self.stats.denied += 1
+            log.warning("task %s DENIED: %s", task.id, exc)
             return
 
         # The gate. Between lease and execute, never skipped, and it runs
