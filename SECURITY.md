@@ -116,6 +116,17 @@ Implemented and tested:
   is only as strong as the queue's write access until origin tracking
   lands (#69). No external tool or secret exists yet, so the rule is
   proven by a deliberate test, not yet by production traffic.
+- **Backup and restore** (`lab/backup.py`, item 3.4, #67). `lab backup`
+  snapshots the live database with SQLite's online backup API (no torn
+  copy, supervisor keeps running) and copies only artifact blobs the
+  destination lacks. `lab restore-check` restores into a fresh, empty
+  directory and fails on any of: file hash or size differing from the
+  manifest, SQLite integrity check, schema version, foreign keys, the
+  audit chain or its head, or any artifact blob missing or altered
+  (`tests/test_backup.py`). Backups are not encrypted and are only as
+  private as the directory they are written to. Recovery drills
+  (`lab drill`, `ops/drills/`) record every run and count as
+  demonstrated only on the Mac mini; the monthly drill there is parked.
 
 ## Known gaps in what exists
 
