@@ -76,6 +76,7 @@ re-losing.
 | Supervisor | `lab/supervisor.py` | Built, tested | n/a |
 | Capability gate | `lab/policy.py`, `lab/broker.py` | Rule of Two enforced before the gate, `lab/authority.py` (item 4.1). Approvals are operator-signed (Ed25519) and verified by the supervisor, `lab/operator.py` (item 4.5). Every task carries a derived origin and taint through lineage, `lab/origin.py`, `lab/untrusted.py` (item 4.2). Task-level and per-tool-call: built, tested (item 1.1). Handlers call through a session bound to their task and lease (1.2); reviewed handlers run in a worker process (`lab/worker.py`); separate OS account pending, [#70](https://github.com/roshanaryal1/home-lab/issues/70) | n/a |
 | Sandbox | `lab/sandbox.py` | Built, tested on macOS 26.5.1 and 27 | n/a |
+| Model adapter | `lab/model.py` | Built against a mock and a stub loopback server: pinned revisions, admission control (tokens, time, residency, one heavy slot), strict tool-call parsing. Real model and measured budget wait for the M6 | [#74](https://github.com/roshanaryal1/home-lab/issues/74) |
 | Heavy model | Qwen3-Coder-30B-A3B, MLX 4-bit | Chosen, **unbenchmarked** on the M6 | [ADR 0001](decisions/0001-heavy-model.md) |
 | Python runtime | uv-managed | Chosen; mini needs patch-version pin | [ADR 0002](decisions/0002-python-runtime.md) |
 | Memory | SQLite + `sqlite-vec` + FTS | Designed, no runtime code | [ADR 0003](decisions/0003-memory.md) |

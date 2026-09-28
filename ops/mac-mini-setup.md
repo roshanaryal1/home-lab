@@ -194,3 +194,19 @@ graders are in `lab/attacks.py`; they take any handler.
 - [ ] Run the AgentDojo suite against the same adapter; record its utility
       and attack-success rates next to the stub's.
 - [ ] Repeat after every model or prompt change (gate G2, then nightly, 6.4).
+
+## 13. Model adapter on the real model (items 5.1 and 5.2, #74, #75)
+
+The adapter is done against a mock. These need the M6.
+
+- [ ] Start the chosen inference server on loopback only; point
+      `OpenAICompatibleAdapter` at it.
+- [ ] Record the exact weight and tokenizer commit hashes in a `ModelSpec`
+      (never a branch name) and in ADR 0001.
+- [ ] Measure resident memory with the model loaded and at three context
+      lengths; replace `weights_mb`, `kv_bytes_per_token` and
+      `DEFAULT_BUDGET_MB` with measured values.
+- [ ] Confirm a request sized to exceed the budget is refused at
+      admission and the machine does not swap.
+- [ ] Run the malformed tool-call cases against the real model and record
+      how often it emits a call the parser refuses.
