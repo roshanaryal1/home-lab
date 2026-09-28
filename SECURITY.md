@@ -190,6 +190,23 @@ Implemented and tested:
   audit event. Limits: "independent" means a different source id, not
   proof the sources did not copy each other, and deciding whether a quote
   really supports a claim is still a person's judgement.
+- **Router rubric** (`lab/rubric.py`, item 7.2, closes #33). Routes a
+  research task by evidence weight alone, with no model call: a post
+  needs one usable claim; a blog needs at least three distinct incident
+  sources and a mechanism claim; a paper needs a *verified* measurement
+  claim whose evidence includes a measurement, a baseline and a control;
+  a ledger with no current review pass, or with claims but none usable,
+  is "insufficient evidence"; an empty one is "no artifact". A caller may
+  ask for a route, and thin evidence is refused upward with the reason
+  recorded; a model's opinion cannot raise a route. Contradicted claims
+  are listed as conflicts and excluded, never averaged. Every decision
+  carries its evidence chain and asks for human review. `stop_decision`
+  gives research a bounded finish (every claim supported, none
+  contradicted) or an honest "insufficient evidence" when the search or
+  time budget runs out, instead of trusting the model to say it is done.
+  Limits: the thresholds are a first guess to be corrected by the human
+  reviews, and the source types (incident, measurement, baseline,
+  control) are labels the person or trusted code attaches, not verified.
 - **Evaluation records** (`lab/evals.py`, `evals/tasks.jsonl`, item 7.3,
   #81). A fixed 24-task set runs against any OpenAI-compatible loopback
   endpoint and is graded by deterministic checks only. Each run writes a

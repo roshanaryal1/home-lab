@@ -50,6 +50,9 @@ class LedgerError(ValueError):
     """The ledger refused an operation."""
 
 
+KINDS = ("finding", "mechanism", "measurement")
+
+
 @dataclass(frozen=True)
 class ClaimView:
     id: int
@@ -58,6 +61,7 @@ class ClaimView:
     supports: int
     contradicts: int
     sources: int
+    kind: str = "finding"
 
 
 @dataclass(frozen=True)
@@ -134,12 +138,15 @@ class Ledger:
 
     # -------------------------------------------------------------- claims
 
-    def add_claim(self, task_id: str, text: str) -> int:
+    def add_claim(self, task_id: str, text: str, kind: str = "finding") -> int:
         self.research_task(task_id)
         if not text.strip():
             raise LedgerError("a claim needs text")
+        if kind not in KINDS:
+            raise LedgerError(f"kind is one of {KINDS}")
         cur = self._conn.execute(
-            "INSERT INTO claims (task_id, text) VALUES (?, ?)", (task_id, text.strip()))
+            "INSERT INTO claims (task_id, text, kind) VALUES (?, ?, ?)",
+            (task_id, text.strip(), kind))
         claim_id = int(cur.lastrowid or 0)
         append_event(self._conn, task_id, "claim_added", detail={"claim": claim_id})
         return claim_id
@@ -238,8 +245,15 @@ class Ledger:
                 "SELECT * FROM claims WHERE task_id = ? ORDER BY id", (task_id,)).fetchall():
             supports, contradicts, sources = self._counts(row["id"])
             views.append(ClaimView(row["id"], row["text"], row["status"], supports,
-                                   contradicts, sources))
+                                   contradicts, sources, row["kind"]))
         return views
+
+    def support_sources(self, claim_id: int) -> set[tuple[str, str]]:
+        """(source_id, source_type) of every snapshot that supports a claim."""
+        return {(r["source_id"], r["source_type"]) for r in self._conn.execute(
+            "SELECT DISTINCT s.source_id, s.source_type FROM claim_evidence e "
+            "JOIN evidence_snapshots s ON s.id = e.snapshot_id "
+            "WHERE e.claim_id = ? AND e.relation = 'supports'", (claim_id,))}
 
     def evidence(self, claim_id: int) -> list[sqlite3.Row]:
         return self._conn.execute(

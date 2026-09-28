@@ -34,9 +34,9 @@ flowchart TB
 
     subgraph planes["Three planes ADR 0004 names as missing"]
         direction TB
-        obs["Observation plane<br/>issue #32, not started<br/>watches event log, emits proposals"]
-        router["Artifact router<br/>issue #33, not started, blocked on #32<br/>post / blog / paper by evidence weight"]
-        publish["Publish plane<br/>blocked on issue #15, secret broker not built<br/>scoped tokens, never a raw credential"]
+        obs["Observation plane<br/>issue #32, first slice only<br/>watches event log, emits proposals"]
+        router["Artifact router<br/>issue #33, rubric built over the evidence ledger<br/>post / blog / paper by evidence weight"]
+        publish["Publish plane<br/>connectors and secret broker built (dummy credentials)<br/>reviewed publishing with receipts, issue #86, not built"]
         obs -->|"proposal, as an ordinary queue row"| router
         router -->|"draft + evidence chain"| publish
     end
@@ -81,7 +81,7 @@ re-losing.
 | Python runtime | uv-managed | Chosen; mini needs patch-version pin | [ADR 0002](decisions/0002-python-runtime.md) |
 | Memory | SQLite + `sqlite-vec` + FTS | Designed, no runtime code | [ADR 0003](decisions/0003-memory.md) |
 | Observation plane | `lab/observe.py`, `lab/slice.py` | First slice only (#39, #46): this repo's closed issues and merged PRs become queued proposals. General service not started | [#32](https://github.com/roshanaryal1/home-lab/issues/32) |
-| Artifact router | `lab/route.py` | v0 from the slice: one signal at a time, template draft, stops for review. Rubric that can refuse (item 7.2) not built | [#33](https://github.com/roshanaryal1/home-lab/issues/33) |
+| Artifact router | `lab/rubric.py`, `lab/route.py` | Rubric built (7.2): routes a research task by evidence weight over the ledger, refuses thin evidence upward, states conflicts, bounded stop rule. The single-signal v0 in `route.py` remains for the vertical slice. Human review of every route | [#33](https://github.com/roshanaryal1/home-lab/issues/33) |
 | Secret broker and connectors | `lab/vault.py`, `lab/connectors.py` | Built and tested with dummy credentials and a fake transport; Keychain path unexercised until the mini | [#15](https://github.com/roshanaryal1/home-lab/issues/15) |
 | Publish plane | n/a | Connectors exist; reviewed publishing with receipts (8.6) not built | [#86](https://github.com/roshanaryal1/home-lab/issues/86) |
 | Network egress control | `lab/egress.py` | Built, tested with a fake resolver and transport (metadata-address redirect, DNS rebinding, IP-literal spellings); not yet exercised against a real host | [#14](https://github.com/roshanaryal1/home-lab/issues/14) |
