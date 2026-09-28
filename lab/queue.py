@@ -261,21 +261,23 @@ class TaskQueue:
                 f"AND released_at IS NULL AND expires_at > {NOW_MS}",
                 (token.lease_id, token.task_id, token.instance_id),
             ).fetchone()
-            if live is None or token.instance_id != self._holder:
-                self._conn.execute("ROLLBACK")
-                self._record(token.task_id, "lease_lost", detail={
-                    "owner": self.owner,
-                    "lease_id": token.lease_id,
-                    "generation": token.generation,
-                })
-                raise LeaseLost(
-                    f"lease {token.lease_id} (generation {token.generation}) on "
-                    f"{token.task_id} is not live for this instance; "
-                    "refusing to act on it"
-                )
-            yield
-        except LeaseLost:
+        except BaseException:
+            self._conn.execute("ROLLBACK")
             raise
+        if live is None or token.instance_id != self._holder:
+            self._conn.execute("ROLLBACK")
+            self._record(token.task_id, "lease_lost", detail={
+                "owner": self.owner,
+                "lease_id": token.lease_id,
+                "generation": token.generation,
+            })
+            raise LeaseLost(
+                f"lease {token.lease_id} (generation {token.generation}) on "
+                f"{token.task_id} is not live for this instance; "
+                "refusing to act on it"
+            )
+        try:
+            yield
         except BaseException:
             self._conn.execute("ROLLBACK")
             raise
