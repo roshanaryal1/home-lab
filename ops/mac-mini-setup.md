@@ -327,3 +327,9 @@ the paths, then:
       Wall-clock ceilings are built (1.10). Measure peak RSS of the heavy
       model, set the ceiling with headroom under 32 GB, and add the test that
       a deliberate overrun fails the task with a recorded reason.
+- [ ] The loop: install `com.homelab.tick.plist` the same way, with
+      `LAB_MODEL_URL`, `LAB_MODEL_NAME` and `LAB_MODEL_REVISION` in its
+      environment (and in the supervisor's, so the daemon registers the
+      summarizer). Run `lab tick` once by hand first and read the
+      `proposal_routed` events with `lab audit verify`.
+
