@@ -63,8 +63,21 @@ def test_leased_task_is_not_leased_twice(q: TaskQueue) -> None:
 
 def test_illegal_transition_is_rejected(q: TaskQueue) -> None:
     task_id = q.add_task("no skipping")
-    # queued -> succeeded skips leased and running entirely.
+    q.lease()
+    # Holds a genuinely live lease throughout, so this exercises the
+    # transition-legality guard specifically, not the fencing check
+    # (see test_committing_with_no_lease_at_all_is_rejected for that):
+    # leased -> succeeded skips running entirely.
     with pytest.raises(TransitionError):
+        q.succeed(task_id)
+
+
+def test_committing_with_no_lease_at_all_is_rejected(q: TaskQueue) -> None:
+    """Issue #47: a caller with no relationship to the task at all must
+    never be able to commit a result, regardless of what state the
+    task happens to be in. LeaseLost, not a state-machine detail."""
+    task_id = q.add_task("never leased by anyone")
+    with pytest.raises(LeaseLost):
         q.succeed(task_id)
 
 
@@ -401,3 +414,38 @@ def test_idempotent_failure_still_auto_retries(q: TaskQueue) -> None:
     q.fail(task_id, "transient", retry_in=timedelta(0))
 
     assert q.get(task_id).state == "queued"
+
+
+# ---------------------------------------------------------------- issue 47
+#
+# The fencing check was keyed on `owner`, a stable name shared across
+# a restart on purpose. Two live TaskQueue instances constructed with
+# the same owner name were indistinguishable to it, so a fresh
+# instance that never itself leased a task could commit a result on
+# one a different instance was actively running, as long as the
+# task's current state made the transition legal in isolation. Fixed
+# by keying on `holder`, unique per construction.
+
+
+def test_a_fresh_instance_with_the_same_owner_cannot_steal_a_live_task(
+    tmp_path: Path,
+) -> None:
+    """Direct reproduction of R03 from the independent review: same
+    owner name, different instance, the live one is still working."""
+    db = tmp_path / "lab.db"
+
+    with TaskQueue(db, owner="supervisor@shared-host") as a:
+        task_id = a.add_task("send an email")
+        a.lease(ttl_seconds=300)
+        a.start(task_id)
+
+        # A second, independent instance with the SAME owner name.
+        # Before the fix this passed _require_lease's "never held any
+        # lease" shortcut and could commit a's still-running task.
+        with TaskQueue(db, owner="supervisor@shared-host") as b:
+            with pytest.raises(LeaseLost):
+                b.succeed(task_id, {"sent": True})
+
+            # a's own claim on its own live task is unaffected.
+            assert a.owns_lease(task_id)
+            assert a.get(task_id).state == "running"

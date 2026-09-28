@@ -87,7 +87,17 @@ CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_id);
 CREATE TABLE IF NOT EXISTS leases (
     id         TEXT PRIMARY KEY,
     task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    owner      TEXT NOT NULL,           -- supervisor instance id
+    -- `owner` is a stable identity (e.g. supervisor@hostname), the same
+    -- across a process restart on purpose: recover() uses it to let a
+    -- restarted supervisor reclaim its own crashed work by name. It is
+    -- NOT a fencing token, and two live TaskQueue instances sharing an
+    -- owner name are indistinguishable by this column alone. `holder`
+    -- is the fencing token: unique per TaskQueue construction, so a
+    -- fresh instance that never itself leased a task, or a stale
+    -- instance whose lease was reclaimed out from under it, cannot
+    -- pass as the one that actually holds this lease. Issue #47.
+    owner      TEXT NOT NULL,
+    holder     TEXT NOT NULL,
     acquired_at TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at TEXT NOT NULL,
     released_at TEXT                    -- NULL while live
