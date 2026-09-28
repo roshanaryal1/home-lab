@@ -55,6 +55,9 @@ TOOL_LEGS: dict[str, frozenset[Leg]] = {
     "fs.write": frozenset(),
     "fs.delete": frozenset(),
     "shell.run": frozenset(),
+    # Outbound requests are an outside effect (a URL can carry data out),
+    # even though the host list bounds where.
+    "net.fetch": frozenset({Leg.EXTERNAL_ACTION}),
 }
 
 

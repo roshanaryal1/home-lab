@@ -82,7 +82,7 @@ re-losing.
 | Observation plane | `lab/observe.py`, `lab/slice.py` | First slice only (#39, #46): this repo's closed issues and merged PRs become queued proposals. General service not started | [#32](https://github.com/roshanaryal1/home-lab/issues/32) |
 | Artifact router | `lab/route.py` | v0 from the slice: one signal at a time, template draft, stops for review. Rubric that can refuse (item 7.2) not built | [#33](https://github.com/roshanaryal1/home-lab/issues/33) |
 | Publish plane | n/a | Blocked on the secret broker | [#15](https://github.com/roshanaryal1/home-lab/issues/15) |
-| Network egress control | n/a | Open | [#14](https://github.com/roshanaryal1/home-lab/issues/14) |
+| Network egress control | `lab/egress.py` | Built, tested with a fake resolver and transport (metadata-address redirect, DNS rebinding, IP-literal spellings); not yet exercised against a real host | [#14](https://github.com/roshanaryal1/home-lab/issues/14) |
 | Resource ceilings per task | n/a | Open | [#16](https://github.com/roshanaryal1/home-lab/issues/16) |
 | `dscl` account enumeration | `lab/sandbox.py` | Accepted, not narrowed; untrusted code is routed to a disposable container instead | [ADR 0007](decisions/0007-isolation-for-untrusted-code.md), [#27](https://github.com/roshanaryal1/home-lab/issues/27) |
 | Tailscale-only dashboard | n/a | Not started | reference architecture §11 |
