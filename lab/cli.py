@@ -49,7 +49,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from lab import audit, backup, drills, metrics, publish, rubric, skills
+from lab import audit, backup, drills, emitter, metrics, publish, rubric, skills
 from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
 from lab.connectors import ConnectorError, load_connectors
@@ -454,6 +454,13 @@ def build_parser() -> argparse.ArgumentParser:
         m_end.add_argument("--reason", required=True)
     mem_sub.add_parser("sweep", help="retire expired memories")
 
+    em = sub.add_parser("emit", help="queue proposals from patterns in the event log")
+    em.add_argument("--min-failures", type=int, default=3,
+                    help="failures of one kind and reason before it is proposed")
+
+    ch = sub.add_parser("chain", help="the events that produced a proposal")
+    ch.add_argument("task_id")
+
     rt = sub.add_parser("route", help="route a research task to post, blog, paper or nothing")
     rt.add_argument("task_id")
     rt.add_argument("--want", choices=["post", "blog", "paper"], default=None,
@@ -746,6 +753,27 @@ def cmd_memory(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace)
     return 0
 
 
+def cmd_emit(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    created = emitter.emit_proposals(queue, min_failures=args.min_failures)
+    print(f"{len(created)} proposal(s) queued")
+    for task_id in created:
+        task = queue.get(task_id)
+        print(f"  {task_id}  {_escape(task.title if task else '')}")
+    return 0
+
+
+def cmd_chain(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    links = emitter.chain_for(queue, args.task_id)
+    if not links:
+        print(f"chain: {args.task_id} was not emitted from the event log", file=sys.stderr)
+        return 1
+    print(f"{len(links)} event(s) produced this proposal:")
+    for link in links:
+        print(f"  event {link.event_id}  task {link.task_id}  {link.kind}  "
+              f"{_escape(link.detail or '')}  {(link.hash or '')[:12]}")
+    return 0
+
+
 def cmd_route(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     ledger = Ledger(queue._conn, ArtifactStore(args.store or args.db.parent / "artifacts",
                                                queue._conn))
@@ -804,6 +832,8 @@ def cmd_ledger(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace)
 
 
 COMMANDS = {
+    "emit": cmd_emit,
+    "chain": cmd_chain,
     "skillstore": cmd_skillstore,
     "publish": cmd_publish,
     "memory": cmd_memory,

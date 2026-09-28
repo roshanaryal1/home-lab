@@ -277,6 +277,16 @@ Implemented and tested:
   moved. Tested against a stub endpoint; no real model has been run, and
   the records are not signed, only self-hashed, so they detect accident
   and casual edits, not an adversary who recomputes the hash.
+- **Event-log emitter** (`lab/emitter.py`, `lab emit`, `lab chain`, #32).
+  Proposals come from patterns in the append-only log (today: three or
+  more tasks of one kind failing for the same normalized reason). A
+  proposal is an ordinary `notify`-tier task with an `event` origin, so it
+  is tainted, cannot carry a grant, destination or policy, and passes the
+  same gate as any task. The producing event ids are stored in the payload
+  and in a hash-chained `proposal_emitted` event; failure text is
+  untrusted and is shown escaped. Proposals never count as input to the
+  rule, so the emitter cannot feed on itself. Nothing schedules `lab emit`
+  yet; it is run by a person or a timer.
 - **Status and counters** (`lab/metrics.py`, `lab status`, #89). Queue
   depth per state, the age of the oldest queued, running and
   approval-waiting task, live leases, last success, and counters for
