@@ -147,3 +147,19 @@ Parked until the M6 is on the desk. None of this is run yet.
       is unreachable (`getent passwd` shows only the guest's accounts) and
       that only the mounted workspace is visible.
 - [ ] Write the numbers into ADR 0007, replacing "not measured yet".
+
+## 10. Backup and recovery drills (items 3.4 and #91)
+
+Software is done and rehearsed in CI. These are the parts that count only
+on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
+
+- [ ] Choose a backup target on a different physical disk or machine.
+- [ ] `uv run python -m lab.cli backup --to <target>` from a scheduled job;
+      confirm a new `*.manifest.json` appears.
+- [ ] First full restore drill: `uv run python -m lab.cli drill restore`
+      against the live database. Commit the record from `ops/drills/log/`.
+- [ ] Repeat monthly; log the date in `ops/drills/log/`.
+- [ ] Crash drill on the mini: `uv run python -m lab.cli drill crash`.
+- [ ] Power-pull drill during a running task: pull the plug, boot, confirm
+      the task is requeued or held per its idempotency, note timings.
+- [ ] Failed model load drill after the model adapter (5.1) exists.
