@@ -1,7 +1,11 @@
 # home-lab
 
-A 24/7 local autonomous AI workstation for an Apple M6 Mac mini
-(32 GB unified, 512 GB internal + 1 TB external SSD).
+An AI operating system for an Apple M6 Mac mini (32 GB unified, 512 GB
+internal + 1 TB external SSD). Not a 24/7 worker pool that runs whatever
+it's told: the target is a system that notices work, decides what it's
+worth, and does it safely without waiting to be asked. See
+[ADR 0004](docs/decisions/0004-operating-system.md) for the framing and
+what's actually missing to get there.
 
 This is the **build**. The **design** came first, from a controlled
 study: one frozen prompt was given to eleven frontier LLM systems,
@@ -37,6 +41,19 @@ than quietly resolved.
 Steps 1, 2 and 4 are machine-independent and run anywhere. Everything
 touching model residency needs the 32 GB machine to mean anything.
 
+The table above is the execution substrate: safe to leave running
+unattended, but it has no opinion about what work should exist. Three
+planes on top of it are what make this an operating system rather than
+a task runner, and none of them exist yet:
+
+| Plane | Issue | State |
+|---|---|---|
+| Observation: notice work from the event stream, emit proposals | [#32](https://github.com/roshanaryal1/home-lab/issues/32) | not started |
+| Router: post / blog / paper by evidence weight | [#33](https://github.com/roshanaryal1/home-lab/issues/33) | not started |
+| Publish: post/email on your behalf | blocked on [#15](https://github.com/roshanaryal1/home-lab/issues/15) | not started |
+
+Build order and reasoning are in ADR 0004.
+
 ## The two rules that shape the code
 
 **One heavy inference slot.** All ten non-anchor systems in the study
@@ -58,7 +75,7 @@ lab/schema.sql       task queue and audit schema, WAL-backed
 lab/queue.py         state machine, leases, retry, crash recovery
 lab/supervisor.py    asyncio loop, concurrency slots, dispatch
 ops/mac-mini-setup.md  setup checklist for the mini itself
-tests/               30 tests, no external dependencies
+tests/               114 tests, no external dependencies
 ```
 
 ## Running the tests
