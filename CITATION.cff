@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software or its evaluation records, please cite it as below."
+type: software
+title: "home-lab: a local autonomous AI workstation with an audited execution substrate"
+abstract: >-
+  A 24/7 local AI workstation built around a durable task queue, an execution
+  broker, a Rule-of-Two authority check, a hash-chained audit log, an evidence
+  ledger and reproducible evaluation records.
+authors:
+  - family-names: Aryal
+    given-names: Roshan
+version: 0.1.0
+date-released: 2026-09-28
+license: MIT
+repository-code: "https://github.com/roshanaryal1/home-lab"
+keywords:
+  - agent security
+  - prompt injection
+  - audit log
+  - reproducibility
+  - local inference
