@@ -353,10 +353,22 @@ class TaskQueue:
 
     def fail(self, task_id: str, error: str,
              retry_in: timedelta | None = None) -> None:
-        """Fail a task, retrying it if attempts remain."""
+        """Fail a task, retrying it if attempts remain and it is safe to.
+
+        Issue #51 (HL07): idempotency has to govern *every* retry, not
+        only the crash-recovery path in ``recover()``. An ordinary
+        failure is not proof nothing happened, a timeout after a real
+        side effect (an email actually sent, the confirmation lost)
+        looks identical to one where nothing started. Auto-retrying a
+        non-idempotent task here would risk repeating that side effect.
+        A non-idempotent failure is left in ``failed`` rather than
+        requeued, the same "hold for review" outcome ``recover()``
+        already gives a non-idempotent task that ran out of attempts.
+        """
         self._require_lease(task_id)
         row = self._conn.execute(
-            "SELECT attempts, max_attempts FROM tasks WHERE id = ?", (task_id,)
+            "SELECT attempts, max_attempts, idempotent FROM tasks WHERE id = ?",
+            (task_id,),
         ).fetchone()
         if row is None:
             raise TransitionError(f"no such task: {task_id}")
@@ -364,7 +376,7 @@ class TaskQueue:
         with self._tx():
             self._transition(task_id, "failed", error=error)
             self._release_lease(task_id)
-            if row["attempts"] < row["max_attempts"]:
+            if row["idempotent"] and row["attempts"] < row["max_attempts"]:
                 # `is not None`, not a truthiness check: timedelta(0) is
                 # falsy, and an explicit "retry immediately" must not be
                 # silently replaced by the default backoff.

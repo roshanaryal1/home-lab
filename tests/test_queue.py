@@ -78,7 +78,11 @@ def test_terminal_state_cannot_transition(q: TaskQueue) -> None:
 
 
 def test_failure_retries_until_max_attempts(q: TaskQueue) -> None:
-    task_id = q.add_task("flaky", max_attempts=2)
+    # Idempotent: this test is about the attempt-counting mechanism,
+    # not about whether retrying is safe. See issue #51 for the
+    # non-idempotent case, where retrying at all is the thing under
+    # test.
+    task_id = q.add_task("flaky", max_attempts=2, idempotent=True)
 
     q.lease()
     q.start(task_id)
@@ -95,7 +99,7 @@ def test_failure_retries_until_max_attempts(q: TaskQueue) -> None:
 
 
 def test_retry_backoff_makes_task_unavailable_immediately(q: TaskQueue) -> None:
-    task_id = q.add_task("backoff", max_attempts=3)
+    task_id = q.add_task("backoff", max_attempts=3, idempotent=True)
     q.lease()
     q.start(task_id)
     q.fail(task_id, "transient", retry_in=timedelta(minutes=5))
@@ -363,3 +367,37 @@ def test_crash_mid_succeed_leaves_no_partial_state(
     task = q.get(task_id)
     assert task.state == "running"
     assert q.owns_lease(task_id)
+
+
+# ---------------------------------------------------------------- issue 51
+#
+# fail()'s ordinary retry only checked attempts remaining, not whether
+# retrying is actually safe. A timeout after a real side effect (an
+# email actually sent, the confirmation lost) is indistinguishable
+# from one where nothing happened, so auto-retrying a non-idempotent
+# task risked repeating that side effect. Only recover() checked
+# idempotent; ordinary fail() did not.
+
+
+def test_non_idempotent_failure_is_not_auto_retried(q: TaskQueue) -> None:
+    task_id = q.add_task("send an email", max_attempts=3, idempotent=False)
+    q.lease()
+    q.start(task_id)
+    q.fail(task_id, "timeout, unknown whether it sent")
+
+    task = q.get(task_id)
+    assert task.state == "failed", (
+        "a non-idempotent failure must be held for review, not silently "
+        "requeued, even though attempts remain"
+    )
+    assert task.attempts == 1
+
+
+def test_idempotent_failure_still_auto_retries(q: TaskQueue) -> None:
+    """The fix must not stop safe retries from happening."""
+    task_id = q.add_task("re-run a read", max_attempts=3, idempotent=True)
+    q.lease()
+    q.start(task_id)
+    q.fail(task_id, "transient", retry_in=timedelta(0))
+
+    assert q.get(task_id).state == "queued"

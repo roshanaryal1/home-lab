@@ -51,7 +51,10 @@ async def test_handler_exception_marks_task_failed_and_retries(
         raise ValueError("handler exploded")
 
     sup.register("demo", boom)
-    task_id = sup.queue.add_task("doomed", agent_kind="demo", max_attempts=2)
+    # Idempotent: this test is about the retry mechanism, not about
+    # whether an ordinary failure should retry at all (issue #51).
+    task_id = sup.queue.add_task("doomed", agent_kind="demo", max_attempts=2,
+                                  idempotent=True)
 
     await sup.run(max_tasks=1)
     task = sup.queue.get(task_id)
