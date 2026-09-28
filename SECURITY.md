@@ -140,7 +140,11 @@ get it would be trusted with work it cannot safely run.
 These reach `opendirectoryd` over a mach port, not through
 `/etc/passwd`, so denying `/etc` does not affect them. Narrowing
 `mach-lookup` would very likely break dyld, Python and the model
-runtime, so it stays open deliberately.
+runtime, so it stays open deliberately, a decision recorded in
+[ADR 0007](docs/decisions/0007-isolation-for-untrusted-code.md) (#27).
+Untrusted code is not executed under Seatbelt at all; when it must be, it
+goes in a disposable Apple container (Linux guest, VM boundary), which is
+not built yet.
 
 Filesystem confinement itself is intact: `ls /Users` is refused. A
 sandboxed agent cannot walk home directories, but it **can** enumerate
