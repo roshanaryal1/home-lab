@@ -172,6 +172,17 @@ Implemented and tested:
   supervisor's memory during the call; and a destination that stores what
   it is sent can still be told to repeat the value later, which redaction
   cannot see.
+- **Status and counters** (`lab/metrics.py`, `lab status`, #89). Queue
+  depth per state, the age of the oldest queued, running and
+  approval-waiting task, live leases, last success, and counters for
+  policy denials, rejected approvals, egress denials, lease losses,
+  forced terminations (emergency stop, lease-loss stop, wall-clock kill),
+  retries, recoveries, worker errors and tainted tasks, all read from the
+  append-only event log, so a number cannot disagree with the audit trail.
+  `lab status` exits 2 when unhealthy (a running task on an expired
+  lease, or work waiting with no live worker and a silent log), which is
+  what the watchdog (#78) and the dead-man switch (#79) will act on.
+  Nothing acts on it yet.
 - **Injection harness and taint on read** (`lab/attacks.py`, item 4.7,
   #72). Nine scenarios pair a useful task (fetch a page, write a summary)
   with a prompt injection in the page, run against a stub model that is
