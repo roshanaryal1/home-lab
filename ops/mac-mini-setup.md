@@ -223,3 +223,20 @@ The runner and record format are done and tested against a stub endpoint.
 - [ ] `lab eval rerun` the record on the same commit; expect identical
       answers at temperature 0 with a fixed seed, and note any that move.
 - [ ] Repeat for the smaller baseline model (5.2) with the same task file.
+
+## 15. First real destination (item 8.6, #86)
+
+Everything is tested against a dummy provider. Before the first real send:
+
+- [ ] Write the connector into the `connectors_file`: one host, the secret
+      *name*, the provider's idempotency header and, if it has one, its
+      lookup-by-key path. Confirm from the provider's docs that it honours
+      the idempotency key and for how long.
+- [ ] Store the credential in the Keychain (`security add-generic-password
+      -s home-lab -a <name>`), scoped as narrowly as the provider allows.
+- [ ] Send one throwaway draft to a private or test destination. Read the
+      approval request: destination and draft hash must match what you expect.
+- [ ] Deliberately kill the network mid-send once; confirm the task is held,
+      `lab publish reconcile` finds or does not find it, and no duplicate
+      appears at the provider.
+- [ ] Only then point a connector at a public destination.

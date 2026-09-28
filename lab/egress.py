@@ -197,26 +197,28 @@ class EgressGateway:
 
     def fetch(self, url: str, allowed: frozenset[str], task_id: str = "", *,
               method: str = "GET", headers: dict[str, str] | None = None,
-              body: bytes | None = None, follow_redirects: bool = True) -> FetchResult:
+              body: bytes | None = None, follow_redirects: bool = True,
+              audit: Callable[[str, dict[str, Any]], None] | None = None) -> FetchResult:
         """One bounded request. ``headers`` may carry a credential, so a
         request with headers or a body never follows a redirect: the
         credential must not leave the host it was meant for."""
         if headers or body is not None:
             follow_redirects = False
+        sink = audit or self._audit
         current = url
         for hop in range(MAX_REDIRECTS + 1):
             try:
                 v = validate(current, allowed, self._resolver)
             except EgressDenied as exc:
-                self._record("egress_deny", current, task_id, str(exc), hop)
+                self._record(sink, "egress_deny", current, task_id, str(exc), hop)
                 raise
-            self._record("egress_allow", current, task_id, "on the allowed list", hop)
+            self._record(sink, "egress_allow", current, task_id, "on the allowed list", hop)
             response = self._transport(v.ip, 443, v.host, v.target, TIMEOUT_SECONDS,
                                        MAX_RESPONSE_BYTES, method=method,
                                        headers=headers, body=body)
             if response.status in _REDIRECT_CODES:
                 if not follow_redirects:
-                    self._record("egress_deny", current, task_id,
+                    self._record(sink, "egress_deny", current, task_id,
                                  "redirect not followed for a credentialed request", hop)
                     raise EgressDenied("redirect not followed for a credentialed request")
                 location = response.headers.get("location")
@@ -228,12 +230,15 @@ class EgressGateway:
             evidence = extract_evidence(text, source_type="web", source_id=url)
             return FetchResult(url, response.status, evidence,
                                response.headers.get("content-type", ""), hop)
-        self._record("egress_deny", current, task_id, "too many redirects", MAX_REDIRECTS)
+        self._record(sink, "egress_deny", current, task_id, "too many redirects",
+                     MAX_REDIRECTS)
         raise EgressDenied(f"more than {MAX_REDIRECTS} redirects")
 
-    def _record(self, kind: str, url: str, task_id: str, reason: str, hop: int) -> None:
+    @staticmethod
+    def _record(sink: Callable[[str, dict[str, Any]], None], kind: str, url: str,
+                task_id: str, reason: str, hop: int) -> None:
         parts = urllib.parse.urlsplit(url)
-        self._audit(kind, {
+        sink(kind, {
             "task_id": task_id, "host": (parts.hostname or "")[:255],
             "url_sha256": hashlib.sha256(url.encode("utf-8", "replace")).hexdigest(),
             "reason": reason, "hop": hop,

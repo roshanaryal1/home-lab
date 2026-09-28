@@ -190,6 +190,27 @@ Implemented and tested:
   audit event. Limits: "independent" means a different source id, not
   proof the sources did not copy each other, and deciding whether a quote
   really supports a claim is still a person's judgement.
+- **Reviewed publishing with receipts** (`lab/publish.py`,
+  `publications`, migration 10, item 8.6, #86). A credentialed send is
+  bound, in the approval the operator reads, to the destination host and
+  the SHA-256 of the exact body (`connector.call` preconditions), so a
+  one-character edit is a different intent and needs a new approval. The
+  attempt is written down as `reserved` before anything is sent, with an
+  idempotency key derived from the task, connector, method, path and body
+  hash, which is also sent to the provider in the connector's
+  idempotency header. On a response the row becomes `confirmed` with the
+  provider's own id and a hash of the response. A lost response leaves
+  the row `reserved` and the operation `uncertain`; the retry is held,
+  never resent. `lab publish reconcile` asks the provider by key (the
+  connector's `lookup_path`): if found, the receipt is stored and the
+  operation resolved as happened; if not, nothing is decided for the
+  person, and a resend carries the same key so a provider that honours it
+  still cannot post twice. Tested end to end against a dummy provider that
+  can act and then lose its reply. Limits: a provider that ignores
+  idempotency keys and has no lookup can only be reconciled by hand, and
+  a "not found" can be eventual consistency, which is why it stays a
+  person's call. Connector definitions live in a strict JSON file
+  (`connectors_file`) that holds secret names, never values.
 - **Inspectable memory** (`lab/memory.py`, migration 9, item 8.4, #85).
   ADR 0003's rule is enforced: an outsider's content never becomes
   curated memory by itself. Curated memory needs a named promoter and is
@@ -328,7 +349,7 @@ absent is worse than no policy:
   `tests/test_limits.py`). Memory is not, and arrives with the model
   adapter (#16, #74). A fork bomb inside the deadline is contained by the
   group kill, not prevented.
-- **The secret broker has only been run against a dummy connector.**
+- **The secret broker and publishing have only been run against a dummy provider.**
   Built (`lab/vault.py`, `lab/connectors.py`, item 4.4, #15) and tested
   with dummy credentials and a fake transport. No real credential has
   been resolved from the Keychain, and no real destination has been

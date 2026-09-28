@@ -59,6 +59,7 @@ import math
 import os
 import shutil
 import stat
+import urllib.parse
 import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -483,8 +484,8 @@ class ExecutionBroker:
             "fs.write": self._tool_fs_write,
             "fs.delete": self._tool_fs_delete,
             "shell.run": self._tool_shell_run,
-            "net.fetch": self._tool_net_fetch,
-            "connector.call": self._tool_connector_call,
+            "net.fetch": lambda req, ws: self._run_job_sync(self._job_net_fetch(req)),
+            "connector.call": lambda req, ws: self._run_job_sync(self._job_connector_call(req)),
         }
 
     def session(self, ctx: ExecutionContext) -> ToolSession:
@@ -623,7 +624,16 @@ class ExecutionBroker:
             if replay is not None:
                 return call.finish(replay)
             try:
-                result = await asyncio.to_thread(handler, request, ws)
+                factory = self._net_job_factory(request.tool)
+                if factory is not None:
+                    job = factory(request)                 # database work, on the loop
+                    try:
+                        outcome = await asyncio.to_thread(job.perform)   # network only
+                    finally:
+                        self._flush_job(job)
+                    result = job.finish(outcome)           # database work, on the loop
+                else:
+                    result = await asyncio.to_thread(handler, request, ws)
             except BaseException as exc:
                 # Includes cancellation: a command cut off mid-run has an
                 # unknown outcome, and is recorded as such.
@@ -645,6 +655,28 @@ class ExecutionBroker:
             raise
         finally:
             self._audit_call(ctx, tool, params, call)
+
+    def _net_job_factory(self, tool: str) -> Callable[[ToolRequest], NetJob] | None:
+        return {"net.fetch": self._job_net_fetch,
+                "connector.call": self._job_connector_call}.get(tool)
+
+    def _flush_job(self, job: NetJob) -> None:
+        """Write the gateway events the thread buffered, on the loop's thread.
+        A failure here is logged, not raised: the request already happened."""
+        for kind, detail in job.audit_events:
+            try:
+                if self.policy is not None:
+                    self.policy.audit(detail.get("task_id") or None, kind, detail)
+            except Exception:
+                LOG.exception("could not write the %s audit event", kind)
+        job.audit_events.clear()
+
+    def _run_job_sync(self, job: NetJob) -> ToolResult:
+        try:
+            outcome = job.perform()
+        finally:
+            self._flush_job(job)
+        return job.finish(outcome)
 
     def _audit_call(self, ctx: ExecutionContext, tool: str, params: dict[str, Any],
                     call: _CallRecord) -> None:
@@ -695,6 +727,17 @@ class ExecutionBroker:
             # on, so a file changed after review voids the grant (1.4).
             preconditions = ({"workspace_sha256": ws.state_hash()}
                              if tier is Tier.APPROVE else None)
+            if request.tool == "connector.call":
+                # A send is bound to where it goes and to the exact bytes it
+                # carries, not to the workspace: editing the draft by one
+                # character is a different intent and needs a new approval
+                # (item 8.6). The reviewer sees both in the request.
+                connector = self._connectors[request.params["connector"]]
+                preconditions = {
+                    "destination": connector.host,
+                    "body_sha256": hashlib.sha256(
+                        request.params.get("body", "").encode("utf-8")).hexdigest(),
+                }
             verdict = self.policy.authorize_tool(
                 request.task_id, request.tool, request.params, tier, preconditions,
             )
@@ -791,21 +834,53 @@ class ExecutionBroker:
                 fh.write(content.encode("utf-8"))
         return ToolResult(True, request.tool, {"bytes": len(content)})
 
-    def _tool_net_fetch(self, request: ToolRequest, ws: Workspace) -> ToolResult:
+    # ---- network tools: prepare and finish on the loop, perform in a thread
+    #
+    # These two tools touch the database (write-ahead, taint, receipts) and
+    # the network. SQLite's one connection lives on the loop's thread, so
+    # the database work happens in ``_job_*`` (before) and ``job.finish``
+    # (after), and only ``job.perform`` runs in a thread. It writes
+    # nothing; the gateway's audit events are buffered and flushed by the
+    # caller. The same code runs on the synchronous path.
+
+    def _job_net_fetch(self, request: ToolRequest) -> NetJob:
         if self._egress is None:
-            return ToolResult(False, request.tool, error="EgressDenied: no egress gateway")
+            return NetJob.refused(request.tool, "EgressDenied: no egress gateway")
+        gateway = self._egress
         hosts = self._egress_hosts.get(request.task_id, frozenset())
-        try:
-            fetched = self._egress.fetch(request.params["url"], hosts, request.task_id)
-        except EgressDenied as exc:
-            return ToolResult(False, request.tool, error=f"EgressDenied: {exc}")
-        if self.policy is not None:
-            self.policy.taint(request.task_id, "read content fetched from the network")
-        return ToolResult(True, request.tool, {
-            "url": fetched.url, "status": fetched.status, "hops": fetched.hops,
-            "content_type": fetched.content_type,
-            "evidence": fetched.evidence.as_payload(),
-        })
+        url = request.params["url"]
+        self._note_intent(request.task_id, url)
+        job = NetJob(request.tool)
+
+        def perform() -> Any:
+            try:
+                return gateway.fetch(url, hosts, request.task_id, audit=job.buffer)
+            except EgressDenied as exc:
+                return exc
+
+        def finish(outcome: Any) -> ToolResult:
+            if isinstance(outcome, EgressDenied):
+                return ToolResult(False, request.tool, error=f"EgressDenied: {outcome}")
+            if self.policy is not None:
+                self.policy.taint(request.task_id, "read content fetched from the network")
+            return ToolResult(True, request.tool, {
+                "url": outcome.url, "status": outcome.status, "hops": outcome.hops,
+                "content_type": outcome.content_type,
+                "evidence": outcome.evidence.as_payload(),
+            })
+
+        job.perform, job.finish = perform, finish
+        return job
+
+    def _note_intent(self, task_id: str, url: str) -> None:
+        """Recorded before anything goes out, and fail-closed: if the audit
+        write fails the request is never made."""
+        if self.policy is None:
+            return
+        parts = urllib.parse.urlsplit(url)
+        self.policy.audit(task_id, "egress_intent", {
+            "host": (parts.hostname or "")[:255],
+            "url_sha256": hashlib.sha256(url.encode("utf-8", "replace")).hexdigest()})
 
     def _precheck_connector(self, request: ToolRequest) -> Connector:
         params = request.params
@@ -820,36 +895,65 @@ class ExecutionBroker:
             raise InvalidParams(str(exc)) from None
         return connector
 
-    def _tool_connector_call(self, request: ToolRequest, ws: Workspace) -> ToolResult:
+    def _job_connector_call(self, request: ToolRequest) -> NetJob:
         params = request.params
         name = params["connector"]
         connector = self._precheck_connector(request)
         method = params.get("method", "POST")
         body = params.get("body")
         if self._egress is None or self._vault is None:
-            return ToolResult(False, request.tool, error="no egress gateway or vault")
+            return NetJob.refused(request.tool, "no egress gateway or vault")
         try:
             secret = self._vault.resolve(connector.secret)
         except SecretUnavailable as exc:
-            return ToolResult(False, request.tool, error=f"SecretUnavailable: {exc}")
+            return NetJob.refused(request.tool, f"SecretUnavailable: {exc}")
+        gateway = self._egress
         redactor = Redactor([secret])
-        try:
-            fetched = self._egress.fetch(
-                f"https://{connector.host}{params['path']}",
-                frozenset({connector.host}), request.task_id, method=method,
-                headers={connector.header: connector.header_value(secret),
-                         **({"Content-Type": "application/json"} if body is not None else {})},
-                body=body.encode("utf-8") if body is not None else None,
-                follow_redirects=False)
-        except EgressDenied as exc:
-            return ToolResult(False, request.tool,
-                              error=str(redactor.scrub(f"EgressDenied: {exc}")))
+        body_sha = hashlib.sha256((body or "").encode("utf-8")).hexdigest()
+        params_sha = hashlib.sha256(canonical(params).encode("utf-8")).hexdigest()
+        key = hashlib.sha256(
+            f"{request.task_id}\n{name}\n{method}\n{params['path']}\n{body_sha}".encode()
+        ).hexdigest()[:40]
+        headers = {connector.header: connector.header_value(secret)}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        if connector.idempotency_header:
+            headers[connector.idempotency_header] = key
+        url = f"https://{connector.host}{params['path']}"
+        # Write-ahead: the attempt is on record before a byte leaves, so a
+        # lost response or a crash can be reconciled against the provider.
         if self.policy is not None:
-            self.policy.taint(request.task_id, "read a response from a connector")
-        return ToolResult(True, request.tool, redactor.scrub({
-            "connector": name, "status": fetched.status,
-            "evidence": fetched.evidence.as_payload(),
-        }))
+            self.policy.reserve_publication(
+                request.task_id, name, connector.host, method, params["path"], body_sha,
+                params_sha, key)
+        self._note_intent(request.task_id, url)
+        job = NetJob(request.tool)
+
+        def perform() -> Any:
+            try:
+                return gateway.fetch(
+                    url, frozenset({connector.host}), request.task_id, method=method,
+                    headers=headers, body=body.encode("utf-8") if body is not None else None,
+                    follow_redirects=False, audit=job.buffer)
+            except EgressDenied as exc:
+                return exc
+
+        def finish(outcome: Any) -> ToolResult:
+            if isinstance(outcome, EgressDenied):
+                return ToolResult(False, request.tool,
+                                  error=str(redactor.scrub(f"EgressDenied: {outcome}")))
+            if self.policy is not None:
+                self.policy.taint(request.task_id, "read a response from a connector")
+                self.policy.confirm_publication(
+                    key, outcome.status, _provider_id(connector, outcome),
+                    outcome.evidence.sha256, "response")
+            return ToolResult(True, request.tool, redactor.scrub({
+                "connector": name, "status": outcome.status, "idempotency_key": key,
+                "evidence": outcome.evidence.as_payload(),
+            }))
+
+        job.perform, job.finish = perform, finish
+        return job
 
     def _tool_shell_run(self, request: ToolRequest, ws: Workspace) -> ToolResult:
         """Run a command, confined by the kernel rather than by us.
@@ -925,6 +1029,41 @@ class ExecutionBroker:
 
     def manifest_json(self, task_id: str) -> str:
         return json.dumps(self.manifest(task_id), sort_keys=True)
+
+
+@dataclass
+class NetJob:
+    """A network tool call split at the thread boundary.
+
+    ``perform`` runs in a thread and must not touch the database. ``finish``
+    and the buffered audit events are handled on the loop's thread.
+    """
+
+    tool: str
+    perform: Callable[[], Any] = field(default=lambda: None)
+    finish: Callable[[Any], ToolResult] = field(default=lambda outcome: outcome)
+    audit_events: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+
+    def buffer(self, kind: str, detail: dict[str, Any]) -> None:
+        self.audit_events.append((kind, detail))
+
+    @classmethod
+    def refused(cls, tool: str, error: str) -> NetJob:
+        return cls(tool, perform=lambda: None,
+                   finish=lambda _outcome: ToolResult(False, tool, error=error))
+
+
+def _provider_id(connector: Connector, fetched: Any) -> str | None:
+    """The provider's own id for what was created, if the response says."""
+    if not connector.receipt_field or fetched.evidence.truncated \
+            or not 200 <= fetched.status < 300:
+        return None
+    try:
+        value = json.loads(fetched.evidence.excerpt).get(connector.receipt_field)
+    except (ValueError, AttributeError):
+        return None
+    return str(value)[:200] if isinstance(value, str | int) and not isinstance(value, bool) \
+        else None
 
 
 class ToolSession:

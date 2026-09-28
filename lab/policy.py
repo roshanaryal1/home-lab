@@ -145,6 +145,28 @@ class PolicyEngine:
         if cur.rowcount:
             append_event(self._conn, task_id, "task_tainted", detail={"reason": reason})
 
+    def reserve_publication(self, task_id: str, connector: str, host: str, method: str,
+                            path: str, body_sha256: str, params_sha256: str, key: str) -> None:
+        """Write the attempt down before it is made. Idempotent per key."""
+        self._conn.execute(
+            "INSERT OR IGNORE INTO publications (task_id, connector, host, method, path, "
+            "body_sha256, params_sha256, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (task_id, connector, host, method, path, body_sha256, params_sha256, key))
+        append_event(self._conn, task_id, "publication_reserved", detail={
+            "connector": connector, "host": host, "path": path, "body_sha256": body_sha256,
+            "idempotency_key": key})
+
+    def confirm_publication(self, key: str, status_code: int, provider_id: str | None,
+                            response_sha256: str, via: str) -> None:
+        self._conn.execute(
+            "UPDATE publications SET state = 'confirmed', status_code = ?, provider_id = ?, "
+            "response_sha256 = ?, confirmed_via = ?, "
+            "updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE idempotency_key = ?",
+            (status_code, provider_id, response_sha256, via, key))
+        append_event(self._conn, None, "publication_confirmed", detail={
+            "idempotency_key": key, "status": status_code, "provider_id": provider_id,
+            "via": via})
+
     def audit(self, task_id: str | None, kind: str, detail: dict[str, Any]) -> None:
         """Append a non-transition event to the hash-chained audit log."""
         append_event(self._conn, task_id, kind, detail=detail)

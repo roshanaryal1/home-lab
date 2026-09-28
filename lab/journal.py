@@ -107,7 +107,8 @@ class OperationJournal:
             "AND (? IS NULL OR task_id = ?) ORDER BY started_at",
             (task_id, task_id)).fetchall()
 
-    def resolve(self, op_id: str, *, happened: bool, decided_by: str) -> str | None:
+    def resolve(self, op_id: str, *, happened: bool, decided_by: str,
+                result: dict[str, Any] | None = None) -> str | None:
         """A person's reconciliation: the operation did, or did not, take effect.
 
         ``happened`` becomes ``confirmed`` (never run again; a retry gets a
@@ -116,7 +117,7 @@ class OperationJournal:
         Returns the task id, or None if nothing was unresolved under that id.
         """
         state = "confirmed" if happened else "failed"
-        result = {"reconciled": True, "happened": True} if happened else None
+        result = {"reconciled": True, "happened": True, **(result or {})} if happened else None
         cur = self._conn.execute(
             "UPDATE operations SET state = ?, result = ?, resolved_by = ?, "
             f"finished_at = {NOW_MS} "
