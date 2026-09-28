@@ -134,7 +134,8 @@ def _already_proposed(queue: TaskQueue, source_url: str) -> bool:
     return False
 
 
-def observe_and_propose(queue: TaskQueue, repo: str) -> list[str]:
+def observe_and_propose(queue: TaskQueue, repo: str,
+                        signals: list[Signal] | None = None) -> list[str]:
     """Fetch real signals, propose the ones not already proposed.
 
     Returns the task_ids created. A proposal never runs autonomously:
@@ -144,7 +145,7 @@ def observe_and_propose(queue: TaskQueue, repo: str) -> list[str]:
     this slice deliberately never reaches.
     """
     created: list[str] = []
-    for signal in fetch_signals(repo):
+    for signal in (signals if signals is not None else fetch_signals(repo)):
         if _already_proposed(queue, signal.source_url):
             continue
         task_id = queue.add_task(
