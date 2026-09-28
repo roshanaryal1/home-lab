@@ -22,7 +22,9 @@ issue  ->  branch  ->  PR  ->  CI  ->  merge  ->  issue closes
 3. **PR links the issue** with `Closes #N`, and shows evidence: what was run
    and what it printed, not "should work".
 4. **CI must pass.** Lint, `mypy` strict, tests with a 90% coverage floor on
-   queue, policy, broker and sandbox, and the safety-marker guard.
+   the safety-critical modules named in `check.yml`, the safety-marker guard,
+   a workflow audit, and a full-history secret scan. A finding from the
+   secret scan is fixed in the commit that introduced it: history is scanned.
 5. **Merge squashes**, so `main` reads one commit per issue.
 
 ### Why this is not bureaucracy
@@ -51,17 +53,20 @@ Three concrete reasons, each learned here rather than imported:
 3. **Tests marked `@pytest.mark.safety` are load-bearing**: a crash never
    blindly replays a non-idempotent task, the heavy inference slot is never
    breached, and the reproduced defects R01 to R11 stay fixed. CI fails if
-   fewer than 48 are collected, so removing one is never a silent green
-   build; raise the floor in `.github/workflows/check.yml` when adding
+   fewer are collected than the floor in `.github/workflows/check.yml`, so
+   removing one is never a silent green build; raise that floor when adding
    more. If a change touches `lab/queue.py` `recover()` or the supervisor
    semaphores, say so in the PR body.
    **Schema changes are a new migration**, never an edit: add
    `lab/migrations/NNNN_name.sql` with the next number (no PRAGMAs, no
    BEGIN or COMMIT; the runner owns both) and extend
    `tests/test_migrations.py`. A shipped migration is never edited.
-4. **No new runtime dependencies without justification.** This runs unattended;
+4. **No new runtime dependencies without justification.** There is one
+   (`cryptography`, for approval signatures), added deliberately. This runs unattended;
    every dependency is a thing that can break at 3am. The test suite
    deliberately avoids `pytest-asyncio` for this reason.
+   Security-relevant changes also update `SECURITY.md` and `THREATS.md`
+   (`tests/test_threats.py` fails on a stale row) in the same PR.
 5. **Verify, do not assert.** If a PR claims something works, say what was run.
 
 ## Style
