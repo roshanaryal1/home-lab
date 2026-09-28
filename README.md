@@ -187,6 +187,12 @@ small hook in `tests/conftest.py` rather than pulling in `pytest-asyncio`,
 because this machine is meant to run unattended and every dependency is a
 thing that can break at 3am.
 
+## Citing
+
+`CITATION.cff` is validated in CI and kept in step with the package version.
+A DOI needs the owner to connect Zenodo; the steps are in
+[`ops/release.md`](ops/release.md).
+
 ## Setting up the mini
 
 See [`ops/mac-mini-setup.md`](ops/mac-mini-setup.md). Do the accounts

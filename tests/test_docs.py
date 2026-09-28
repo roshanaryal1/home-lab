@@ -35,3 +35,8 @@ def test_every_adr_is_reachable_from_the_readme_or_architecture() -> None:
 def test_contributing_does_not_hard_code_the_safety_floor() -> None:
     text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     assert "fewer than 48" not in text
+
+
+def test_the_readme_points_at_the_citation_file_and_the_release_steps() -> None:
+    assert "CITATION.cff" in README and "ops/release.md" in README
+    assert (ROOT / "CITATION.cff").is_file() and (ROOT / "ops" / "release.md").is_file()
