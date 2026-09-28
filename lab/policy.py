@@ -79,8 +79,27 @@ def action_hash(task: Task) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
+def tool_action(task_id: str, tool: str, params: dict) -> str:
+    """Canonical text of one tool call, as a human reviewer is shown it.
+
+    Sorted keys and fixed separators, so the same call always renders
+    (and hashes) the same, and any changed argument renders differently.
+    """
+    return json.dumps(
+        {"task": task_id, "tool": tool, "params": params},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    )
+
+
+def tool_action_hash(task_id: str, tool: str, params: dict) -> str:
+    """Fingerprint binding an approval to one exact tool call (item 1.1)."""
+    return hashlib.sha256(
+        tool_action(task_id, tool, params).encode("utf-8")
+    ).hexdigest()
+
+
 class PolicyEngine:
-    """Decides whether a leased task may execute."""
+    """Decides whether a leased task may execute, and each tool call in it."""
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -156,6 +175,65 @@ class PolicyEngine:
         return self._record(
             task, tier, Decision.ALLOW, "approval consumed", row["id"]
         )
+
+    def authorize_tool(self, task_id: str, tool: str, params: dict,
+                       tier: Tier) -> PolicyResult:
+        """The per-call gate. The broker calls this before every tool runs.
+
+        ``tier`` comes from the broker's trusted registry, never from the
+        task or the request, so a task cannot under-declare a tool's
+        authority. An approve-tier call needs a granted, unexpired,
+        unconsumed approval for this exact call; without one a pending
+        request carrying the canonical call text is opened (once) and the
+        call is refused. Every decision is audited, and if the audit
+        write fails the caller sees an exception, never an allow.
+        """
+        action = tool_action(task_id, tool, params)
+        wanted = tool_action_hash(task_id, tool, params)
+
+        def record(decision: Decision, reason: str,
+                   approval_id: str | None = None) -> PolicyResult:
+            self._conn.execute(
+                "INSERT INTO events (task_id, kind, detail) VALUES (?, ?, ?)",
+                (task_id, f"tool_{decision.value}", json.dumps({
+                    "tool": tool, "tier": tier.value, "reason": reason,
+                    "approval_id": approval_id, "action_hash": wanted,
+                })),
+            )
+            return PolicyResult(decision, tier, reason, approval_id)
+
+        if tier is Tier.NEVER:
+            return record(Decision.DENY, f"{tool} is never permitted")
+        if tier in (Tier.AUTONOMOUS, Tier.NOTIFY):
+            return record(Decision.ALLOW, f"{tier.value} tier proceeds")
+
+        with self._tx():
+            row = self._conn.execute(
+                "SELECT id FROM approvals WHERE task_id = ? AND action_hash = ? "
+                f"AND state = 'granted' AND consumed_at IS NULL AND expires_at > {NOW_MS} "
+                "ORDER BY requested_at LIMIT 1",
+                (task_id, wanted),
+            ).fetchone()
+            if row is not None and self._consume(row["id"]):
+                return record(Decision.ALLOW, "approval consumed", row["id"])
+
+            pending = self._conn.execute(
+                "SELECT id FROM approvals WHERE task_id = ? AND action_hash = ? "
+                "AND state = 'pending'",
+                (task_id, wanted),
+            ).fetchone()
+            if pending is not None:
+                approval_id = pending["id"]
+            else:
+                approval_id = uuid.uuid4().hex
+                self._conn.execute(
+                    "INSERT INTO approvals (id, task_id, reason, action_hash, "
+                    "expires_at) VALUES (?, ?, ?, ?, ?)",
+                    (approval_id, task_id, f"tool call {action}", wanted,
+                     _ts(_utcnow())),
+                )
+            return record(Decision.NEEDS_APPROVAL,
+                          f"no approval for this exact call: {action}", approval_id)
 
     def _consume(self, approval_id: str) -> bool:
         """Spend an approval exactly once.

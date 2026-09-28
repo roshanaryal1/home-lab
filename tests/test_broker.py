@@ -12,18 +12,41 @@ import pytest
 
 from lab.broker import (
     TOOL_TIERS,
+    ApprovalRequired,
     ExecutionBroker,
     PathEscape,
     ToolNotAllowed,
     ToolRequest,
+    ToolResult,
 )
-from lab.policy import Tier
+from lab.policy import PolicyEngine, Tier
+from lab.queue import TaskQueue
 from lab.sandbox import available as _sandbox_available
 
 
 @pytest.fixture()
-def broker(tmp_path: Path) -> ExecutionBroker:
-    return ExecutionBroker(workspace_root=tmp_path / "workspaces")
+def queue(tmp_path: Path) -> TaskQueue:
+    with TaskQueue(tmp_path / "lab.db") as q:
+        # Fixed ids so the tests can name them; audit rows reference tasks.
+        for task_id in ("t1", "t2"):
+            q._conn.execute("INSERT INTO tasks (id, title) VALUES (?, ?)",
+                            (task_id, task_id))
+        yield q
+
+
+@pytest.fixture()
+def broker(tmp_path: Path, queue: TaskQueue) -> ExecutionBroker:
+    return ExecutionBroker(workspace_root=tmp_path / "workspaces",
+                           policy=PolicyEngine(queue._conn))
+
+
+def approved(broker: ExecutionBroker, request: ToolRequest) -> ToolResult:
+    """Submit, have a human grant the exact call it asks about, resubmit."""
+    with pytest.raises(ApprovalRequired) as asked:
+        broker.submit(request)
+    assert broker.policy is not None
+    broker.policy.grant(asked.value.approval_id, decided_by="operator")
+    return broker.submit(request)
 
 
 def req(broker_task: str, tool: str, **params) -> ToolRequest:
@@ -212,7 +235,7 @@ def test_shell_run_refuses_without_os_isolation(broker, monkeypatch) -> None:
     from lab import sandbox
     monkeypatch.setattr(sandbox, "available", lambda: False)
     broker.open_workspace("t1", {"shell.run"})
-    result = broker.submit(req("t1", "shell.run", argv=["/bin/echo", "hi"]))
+    result = approved(broker, req("t1", "shell.run", argv=["/bin/echo", "hi"]))
     assert not result.ok
     assert "refusing to run unconfined" in result.error
 
@@ -230,7 +253,7 @@ def test_shell_run_is_confined_to_the_workspace(broker, tmp_path) -> None:
     secret.write_text("do not read me")
 
     broker.open_workspace("t1", {"shell.run"})
-    result = broker.submit(
+    result = approved(broker,
         req("t1", "shell.run", argv=["/bin/cat", str(secret)])
     )
     assert not result.ok
@@ -242,7 +265,7 @@ def test_shell_run_works_inside_the_workspace(broker) -> None:
     ws = broker.open_workspace("t1", {"shell.run"})
     (ws.root / "hello.txt").write_text("world")
 
-    result = broker.submit(
+    result = approved(broker,
         req("t1", "shell.run", argv=["/bin/cat", "hello.txt"])
     )
     assert result.ok
@@ -257,4 +280,115 @@ def test_shell_run_requires_the_approve_tier(broker) -> None:
 @needs_sandbox
 def test_shell_run_rejects_a_malformed_argv(broker) -> None:
     broker.open_workspace("t1", {"shell.run"})
-    assert not broker.submit(req("t1", "shell.run", argv="rm -rf /")).ok
+    assert not approved(broker, req("t1", "shell.run", argv="rm -rf /")).ok
+
+
+# ------------------------------------------------ item 1.1, R01 (#43)
+#
+# submit() used to check only the per-task allowlist, then run the tool.
+# fs.delete ran with no approval and the policy object was never called.
+
+
+def test_r01_allowed_delete_without_approval_does_not_run(broker, queue) -> None:
+    ws = broker.open_workspace("t1", {"fs.write", "fs.delete"})
+    assert broker.submit(req("t1", "fs.write", path="keep.txt", content="x")).ok
+
+    with pytest.raises(ApprovalRequired) as asked:
+        broker.submit(req("t1", "fs.delete", path="keep.txt"))
+
+    assert (ws.root / "keep.txt").read_text() == "x", "the effect must not happen"
+    row = queue._conn.execute(
+        "SELECT state, reason FROM approvals WHERE id = ?",
+        (asked.value.approval_id,),
+    ).fetchone()
+    assert row["state"] == "pending"
+    assert '"tool":"fs.delete"' in row["reason"] and "keep.txt" in row["reason"]
+
+
+def test_policy_is_consulted_on_every_call(broker, monkeypatch) -> None:
+    calls: list[tuple[str, Tier]] = []
+    real = broker.policy.authorize_tool
+
+    def spy(task_id, tool, params, tier):
+        calls.append((tool, tier))
+        return real(task_id, tool, params, tier)
+
+    monkeypatch.setattr(broker.policy, "authorize_tool", spy)
+    broker.open_workspace("t1", {"fs.write", "fs.read", "fs.list"})
+    broker.submit(req("t1", "fs.write", path="a", content="1"))
+    broker.submit(req("t1", "fs.read", path="a"))
+    broker.submit(req("t1", "fs.list"))
+    assert calls == [("fs.write", Tier.NOTIFY), ("fs.read", Tier.AUTONOMOUS),
+                     ("fs.list", Tier.AUTONOMOUS)]
+
+
+def test_a_granted_call_runs_once_and_only_as_approved(broker) -> None:
+    ws = broker.open_workspace("t1", {"fs.write", "fs.delete"})
+    for name in ("a.txt", "b.txt"):
+        broker.submit(req("t1", "fs.write", path=name, content="x"))
+
+    assert approved(broker, req("t1", "fs.delete", path="a.txt")).ok
+    assert not (ws.root / "a.txt").exists()
+
+    # The approval named a.txt. It does not stretch to b.txt, and it is spent.
+    with pytest.raises(ApprovalRequired):
+        broker.submit(req("t1", "fs.delete", path="b.txt"))
+    assert (ws.root / "b.txt").exists()
+    broker.submit(req("t1", "fs.write", path="a.txt", content="again"))
+    with pytest.raises(ApprovalRequired):
+        broker.submit(req("t1", "fs.delete", path="a.txt"))
+
+
+def test_asking_twice_opens_one_request(broker, queue) -> None:
+    broker.open_workspace("t1", {"fs.delete"})
+    ids = set()
+    for _ in range(3):
+        with pytest.raises(ApprovalRequired) as asked:
+            broker.submit(req("t1", "fs.delete", path="x"))
+        ids.add(asked.value.approval_id)
+    assert len(ids) == 1
+    n = queue._conn.execute("SELECT COUNT(*) FROM approvals").fetchone()[0]
+    assert n == 1
+
+
+def test_no_policy_engine_means_nothing_runs(tmp_path) -> None:
+    broker = ExecutionBroker(workspace_root=tmp_path / "ws")
+    ws = broker.open_workspace("t1", {"fs.write", "fs.read"})
+    result = broker.submit(req("t1", "fs.write", path="a", content="x"))
+    assert not result.ok and "PolicyUnavailable" in result.error
+    assert not (ws.root / "a").exists()
+
+
+def test_a_failed_audit_write_refuses_the_call(broker, queue) -> None:
+    ws = broker.open_workspace("t1", {"fs.write"})
+    queue._conn.execute(
+        "CREATE TRIGGER no_audit BEFORE INSERT ON events "
+        "BEGIN SELECT RAISE(ABORT, 'audit disk full'); END"
+    )
+    result = broker.submit(req("t1", "fs.write", path="a", content="x"))
+    assert not result.ok and "PolicyUnavailable" in result.error
+    assert not (ws.root / "a").exists()
+
+
+def test_never_tier_is_refused_even_when_allowed(broker, monkeypatch) -> None:
+    monkeypatch.setitem(TOOL_TIERS, "fs.read", Tier.NEVER)
+    broker.open_workspace("t1", {"fs.read"})
+    result = broker.submit(req("t1", "fs.read", path="a"))
+    assert not result.ok and "PolicyDenied" in result.error
+
+
+@pytest.mark.parametrize("tool", ["registry", "manifest", "_tool_fs_read", "fs.nope"])
+def test_only_registered_tools_dispatch(broker, tool) -> None:
+    broker.open_workspace("t1", {"fs.read"})
+    result = broker.submit(req("t1", tool))
+    assert not result.ok and "ToolNotAllowed" in result.error
+
+
+def test_every_decision_is_audited(broker, queue) -> None:
+    broker.open_workspace("t1", {"fs.write", "fs.delete"})
+    broker.submit(req("t1", "fs.write", path="a", content="x"))
+    with pytest.raises(ApprovalRequired):
+        broker.submit(req("t1", "fs.delete", path="a"))
+    kinds = [r[0] for r in queue._conn.execute(
+        "SELECT kind FROM events WHERE task_id = 't1' ORDER BY id")]
+    assert kinds == ["tool_allow", "tool_needs_approval"]

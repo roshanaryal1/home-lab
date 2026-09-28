@@ -46,8 +46,11 @@ Implemented and tested:
 - **Policy enforcement** (`lab/policy.py`, issue #9). Four capability
   tiers enforced **per task**, between leasing it and executing it.
   Approvals are bound to a hash of the task's normalised parameters, are
-  single use, and expire. Per-tool-call enforcement is not built yet, see
-  the known gaps below.
+  single use, and expire. **Per tool call** as well (item 1.1, #43): the
+  broker takes each tool's tier from a trusted registry and asks policy
+  before every call; an approve-tier call needs an approval for that
+  exact tool and arguments, and without a policy engine or an audit
+  record nothing runs (`tests/test_broker.py`, item 1.1 section).
 - **Execution broker** (`lab/broker.py`, issue #10). Workers submit typed
   tool requests instead of touching the filesystem directly. Per-task
   workspaces, path confinement by resolved path so symlinks are caught as
@@ -66,7 +69,6 @@ Reproduced by an independent review on 2026-09-28 and tracked, not fixed
 yet. Until these close, run the lab only with dummy data and review
 every draft by hand.
 
-- Approve-tier tools run without approval once a task allows them (#43).
 - A worker label is not checked, so one task can reach another's
   workspace; handlers run in the supervisor process (#48).
 - Approval consumption does not re-check expiry or bind the exact action

@@ -256,3 +256,40 @@ async def test_a_second_supervisor_refuses_to_start(tmp_path: Path) -> None:
     release_singleton(fd)
     first.close()
     second.close()
+
+
+@pytest.mark.asyncio
+async def test_tool_approval_parks_then_grant_reruns_the_call(tmp_path: Path) -> None:
+    """Item 1.1 end to end: a handler's approve-tier call parks the task,
+    a human grants that exact call, and the rerun performs it once."""
+    from lab.broker import ExecutionBroker, ToolRequest
+
+    sup = make_supervisor(tmp_path)
+    broker = ExecutionBroker(tmp_path / "ws", policy=sup.policy)
+    deleted: list[bool] = []
+
+    async def cleanup(task: Task) -> dict:
+        if task.id not in broker._workspaces:
+            ws = broker.open_workspace(task.id, {"fs.write", "fs.delete"})
+            (ws.root / "old.log").write_text("x")
+        result = broker.submit(ToolRequest("fs.delete", {"path": "old.log"},
+                                           task.id, "w1"))
+        deleted.append(result.ok)
+        return {"deleted": result.ok}
+
+    sup.register("cleanup", cleanup)
+    task_id = sup.queue.add_task("clean", agent_kind="cleanup")
+
+    stats = await sup.run(max_tasks=1)
+    assert stats.awaiting_approval == 1 and deleted == []
+    assert sup.queue.get(task_id).state == "awaiting_approval"
+    assert (broker._workspaces[task_id].root / "old.log").exists()
+
+    (pending,) = sup.policy.pending()
+    assert sup.policy.grant(pending["id"], decided_by="operator") == task_id
+
+    sup.stats.leased = 0
+    await sup.run(max_tasks=1)
+    assert deleted == [True]
+    assert sup.queue.get(task_id).state == "succeeded"
+    sup.close()
