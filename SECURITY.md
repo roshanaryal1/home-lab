@@ -39,6 +39,9 @@ In scope, and taken seriously:
 - Any path by which a model output becomes an executed instruction without
   passing policy.
 
+The risk-by-risk mapping to the OWASP agentic top 10, with the control, its
+test and the open issue for each gap, is in [THREATS.md](THREATS.md).
+
 ## What exists, as of 2026-09-25
 
 Implemented and tested:
@@ -129,6 +132,17 @@ Implemented and tested:
   approval cannot hide it. Limit: whoever can call `add_task` can still
   assert an operator origin; separating that caller from the agent is
   #70. Memory and summary lineage arrive with #85.
+- **Backup and restore** (`lab/backup.py`, item 3.4, #67). `lab backup`
+  snapshots the live database with SQLite's online backup API (no torn
+  copy, supervisor keeps running) and copies only artifact blobs the
+  destination lacks. `lab restore-check` restores into a fresh, empty
+  directory and fails on any of: file hash or size differing from the
+  manifest, SQLite integrity check, schema version, foreign keys, the
+  audit chain or its head, or any artifact blob missing or altered
+  (`tests/test_backup.py`). Backups are not encrypted and are only as
+  private as the directory they are written to. Recovery drills
+  (`lab drill`, `ops/drills/`) record every run and count as
+  demonstrated only on the Mac mini; the monthly drill there is parked.
 
 ## Known gaps in what exists
 
