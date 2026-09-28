@@ -47,6 +47,7 @@ does not exist.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import errno
 import hashlib
@@ -332,6 +333,9 @@ class ExecutionBroker:
         # Usually TaskQueue.owns_lease. None means no call can prove its
         # lease, so every call is refused: fail closed.
         self._leases = leases
+        # Set by revoke(): an emergency stop takes authority away from
+        # every session at once, before any work is cancelled (item 1.8).
+        self._revoked = False
         self._workspaces: dict[str, Workspace] = {}
         self._calls: dict[str, int] = {}
         self._grants: dict[str, set[str]] = {}
@@ -387,38 +391,70 @@ class ExecutionBroker:
         """The handle a handler gets. Bound to one context, for its life."""
         return ToolSession(self, ctx)
 
-    def _dispatch(self, ctx: ExecutionContext, tool: str, params: dict) -> ToolResult:
-        """The single entry point. Everything is checked before anything runs.
+    def revoke(self) -> None:
+        """Refuse every call from every session from now on."""
+        self._revoked = True
 
-        Order: live lease for this context, known tool, per-task grant,
-        open workspace, then policy for this exact call. Raises
-        ``ApprovalRequired`` when a human must decide first; every other
-        refusal is a failed ``ToolResult``.
+    def _prepare(self, ctx: ExecutionContext, tool: str, params: dict,
+                 ) -> tuple[Callable[[ToolRequest, Workspace], ToolResult],
+                            ToolRequest, Workspace]:
+        """Every check, in order, before anything runs.
+
+        Live lease for this context, known tool, per-task grant, open
+        workspace, parameter schema, call budget, then policy for this
+        exact call. Raises ``ApprovalRequired`` or a ``BrokerError``.
         """
         request = ToolRequest(tool=tool, params=dict(params), task_id=ctx.task_id)
+        self._check_context(ctx)
+        handler = self._registry().get(request.tool)
+        if handler is None or request.tool not in TOOL_TIERS:
+            raise ToolNotAllowed(f"no such tool: {request.tool}")
+        self._check_grant(request)
+        ws = self._workspace_for(request.task_id)
+        # Before policy: a human is never asked to approve a malformed
+        # call, and a runaway loop stops without touching the audit log.
+        validate_params(request.tool, request.params)
+        used = self._calls.get(request.task_id, 0)
+        if used >= MAX_CALLS_PER_TASK:
+            raise QuotaExceeded(f"tool call ceiling {MAX_CALLS_PER_TASK} reached")
+        self._calls[request.task_id] = used + 1
+        self._authorize(request, ws)
+        return handler, request, ws
+
+    def _dispatch(self, ctx: ExecutionContext, tool: str, params: dict) -> ToolResult:
+        """The single entry point, run synchronously.
+
+        Raises ``ApprovalRequired`` when a human must decide first; every
+        other refusal is a failed ``ToolResult``.
+        """
         try:
-            self._check_context(ctx)
-            handler = self._registry().get(request.tool)
-            if handler is None or request.tool not in TOOL_TIERS:
-                raise ToolNotAllowed(f"no such tool: {request.tool}")
-            self._check_grant(request)
-            ws = self._workspace_for(request.task_id)
-            # Before policy: a human is never asked to approve a malformed
-            # call, and a runaway loop stops without touching the audit log.
-            validate_params(request.tool, request.params)
-            used = self._calls.get(request.task_id, 0)
-            if used >= MAX_CALLS_PER_TASK:
-                raise QuotaExceeded(f"tool call ceiling {MAX_CALLS_PER_TASK} reached")
-            self._calls[request.task_id] = used + 1
-            self._authorize(request, ws)
+            handler, request, ws = self._prepare(ctx, tool, params)
             return handler(request, ws)
         except ApprovalRequired:
             raise
         except BrokerError as exc:
-            return ToolResult(ok=False, tool=request.tool,
-                              error=f"{type(exc).__name__}: {exc}")
+            return ToolResult(ok=False, tool=tool, error=f"{type(exc).__name__}: {exc}")
+
+    async def _dispatch_async(self, ctx: ExecutionContext, tool: str,
+                              params: dict) -> ToolResult:
+        """Checks on the event loop, execution in a thread (item 1.8).
+
+        Policy and the database stay on the loop's thread, where the one
+        SQLite connection lives. The tool itself, which may be a command
+        running for minutes, runs in a thread and touches no database, so
+        the lease heartbeat keeps beating while it runs.
+        """
+        try:
+            handler, request, ws = self._prepare(ctx, tool, params)
+            return await asyncio.to_thread(handler, request, ws)
+        except ApprovalRequired:
+            raise
+        except BrokerError as exc:
+            return ToolResult(ok=False, tool=tool, error=f"{type(exc).__name__}: {exc}")
 
     def _check_context(self, ctx: ExecutionContext) -> None:
+        if self._revoked:
+            raise ContextRevoked("broker authority revoked by an emergency stop")
         if self._leases is None:
             raise ContextRevoked("no lease checker configured; refusing every call")
         if ctx.lease.task_id != ctx.task_id or not self._leases(ctx.lease):
@@ -623,3 +659,7 @@ class ToolSession:
 
     def submit(self, tool: str, **params: object) -> ToolResult:
         return self._broker._dispatch(self.context, tool, params)
+
+    async def submit_async(self, tool: str, **params: object) -> ToolResult:
+        """Same checks, but the tool runs off the event loop."""
+        return await self._broker._dispatch_async(self.context, tool, params)

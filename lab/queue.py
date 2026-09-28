@@ -315,6 +315,11 @@ class TaskQueue:
              json.dumps(detail) if detail else None),
         )
 
+    def record_event(self, task_id: str | None, kind: str,
+                     detail: dict | None = None) -> None:
+        """Audit something that is not a state transition."""
+        self._record(task_id, kind, detail=detail)
+
     # ------------------------------------------------------------- write
 
     def add_task(
@@ -523,6 +528,31 @@ class TaskQueue:
                 backoff = (retry_in if retry_in is not None
                            else timedelta(seconds=2 ** row["attempts"]))
                 self._transition(task_id, "queued", available_in=backoff)
+
+    def release_unstarted(self, token: LeaseToken, reason: str,
+                          retry_in: timedelta | None = None) -> None:
+        """Give back a claimed task that never started running.
+
+        Nothing ran, so returning it to the queue repeats no side effect,
+        whatever its idempotency. Once its attempts are spent it is held
+        as interrupted for a human instead, so a persistent supervisor
+        fault cannot cycle one task forever (item 1.8).
+        """
+        task_id = token.task_id
+        with self._fenced(token):
+            row = self._conn.execute(
+                "SELECT state, attempts, max_attempts FROM tasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None or row["state"] != "leased":
+                raise TransitionError(f"{task_id} is not leased-but-unstarted")
+            self._release_lease(task_id)
+            if row["attempts"] < row["max_attempts"]:
+                backoff = (retry_in if retry_in is not None
+                           else timedelta(seconds=2 ** row["attempts"]))
+                self._transition(task_id, "queued", error=reason, available_in=backoff)
+            else:
+                self._transition(task_id, "interrupted", error=reason)
 
     def park_for_approval(self, token: LeaseToken, reason: str) -> None:
         """Pause a task until a human decides. Releases the lease.

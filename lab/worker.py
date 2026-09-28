@@ -150,7 +150,8 @@ async def run_in_worker(ref: str, task: Task, tools: ToolSession, *,
                 tool = message.get("tool")
                 if not isinstance(tool, str) or not isinstance(params, dict):
                     raise WorkerError("worker sent a malformed call")
-                result = tools.submit(tool, **params)   # may raise ApprovalRequired
+                # Off the event loop, so the heartbeat keeps beating (1.8).
+                result = await tools.submit_async(tool, **params)  # may raise ApprovalRequired
                 await send({"type": "result", **asdict(result)})
             elif kind == "done":
                 result_obj = message.get("result")
