@@ -50,7 +50,7 @@ a task runner:
 | Plane | Issue | State |
 |---|---|---|
 | Observation: notice work from the event stream, emit proposals | [#32](https://github.com/roshanaryal1/home-lab/issues/32) | first slice only: this repo's closed issues and merged PRs become proposals |
-| Router: post / blog / paper by evidence weight | [#33](https://github.com/roshanaryal1/home-lab/issues/33) | v0 from the slice; the rubric that can refuse thin evidence is not built |
+| Router: post / blog / paper by evidence weight | [#33](https://github.com/roshanaryal1/home-lab/issues/33) | rubric built over the evidence ledger: deterministic rules, refuses thin evidence upward, inspectable chain; still needs a human to review every route |
 | Publish: post/email on your behalf | [#86](https://github.com/roshanaryal1/home-lab/issues/86) | connectors and the secret broker exist, tested with dummy credentials; reviewed publishing with receipts is not built |
 
 Build order and reasoning are in ADR 0004; the rules that limit what an
@@ -126,6 +126,7 @@ uv run python -m lab.cli artifacts verify         # re-hash every stored output
 uv run python -m lab.cli backup --to DIR          # online snapshot, then restore-check to prove it
 uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything
 uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
+uv run python -m lab.cli route <task> [--want paper]   # post, blog, paper or nothing, by evidence weight; thin evidence refused upward
 uv run python -m lab.cli ledger show <task>       # claims, their evidence and status; review, verify
 uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record
 uv run python -m lab.cli eval rerun <record>      # repeat a run from its record alone, then compare
@@ -154,6 +155,7 @@ lab/artifacts.py     content-addressed task outputs
 lab/backup.py, drills.py      verifying backup and logged recovery drills
 lab/metrics.py       `lab status`, derived from the event log
 lab/model.py         bounded model adapter: pinned revisions, admission, strict tool calls
+lab/rubric.py        the router's rules: evidence weight to post, blog, paper or nothing
 lab/ledger.py        research claims with statuses separate from task state, evidence snapshots
 lab/evals.py         fixed task set run against any endpoint, sealed provenance records
 lab/attacks.py       injection harness

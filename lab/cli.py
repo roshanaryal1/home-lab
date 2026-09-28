@@ -24,6 +24,7 @@ Usage:
     python3 -m lab.cli artifacts list <task-id>
     python3 -m lab.cli artifacts verify
     python3 -m lab.cli ledger show|review|verify ...
+    python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
     python3 -m lab.cli backup --to DIR [--artifacts DIR]
@@ -45,7 +46,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from lab import audit, backup, drills, metrics, skills
+from lab import audit, backup, drills, metrics, rubric, skills
 from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
 from lab.journal import OperationJournal
@@ -372,6 +373,12 @@ def build_parser() -> argparse.ArgumentParser:
     op_init.add_argument("--dir", type=Path, required=True,
                          help="a directory the agent's OS account cannot read")
 
+    rt = sub.add_parser("route", help="route a research task to post, blog, paper or nothing")
+    rt.add_argument("task_id")
+    rt.add_argument("--want", choices=["post", "blog", "paper"], default=None,
+                    help="the route you hoped for; thin evidence is refused upward")
+    rt.add_argument("--store", type=Path, default=None)
+
     led = sub.add_parser("ledger", help="research claims, their evidence and their status")
     led.add_argument("--store", type=Path, default=None,
                      help="artifact store (default: 'artifacts' next to the database)")
@@ -543,6 +550,28 @@ def cmd_artifacts(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespa
     return 1 if problems else 0
 
 
+def cmd_route(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    ledger = Ledger(queue._conn, ArtifactStore(args.store or args.db.parent / "artifacts",
+                                               queue._conn))
+    try:
+        decision = rubric.route_research_task(ledger, args.task_id, args.want)
+        text = rubric.draft_from_decision(ledger, args.task_id, decision)
+    except LedgerError as exc:
+        print(f"route: {exc}", file=sys.stderr)
+        return 1
+    print(f"route: {decision.route.upper()}"
+          + (f"   (asked for {decision.requested}: REFUSED)" if decision.refused_upward else ""))
+    for reason in decision.reasons:
+        print(f"  - {_escape(reason)}")
+    print("evidence chain:")
+    for link in decision.chain:
+        srcs = ", ".join(f"{_escape(s)} [{t}]" for s, t in link.sources) or "none"
+        print(f"  claim {link.claim_id} ({link.kind}, {link.status}): {srcs}")
+    print()
+    print(text)
+    return 0
+
+
 def cmd_ledger(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     ledger = Ledger(queue._conn, ArtifactStore(args.store or args.db.parent / "artifacts",
                                                queue._conn))
@@ -579,6 +608,7 @@ def cmd_ledger(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace)
 
 
 COMMANDS = {
+    "route": cmd_route,
     "ledger": cmd_ledger,
     "artifacts": cmd_artifacts,
     "approvals": cmd_approvals,
