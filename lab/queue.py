@@ -15,9 +15,11 @@ actions must not be replayed blindly after recovery.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -133,6 +135,32 @@ class TaskQueue:
 
     def __exit__(self, *exc_info: object) -> None:
         self.close()
+
+    @contextlib.contextmanager
+    def _tx(self) -> Iterator[None]:
+        """Wrap a compound operation in one atomic transaction.
+
+        Without this, a crash between two statements of the same logical
+        operation (a state UPDATE, then a separate lease release, say)
+        can leave the database in a state no single statement produced
+        and no caller expects. Issue #44: a crash between transitioning
+        a task to ``awaiting_approval`` and releasing its lease left the
+        lease permanently live, so the task could never be leased again
+        even after a human granted the approval.
+
+        Callers must not nest this: SQLite does not support nested
+        ``BEGIN``. Preconditions that should survive a rollback (like
+        ``_require_lease``'s own audit record on failure) must run
+        before entering this block, not inside it.
+        """
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        else:
+            self._conn.execute("COMMIT")
 
     # ------------------------------------------------------------ events
 
@@ -319,8 +347,9 @@ class TaskQueue:
 
     def succeed(self, task_id: str, result: dict | None = None) -> None:
         self._require_lease(task_id)
-        self._transition(task_id, "succeeded", result=result)
-        self._release_lease(task_id)
+        with self._tx():
+            self._transition(task_id, "succeeded", result=result)
+            self._release_lease(task_id)
 
     def fail(self, task_id: str, error: str,
              retry_in: timedelta | None = None) -> None:
@@ -332,15 +361,16 @@ class TaskQueue:
         if row is None:
             raise TransitionError(f"no such task: {task_id}")
 
-        self._transition(task_id, "failed", error=error)
-        self._release_lease(task_id)
-        if row["attempts"] < row["max_attempts"]:
-            # `is not None`, not a truthiness check: timedelta(0) is falsy,
-            # and an explicit "retry immediately" must not be silently
-            # replaced by the default backoff.
-            backoff = (retry_in if retry_in is not None
-                       else timedelta(seconds=2 ** row["attempts"]))
-            self._transition(task_id, "queued", available_in=backoff)
+        with self._tx():
+            self._transition(task_id, "failed", error=error)
+            self._release_lease(task_id)
+            if row["attempts"] < row["max_attempts"]:
+                # `is not None`, not a truthiness check: timedelta(0) is
+                # falsy, and an explicit "retry immediately" must not be
+                # silently replaced by the default backoff.
+                backoff = (retry_in if retry_in is not None
+                           else timedelta(seconds=2 ** row["attempts"]))
+                self._transition(task_id, "queued", available_in=backoff)
 
     def park_for_approval(self, task_id: str, reason: str) -> None:
         """Pause a task until a human decides. Releases the lease.
@@ -350,16 +380,18 @@ class TaskQueue:
         would block recovery and mislead every other supervisor.
         """
         self._require_lease(task_id)
-        self._transition(task_id, "awaiting_approval", error=reason)
-        self._release_lease(task_id)
+        with self._tx():
+            self._transition(task_id, "awaiting_approval", error=reason)
+            self._release_lease(task_id)
 
     def resume_after_approval(self, task_id: str) -> None:
         """Return an approved task to the queue so a worker can pick it up."""
         self._transition(task_id, "queued")
 
     def cancel(self, task_id: str, reason: str = "cancelled") -> None:
-        self._transition(task_id, "cancelled", error=reason)
-        self._release_lease(task_id)
+        with self._tx():
+            self._transition(task_id, "cancelled", error=reason)
+            self._release_lease(task_id)
 
     def _release_lease(self, task_id: str) -> None:
         # Not owner-scoped on purpose: recovery releases an expired lease
@@ -400,16 +432,21 @@ class TaskQueue:
 
         interrupted = requeued = held = 0
         for row in stranded:
-            self._transition(row["id"], "interrupted",
-                             error="lease expired or owner restarted")
-            self._release_lease(row["id"])
-            interrupted += 1
+            # One transaction per stranded task, not one for the whole
+            # batch: a crash partway through recovery must not leave an
+            # already-reconciled task's writes half-applied just because
+            # a later row in the same batch failed.
+            with self._tx():
+                self._transition(row["id"], "interrupted",
+                                 error="lease expired or owner restarted")
+                self._release_lease(row["id"])
+                interrupted += 1
 
-            if row["idempotent"] and row["attempts"] < row["max_attempts"]:
-                self._transition(row["id"], "queued")
-                requeued += 1
-            else:
-                held += 1
+                if row["idempotent"] and row["attempts"] < row["max_attempts"]:
+                    self._transition(row["id"], "queued")
+                    requeued += 1
+                else:
+                    held += 1
 
         if stranded:
             self._record(None, "recovery", detail={
