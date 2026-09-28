@@ -1,9 +1,9 @@
 """The execution broker: the intended single path from a worker to anything real.
 
-Not yet the *only* path. Handlers run inside the supervisor process, so
-nothing but convention stops one touching the filesystem directly
-(#48, improvement plan item 1.2), and per-tool-call tiers are not yet
-enforced (#43, item 1.1).
+Every call is authorized by the policy engine against the tool's tier
+from the trusted registry below (item 1.1, #43). Not yet the *only*
+path: handlers run inside the supervisor process, so nothing but
+convention stops one touching the filesystem directly (#48, item 1.2).
 
 Closes issue #10. Until now, isolation existed as instructions in
 `ops/mac-mini-setup.md` and nowhere in code, and a non-admin account
@@ -43,11 +43,12 @@ from __future__ import annotations
 import json
 import shutil
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from lab import sandbox
-from lab.policy import PolicyEngine, Tier
+from lab.policy import Decision, PolicyEngine, Tier
 
 
 class BrokerError(RuntimeError):
@@ -66,10 +67,30 @@ class QuotaExceeded(BrokerError):
     """The request would breach a declared ceiling."""
 
 
-# Which tier each tool requires. Intended to be derived from the tool
-# being called rather than the task's own declaration. Not enforced yet:
-# submit() checks the per-task allowlist only and never reads the tier,
-# so an allowed approve-tier tool runs without approval (#43, item 1.1).
+class PolicyUnavailable(BrokerError):
+    """No policy engine, or it failed. Nothing runs without a decision."""
+
+
+class PolicyDenied(BrokerError):
+    """Policy refused this call outright."""
+
+
+class ApprovalRequired(BrokerError):
+    """This exact call needs a human approval that does not exist yet.
+
+    Raised out of ``submit()`` rather than returned as a failed result:
+    the worker cannot continue, and the supervisor must park the task
+    (release its lease) until the approval named here is decided.
+    """
+
+    def __init__(self, approval_id: str, reason: str) -> None:
+        super().__init__(reason)
+        self.approval_id = approval_id
+
+
+# Which tier each tool requires. The broker takes the tier from here,
+# never from the task or the request, and passes it to the policy engine
+# on every call, so a task cannot under-declare a tool's authority.
 TOOL_TIERS: dict[str, Tier] = {
     "fs.read": Tier.AUTONOMOUS,
     "fs.list": Tier.AUTONOMOUS,
@@ -175,20 +196,60 @@ class ExecutionBroker:
 
     # --------------------------------------------------------- dispatch
 
+    def _registry(self) -> dict[str, Callable[[ToolRequest, Workspace], ToolResult]]:
+        """The trusted dispatch table. Only tools named here can run.
+
+        Explicit rather than ``getattr(self, f"_tool_{name}")``, so a
+        request naming some other method cannot reach it, and every entry
+        must also carry a tier in TOOL_TIERS.
+        """
+        return {
+            "fs.read": self._tool_fs_read,
+            "fs.list": self._tool_fs_list,
+            "fs.write": self._tool_fs_write,
+            "fs.delete": self._tool_fs_delete,
+            "shell.run": self._tool_shell_run,
+        }
+
     def submit(self, request: ToolRequest) -> ToolResult:
-        """The single entry point. Everything is checked before anything runs."""
+        """The single entry point. Everything is checked before anything runs.
+
+        Order: known tool, per-task grant, open workspace, then policy for
+        this exact call. Raises ``ApprovalRequired`` when a human must
+        decide first; every other refusal is a failed ``ToolResult``.
+        """
         try:
+            handler = self._registry().get(request.tool)
+            if handler is None or request.tool not in TOOL_TIERS:
+                raise ToolNotAllowed(f"no such tool: {request.tool}")
             self._check_grant(request)
             ws = self._workspace_for(request.task_id)
-            handler = getattr(self, f"_tool_{request.tool.replace('.', '_')}")
+            self._authorize(request)
             return handler(request, ws)
+        except ApprovalRequired:
+            raise
         except BrokerError as exc:
             return ToolResult(ok=False, tool=request.tool,
                               error=f"{type(exc).__name__}: {exc}")
 
+    def _authorize(self, request: ToolRequest) -> None:
+        if self.policy is None:
+            raise PolicyUnavailable("no policy engine; refusing every call")
+        try:
+            verdict = self.policy.authorize_tool(
+                request.task_id, request.tool, request.params,
+                TOOL_TIERS[request.tool],
+            )
+        except Exception as exc:
+            # Includes a failed audit write: an unrecorded allow is not an allow.
+            raise PolicyUnavailable(f"policy check failed: {exc}") from exc
+        if verdict.decision is Decision.NEEDS_APPROVAL:
+            assert verdict.approval_id is not None
+            raise ApprovalRequired(verdict.approval_id, verdict.reason)
+        if not verdict.allowed:
+            raise PolicyDenied(verdict.reason)
+
     def _check_grant(self, request: ToolRequest) -> None:
-        if request.tool not in TOOL_TIERS:
-            raise ToolNotAllowed(f"no such tool: {request.tool}")
         granted = self._grants.get(request.task_id, set())
         if request.tool not in granted:
             raise ToolNotAllowed(

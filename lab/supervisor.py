@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Self
 
+from lab.broker import ApprovalRequired
 from lab.policy import Decision, PolicyEngine
 from lab.queue import LeaseLost, LeaseToken, Task, TaskQueue
 
@@ -261,6 +262,19 @@ class Supervisor:
             # Shutdown mid-task. Leave it leased so recovery decides,
             # rather than guessing here whether it is safe to replay.
             raise
+        except ApprovalRequired as exc:
+            # A tool call inside the handler needs a human first (item
+            # 1.1). The broker already opened the request for that exact
+            # call; park so the lease is released while a human decides.
+            # Granting it requeues the task and the call is re-submitted.
+            try:
+                self.queue.park_for_approval(
+                    token, f"approval {exc.approval_id}: {exc}")
+                self.stats.awaiting_approval += 1
+                log.info("task %s parked on tool approval %s",
+                         task.id, exc.approval_id)
+            except LeaseLost:
+                log.error("cannot park %s: lease lost", task.id)
         except Exception as exc:
             try:
                 self.queue.fail(token, f"{type(exc).__name__}: {exc}")

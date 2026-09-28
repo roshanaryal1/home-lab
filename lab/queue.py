@@ -60,7 +60,10 @@ LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
     # paused, and must be able to return to the queue once that decision
     # arrives. Routing it through 'cancelled' made approving it a no-op.
     "awaiting_approval": frozenset({"queued", "cancelled", "interrupted"}),
-    "running": frozenset({"succeeded", "failed", "interrupted", "cancelled"}),
+    # running -> awaiting_approval: a tool call made mid-run can need a
+    # human (item 1.1), and the task must park rather than fail.
+    "running": frozenset({"succeeded", "failed", "awaiting_approval",
+                          "interrupted", "cancelled"}),
     "succeeded": frozenset(),
     "failed": frozenset({"queued"}),        # retry
     "interrupted": frozenset({"queued", "failed", "cancelled"}),
