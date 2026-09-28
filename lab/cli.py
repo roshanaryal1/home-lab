@@ -38,6 +38,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import re
@@ -55,12 +56,15 @@ from lab import (
     control,
     drills,
     emitter,
+    loop,
     metrics,
     publish,
     rubric,
     service,
     skills,
+    supervisor,
 )
+from lab import model as model_mod
 from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
 from lab.connectors import ConnectorError, load_connectors
@@ -465,6 +469,12 @@ def build_parser() -> argparse.ArgumentParser:
         m_end.add_argument("--reason", required=True)
     mem_sub.add_parser("sweep", help="retire expired memories")
 
+    tk = sub.add_parser("tick", help="one pass of the loop: observe, summarize, route")
+    tk.add_argument("--repo", default=None, help="also observe this owner/repo on GitHub")
+    tk.add_argument("--mock-reply", default=None,
+                    help="scripted model reply, for smoke tests; no model is contacted")
+    tk.add_argument("--min-failures", type=int, default=3)
+
     wd = sub.add_parser("watchdog", help="kill a supervisor whose heartbeat has gone stale")
     wd.add_argument("--max-age", type=float, default=service.DEFAULT_MAX_AGE,
                     help="seconds without a heartbeat before the supervisor counts as hung")
@@ -530,6 +540,32 @@ def build_parser() -> argparse.ArgumentParser:
     chk.add_argument("--checkpoint", type=Path, required=True)
 
     return parser
+
+
+def cmd_tick(args: argparse.Namespace) -> int:
+    """Uses the model named by LAB_MODEL_URL, LAB_MODEL_NAME and LAB_MODEL_REVISION."""
+    if not args.db.exists():
+        print(f"No database at {args.db}", file=sys.stderr)
+        return 1
+    if args.mock_reply is not None:
+        spec = model_mod.ModelSpec("mock", "0" * 40, "0" * 40, 8192, 512, 1, heavy=False)
+        model: model_mod.BoundedModel | None = model_mod.BoundedModel(
+            spec, model_mod.MockAdapter([args.mock_reply]))
+    else:
+        model = loop.model_from_env()
+    if model is None:
+        print("tick: no model configured; set LAB_MODEL_URL, LAB_MODEL_NAME and "
+              "LAB_MODEL_REVISION (a loopback server), or pass --mock-reply", file=sys.stderr)
+        return 1
+    try:
+        report = asyncio.run(loop.tick(args.db, model, repo=args.repo,
+                                       min_failures=args.min_failures))
+    except supervisor.AlreadyRunning as exc:
+        print(f"tick: {exc}", file=sys.stderr)
+        return 1
+    print(f"{report.proposed} proposed, {report.summarized} summarized, {report.routed} routed"
+          + ("" if report.ran else " (queue left to the running supervisor)"))
+    return 0
 
 
 def cmd_watchdog(args: argparse.Namespace) -> int:
@@ -936,6 +972,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_status(args)
     if args.command == "watchdog":
         return cmd_watchdog(args)
+    if args.command == "tick":
+        return cmd_tick(args)
     if args.command == "eval":
         from lab import evals
         return evals.main(args.eval_args)

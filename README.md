@@ -121,6 +121,7 @@ uv run python -m lab.cli tasks                    # task counts by state
 uv run python -m lab.cli control pause|resume|drain|stop --by you   # the whole-lab switch; `control show` reads it
 uv run python -m lab.cli watchdog [--max-age 90] [--dry-run]   # kill a hung supervisor; launchd restarts it
 uv run python -m lab.cli cancel <task> --by you   # cancel work that has not started
+uv run python -m lab.cli tick [--repo owner/repo]     # one pass: observe, summarize with the model, route
 uv run python -m lab.cli emit [--min-failures 3]  # queue proposals from patterns in the event log
 uv run python -m lab.cli chain <task>             # the events that produced a proposal
 uv run python -m lab.cli ops                      # operations of unknown outcome
@@ -164,6 +165,7 @@ lab/backup.py, drills.py      verifying backup and logged recovery drills
 lab/metrics.py       `lab status`, derived from the event log
 lab/control.py       the operator mode switch: pause, drain, stop
 lab/service.py       heartbeat, watchdog and the launchd definitions (`ops/launchd/`)
+lab/loop.py          the loop: summarizer handler, ledger claim, rubric route, `lab tick`
 lab/emitter.py       proposals emitted from the event log, each with its event chain
 lab/model.py         bounded model adapter: pinned revisions, admission, strict tool calls
 lab/memory.py        inspectable memory: FTS5, provenance, expiry, revoke that reaches drafts

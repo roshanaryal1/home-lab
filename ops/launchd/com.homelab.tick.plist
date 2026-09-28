@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.homelab.tick</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/homelab/.venv/bin/python</string>
+		<string>-m</string>
+		<string>lab.cli</string>
+		<string>--db</string>
+		<string>/var/homelab/lab.db</string>
+		<string>tick</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>/var/log/homelab/tick.err</string>
+	<key>StandardOutPath</key>
+	<string>/var/log/homelab/tick.log</string>
+	<key>StartInterval</key>
+	<integer>300</integer>
+	<key>UserName</key>
+	<string>lab</string>
+	<key>WorkingDirectory</key>
+	<string>/opt/homelab</string>
+</dict>
+</plist>

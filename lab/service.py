@@ -30,6 +30,8 @@ SUPERVISOR_LABEL = "com.homelab.supervisor"
 WATCHDOG_LABEL = "com.homelab.watchdog"
 DEFAULT_MAX_AGE = 90.0
 WATCHDOG_INTERVAL_SECONDS = 30
+TICK_LABEL = "com.homelab.tick"
+TICK_INTERVAL_SECONDS = 300
 
 
 def heartbeat_path(db: str | Path) -> Path:
@@ -132,3 +134,11 @@ def watchdog_plist(*, python: str, workdir: str, db: str) -> bytes:
     """A periodic job, deliberately independent of the supervisor it watches."""
     return _plist(WATCHDOG_LABEL, [python, "-m", "lab.cli", "--db", db, "watchdog"], workdir,
                   RunAtLoad=True, StartInterval=WATCHDOG_INTERVAL_SECONDS)
+
+
+def tick_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
+    """``lab tick`` every five minutes as the lab user. The model comes from
+    ``LAB_MODEL_URL``, ``LAB_MODEL_NAME`` and ``LAB_MODEL_REVISION`` in the
+    job's environment; without them the job exits 1 and does nothing."""
+    return _plist(TICK_LABEL, [python, "-m", "lab.cli", "--db", db, "tick"], workdir,
+                  UserName=user, RunAtLoad=False, StartInterval=TICK_INTERVAL_SECONDS)

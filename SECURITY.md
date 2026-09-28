@@ -277,6 +277,23 @@ Implemented and tested:
   moved. Tested against a stub endpoint; no real model has been run, and
   the records are not signed, only self-hashed, so they detect accident
   and casual edits, not an adversary who recomputes the hash.
+- **The unattended loop** (`lab/loop.py`, `lab tick`, H1). Proposals are
+  summarized by a bounded model and routed with no person in between. The
+  summarizer is registered with no tools, no secret and no external action,
+  so it passes the Rule of Two by construction; its input is the cleaned,
+  bounded, fixed-schema `Evidence`, and its reply must be exactly one JSON
+  object with one `summary` string (duplicate keys, extra keys, prose
+  around it or an over-long summary are refused, never repaired, and the
+  task fails without retry). A model that tries to answer with a tool call
+  or a route gets nothing: the route is computed by the deterministic
+  rubric from the evidence ledger, where the summary is one claim backed by
+  one incident source, which can reach `post` and no further, and every
+  decision asks for human review. Nothing in the loop publishes. The
+  daemon registers the summarizer only when `LAB_MODEL_URL`,
+  `LAB_MODEL_NAME` and `LAB_MODEL_REVISION` name a loopback server; the
+  five-minute `com.homelab.tick` job (`ops/launchd/`) runs `lab tick`. A
+  summary is a model's paraphrase of the source, so it is stored as an
+  unverified claim's text with the source excerpt beside it, not as a fact.
 - **Event-log emitter** (`lab/emitter.py`, `lab emit`, `lab chain`, #32).
   Proposals come from patterns in the append-only log (today: three or
   more tasks of one kind failing for the same normalized reason). A
