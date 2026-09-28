@@ -497,6 +497,7 @@ class Supervisor:
                 self._record_failure(task, token, exc)
                 return
             limit = self.config.task_timeout_seconds
+            self.queue.record_event(task.id, "wall_clock_exceeded", {"limit_seconds": limit})
             try:
                 self.queue.fail(token, f"wall-clock ceiling of {limit:g}s exceeded")
                 self.stats.failed += 1

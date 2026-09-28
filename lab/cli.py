@@ -23,6 +23,7 @@ Usage:
     python3 -m lab.cli audit check --key KEYFILE --checkpoint FILE
     python3 -m lab.cli artifacts list <task-id>
     python3 -m lab.cli artifacts verify
+    python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
     python3 -m lab.cli backup --to DIR [--artifacts DIR]
     python3 -m lab.cli restore-check MANIFEST --into DIR
     python3 -m lab.cli drill crash|restore [--log DIR]
@@ -42,7 +43,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from lab import audit, backup, drills, skills
+from lab import audit, backup, drills, metrics, skills
 from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
 from lab.journal import OperationJournal
@@ -368,6 +369,13 @@ def build_parser() -> argparse.ArgumentParser:
     op_init.add_argument("--dir", type=Path, required=True,
                          help="a directory the agent's OS account cannot read")
 
+    st = sub.add_parser("status", help="queue, worker health and counters, from the event log")
+    st.add_argument("--json", action="store_true")
+    st.add_argument("--since-hours", type=float, default=None,
+                    help="count events from the last N hours (default: all time)")
+    st.add_argument("--stall-seconds", type=float, default=metrics.DEFAULT_STALL_SECONDS,
+                    help="how long work may wait with no worker before it is unhealthy")
+
     audit_cmd = sub.add_parser("audit", help="verify the audit log and its signed checkpoints")
     audit_sub = audit_cmd.add_subparsers(dest="audit_command", required=True)
     audit_sub.add_parser("verify", help="walk the hash chain; exit 1 if it is broken")
@@ -380,6 +388,25 @@ def build_parser() -> argparse.ArgumentParser:
     chk.add_argument("--checkpoint", type=Path, required=True)
 
     return parser
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    """Read-only. Exit 0 ok, idle or attention; 2 unhealthy (for a watchdog)."""
+    if not args.db.exists():
+        print(f"No database at {args.db}", file=sys.stderr)
+        return 1
+    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    try:
+        report = metrics.collect(conn, window_hours=args.since_hours,
+                                 stall_seconds=args.stall_seconds)
+    except sqlite3.DatabaseError as exc:
+        print(f"status: cannot read the database: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    print(json.dumps(report.as_dict(), indent=2, sort_keys=True) if args.json
+          else metrics.render(report))
+    return 2 if report.health == "unhealthy" else 0
 
 
 def cmd_backup(args: argparse.Namespace) -> int:
@@ -515,6 +542,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_audit(args)
     if args.command == "operator":
         return cmd_operator(args)
+    if args.command == "status":
+        return cmd_status(args)
     if args.command in ("backup", "restore-check"):
         return cmd_backup(args)
     if args.command == "drill":
