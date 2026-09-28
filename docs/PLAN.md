@@ -44,9 +44,13 @@ unmetered.
 
 The open reimplementations appeared within about 24 hours. The leading one is
 **Laya** (Convai Innovations, Apache-2.0, released 2026-09-18): 421M parameters
-on ModernBERT-large, **32.8 to 39.5 ms per question on a T4**, 19,301 GitHub
-stars. **Kev-9B** reaches 0.852 accuracy against Jev's 0.857, a gap of half a
-percentage point, also Apache-2.0.
+on ModernBERT-large, about 33 to 39.5 ms per question per its model card.
+**Kev-9B** is a LoRA adapter on the 9B `Qwen3.5-9B-Base`, also Apache-2.0.
+On the same out-of-domain development items it scores 0.822 against Jev's
+0.857, a gap of 3.5 points. Its 0.852 is on a locked test Jev was not scored
+on, so comparing 0.852 with 0.857 (as an earlier version of this page did) is
+not a like-for-like gap. Figures read from the Kev-9B and Laya model cards on
+2026-09-29.
 
 **Why this changes our architecture.** The reference architecture has a router
 and a policy plane. The default assumption was that an LLM makes those calls.
@@ -55,7 +59,7 @@ A typed decision model is a better fit on three axes at once:
 | | LLM making the call | Typed decision model |
 |---|---|---|
 | Latency | seconds | ~35 ms |
-| Memory | competes for the one heavy slot | 421M, runs alongside |
+| Memory | competes for the one heavy slot | 421M (Laya), runs alongside; Kev-9B's 9B base does not |
 | Output | free text, needs schema repair | typed by construction |
 | Injection surface | can be talked out of a decision | output space is constrained, not instructed |
 
