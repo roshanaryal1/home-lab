@@ -192,7 +192,6 @@ def test_r08_an_approval_expired_before_use_is_not_spent(q) -> None:
     assert consumed is None
 
 
-@pytest.mark.xfail(strict=True, reason="R09 open: check-then-use path race, #50 (1.5)")
 def test_r09_directory_swapped_for_symlink_after_check(tmp_path, q, monkeypatch) -> None:
     """R09: a directory swapped for a symlink after the path check sent a
     write outside the workspace."""
@@ -235,8 +234,6 @@ def _fake_sandbox(monkeypatch) -> dict:
     return seen
 
 
-@pytest.mark.xfail(strict=True,
-                   reason="R10 open: profile written through a planted link, #50 (1.5)")
 def test_r10_planted_profile_link_does_not_overwrite_outside_file(tmp_path, monkeypatch) -> None:
     """R10: a planted .sandbox.sb symlink made the supervisor overwrite a
     file outside the workspace before any command started."""

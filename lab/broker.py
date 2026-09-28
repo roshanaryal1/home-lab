@@ -47,13 +47,18 @@ does not exist.
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import hashlib
+import itertools
 import json
+import os
 import shutil
+import stat
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from lab import sandbox
 from lab.policy import Decision, PolicyEngine, Tier
@@ -147,12 +152,26 @@ class ToolResult:
     error: str | None = None
 
 
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+
+def _is_protected(parts: list[str]) -> bool:
+    """Git hooks and shell start-up files run outside the sandbox later."""
+    if parts and parts[-1] in sandbox.PROTECTED_NAMES:
+        return True
+    return any(a == ".git" and b == "hooks" for a, b in itertools.pairwise(parts))
+
+
 @dataclass
 class Workspace:
     """A per-task directory. Created with the task, destroyed with it.
 
-    Confinement is by resolved path, not by string prefix, so a symlink
-    pointing outside is caught as well as a literal `../`.
+    File tools act through descriptors opened one path component at a
+    time with O_NOFOLLOW (item 1.5). Checking a resolved path and then
+    opening it by name left a window in which a directory could be
+    swapped for a symlink (R09); walking by descriptor refuses a symlink
+    in any component at the moment of use, so there is no window.
+    ``resolve()`` remains as an early, readable refusal, not the control.
     """
 
     root: Path
@@ -174,6 +193,36 @@ class Workspace:
             )
         return candidate
 
+    @staticmethod
+    def parts(relative: str) -> list[str]:
+        """Split a workspace-relative path, refusing absolute and ``..``."""
+        path = PurePosixPath(relative)
+        if path.is_absolute() or ".." in path.parts or "\0" in relative:
+            raise PathEscape(f"{relative!r} is not a plain workspace-relative path")
+        return [p for p in path.parts if p not in ("", ".")]
+
+    @contextlib.contextmanager
+    def dir_fd(self, parts: list[str], *, create: bool = False) -> Iterator[int]:
+        """A descriptor for the directory ``parts`` names, walked safely."""
+        fd = os.open(self.root, _DIR_FLAGS)
+        try:
+            for name in parts:
+                if create:
+                    with contextlib.suppress(FileExistsError):
+                        os.mkdir(name, 0o700, dir_fd=fd)
+                try:
+                    child = os.open(name, _DIR_FLAGS, dir_fd=fd)
+                except OSError as exc:
+                    if exc.errno in (errno.ELOOP, errno.ENOTDIR, errno.EMLINK):
+                        raise PathEscape(
+                            f"{name!r} is a symlink or not a directory") from None
+                    raise
+                os.close(fd)
+                fd = child
+            yield fd
+        finally:
+            os.close(fd)
+
     def state_hash(self) -> str:
         """Hash of every name and file content under the root.
 
@@ -194,9 +243,20 @@ class Workspace:
                 digest.update(f"D {rel}\n".encode())
         return digest.hexdigest()
 
+    def regular_files(self) -> list[Path]:
+        """Regular files only, by lstat: a symlink to something outside is
+        neither counted nor followed."""
+        out = []
+        for dirpath, _dirs, files in os.walk(self.root, followlinks=False):
+            for name in files:
+                path = Path(dirpath) / name
+                if stat.S_ISREG(path.lstat().st_mode):
+                    out.append(path)
+        return out
+
     def usage(self) -> tuple[int, int]:
-        files = [p for p in self.root.rglob("*") if p.is_file()]
-        return len(files), sum(p.stat().st_size for p in files)
+        files = self.regular_files()
+        return len(files), sum(p.lstat().st_size for p in files)
 
     def destroy(self) -> None:
         shutil.rmtree(self.root, ignore_errors=True)
@@ -212,7 +272,7 @@ class ExecutionBroker:
         leases: Callable[[LeaseToken], bool] | None = None,
     ) -> None:
         self.workspace_root = Path(workspace_root)
-        self.workspace_root.mkdir(parents=True, exist_ok=True)
+        self.workspace_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.policy = policy
         # Usually TaskQueue.owns_lease. None means no call can prove its
         # lease, so every call is refused: fail closed.
@@ -232,8 +292,11 @@ class ExecutionBroker:
         if unknown:
             raise ToolNotAllowed(f"unknown tools requested: {sorted(unknown)}")
 
+        if task_id in self._workspaces:
+            raise BrokerError(f"task {task_id} already has an open workspace")
+        # Named here, never by the task; private to the lab user.
         path = self.workspace_root / f"task-{task_id}-{uuid.uuid4().hex[:8]}"
-        path.mkdir(parents=True, exist_ok=False)
+        path.mkdir(mode=0o700, parents=False, exist_ok=False)
         ws = Workspace(root=path)
         self._workspaces[task_id] = ws
         self._grants[task_id] = set(allowed_tools)
@@ -336,22 +399,47 @@ class ExecutionBroker:
     # ------------------------------------------------------------ tools
 
     def _tool_fs_read(self, request: ToolRequest, ws: Workspace) -> ToolResult:
-        target = ws.resolve(request.params["path"])
-        if not target.is_file():
+        ws.resolve(request.params["path"])
+        parts = ws.parts(request.params["path"])
+        if not parts:
             return ToolResult(False, request.tool, error="not a file")
-        return ToolResult(True, request.tool,
-                          {"content": target.read_text(encoding="utf-8")})
+        with ws.dir_fd(parts[:-1]) as parent:
+            try:
+                fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+            except FileNotFoundError:
+                return ToolResult(False, request.tool, error="not a file")
+            except OSError as exc:
+                if exc.errno == errno.ELOOP:
+                    raise PathEscape(f"{parts[-1]!r} is a symlink") from None
+                return ToolResult(False, request.tool, error="not a file")
+            with os.fdopen(fd, "rb") as fh:
+                if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                    return ToolResult(False, request.tool, error="not a file")
+                content = fh.read().decode("utf-8")
+        return ToolResult(True, request.tool, {"content": content})
 
     def _tool_fs_list(self, request: ToolRequest, ws: Workspace) -> ToolResult:
-        target = ws.resolve(request.params.get("path", "."))
-        if not target.is_dir():
+        ws.resolve(request.params.get("path", "."))
+        parts = ws.parts(request.params.get("path", "."))
+        try:
+            with ws.dir_fd(parts) as fd:
+                names = sorted(os.listdir(fd))
+        except FileNotFoundError:
             return ToolResult(False, request.tool, error="not a directory")
-        names = sorted(p.name for p in target.iterdir())
+        except PathEscape:
+            raise
+        except OSError:
+            return ToolResult(False, request.tool, error="not a directory")
         return ToolResult(True, request.tool, {"entries": names})
 
     def _tool_fs_write(self, request: ToolRequest, ws: Workspace) -> ToolResult:
         content = request.params["content"]
-        target = ws.resolve(request.params["path"])
+        ws.resolve(request.params["path"])
+        parts = ws.parts(request.params["path"])
+        if not parts:
+            raise PathEscape("cannot write to the workspace root")
+        if _is_protected(parts):
+            raise PathEscape(f"{request.params['path']!r} is a protected path")
 
         files, used = ws.usage()
         if files + 1 > ws.max_files:
@@ -359,8 +447,19 @@ class ExecutionBroker:
         if used + len(content.encode("utf-8")) > ws.max_bytes:
             raise QuotaExceeded(f"workspace byte ceiling {ws.max_bytes} reached")
 
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        with ws.dir_fd(parts[:-1], create=True) as parent:
+            try:
+                fd = os.open(parts[-1],
+                             os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+                             0o600, dir_fd=parent)
+            except OSError as exc:
+                if exc.errno == errno.ELOOP:
+                    raise PathEscape(f"{parts[-1]!r} is a symlink") from None
+                raise BrokerError(f"cannot write {parts[-1]!r}: {exc.strerror}") from None
+            with os.fdopen(fd, "wb") as fh:
+                if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                    raise BrokerError("target is not a regular file")
+                fh.write(content.encode("utf-8"))
         return ToolResult(True, request.tool, {"bytes": len(content)})
 
     def _tool_shell_run(self, request: ToolRequest, ws: Workspace) -> ToolResult:
@@ -392,14 +491,25 @@ class ExecutionBroker:
         )
 
     def _tool_fs_delete(self, request: ToolRequest, ws: Workspace) -> ToolResult:
-        target = ws.resolve(request.params["path"])
-        if not target.exists():
-            return ToolResult(False, request.tool, error="nothing to delete")
-        if target.is_dir():
-            shutil.rmtree(target)
-        else:
-            target.unlink()
-        return ToolResult(True, request.tool, {"deleted": str(target.name)})
+        # No resolve() here: it follows a final symlink, which would refuse
+        # to remove a planted link. The descriptor walk is the check.
+        parts = ws.parts(request.params["path"])
+        if not parts:
+            raise PathEscape("refusing to delete the workspace root")
+        if _is_protected(parts):
+            raise PathEscape(f"{request.params['path']!r} is a protected path")
+        with ws.dir_fd(parts[:-1]) as parent:
+            try:
+                st = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+            except FileNotFoundError:
+                return ToolResult(False, request.tool, error="nothing to delete")
+            if stat.S_ISDIR(st.st_mode):
+                # fd-based and symlink-attack resistant on this platform.
+                shutil.rmtree(parts[-1], dir_fd=parent)
+            else:
+                # Removes a symlink itself, never its target.
+                os.unlink(parts[-1], dir_fd=parent)
+        return ToolResult(True, request.tool, {"deleted": parts[-1]})
 
     # ------------------------------------------------------------ audit
 
@@ -420,8 +530,7 @@ class ExecutionBroker:
             "bytes_used": used,
             "granted_tools": sorted(self._grants.get(task_id, set())),
             "entries": sorted(
-                str(p.relative_to(ws.root))
-                for p in ws.root.rglob("*") if p.is_file()
+                str(p.relative_to(ws.root)) for p in ws.regular_files()
             ),
         }
 
