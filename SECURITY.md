@@ -190,6 +190,26 @@ Implemented and tested:
   audit event. Limits: "independent" means a different source id, not
   proof the sources did not copy each other, and deciding whether a quote
   really supports a claim is still a person's judgement.
+- **Versioned skills with rollback** (`lab/skillstore.py`, migration 11,
+  item 8.7, #87). A skill is never edited in place. Each submission is
+  a new immutable version whose files go into the content-addressed
+  store, recorded with its content hash, the version it derives from,
+  where it came from and who submitted it, and it starts as a candidate
+  that runs nothing. Promotion makes it active and is an operator
+  action: signed with the operator's Ed25519 key when the store is given
+  the public key, and never by whoever submitted it. A skill cannot lower
+  its own permission tier: the tier is the stricter of the submitter's
+  and anything the skill's own SKILL.md declares; a promotion may not be
+  less restrictive than the version it replaces unless the operator says
+  so in the signed request; a skill with executable files is never below
+  `approve`. A version can be marked known good with evidence, and a
+  rollback is one step to the newest earlier known-good version, with the
+  replaced one kept as rolled back. Everything is re-verified against the
+  recorded hashes before promotion, rollback and install, and install is
+  one rename. Every step is an audit event. Limits: nothing yet loads
+  skills from the install directory into an agent, so the tier is a
+  recorded constraint that the loader will have to enforce; and without a
+  configured operator public key promotion is unsigned (dev mode).
 - **Reviewed publishing with receipts** (`lab/publish.py`,
   `publications`, migration 10, item 8.6, #86). A credentialed send is
   bound, in the approval the operator reads, to the destination host and

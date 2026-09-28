@@ -115,3 +115,24 @@ def verify(key: Ed25519PublicKey, signature: str | None, approval_id: str,
     except (InvalidSignature, ValueError):
         return False
     return True
+
+
+def sign_action(key: Ed25519PrivateKey, purpose: str, **fields: object) -> str:
+    """Sign any operator action: the purpose and its exact fields."""
+    return key.sign(_action_message(purpose, fields)).hex()
+
+
+def verify_action(key: Ed25519PublicKey, signature: str | None, purpose: str,
+                  **fields: object) -> bool:
+    if not signature:
+        return False
+    try:
+        key.verify(bytes.fromhex(signature), _action_message(purpose, fields))
+    except (InvalidSignature, ValueError):
+        return False
+    return True
+
+
+def _action_message(purpose: str, fields: dict[str, object]) -> bytes:
+    return json.dumps({"v": VERSION, "purpose": purpose, "fields": fields},
+                      sort_keys=True, separators=(",", ":")).encode("utf-8")

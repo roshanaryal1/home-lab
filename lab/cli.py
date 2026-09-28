@@ -25,6 +25,7 @@ Usage:
     python3 -m lab.cli artifacts verify
     python3 -m lab.cli ledger show|review|verify ...
     python3 -m lab.cli memory search|inspect|add-curated|add-evidence|correct|revoke|delete|sweep
+    python3 -m lab.cli skillstore submit|promote|known-good|rollback|history|install ...
     python3 -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
@@ -58,6 +59,7 @@ from lab.ledger import Ledger, LedgerError
 from lab.memory import Memory, MemoryRefused
 from lab.policy import PolicyEngine, task_intent
 from lab.queue import TaskQueue
+from lab.skillstore import SkillStore, SkillStoreError
 from lab.vault import Vault
 
 DEFAULT_DB = Path.home() / ".local" / "share" / "home-lab" / "lab.db"
@@ -379,6 +381,39 @@ def build_parser() -> argparse.ArgumentParser:
     op_init.add_argument("--dir", type=Path, required=True,
                          help="a directory the agent's OS account cannot read")
 
+    sk = sub.add_parser("skillstore", help="versioned skills: submit, promote, roll back, install")
+    sk.add_argument("--store", type=Path, default=None)
+    sk.add_argument("--operator-pubkey", type=Path, default=None,
+                    help="operator public key; with it, promotions must be signed")
+    sk_sub = sk.add_subparsers(dest="skillstore_command", required=True)
+    sk_submit = sk_sub.add_parser("submit", help="store a skill directory as a candidate version")
+    sk_submit.add_argument("directory", type=Path)
+    sk_submit.add_argument("--tier", required=True, choices=["autonomous", "notify",
+                                                            "approve", "never"])
+    sk_submit.add_argument("--by", required=True)
+    sk_submit.add_argument("--derived-from", default=None)
+    sk_promote = sk_sub.add_parser("promote", help="make a candidate the active version")
+    sk_promote.add_argument("version_id", type=int)
+    sk_promote.add_argument("--by", required=True)
+    sk_promote.add_argument("--signature", default=None)
+    sk_promote.add_argument("--allow-loosen", action="store_true")
+    sk_good = sk_sub.add_parser("known-good",
+                                help="record evidence that the active version is good")
+    sk_good.add_argument("version_id", type=int)
+    sk_good.add_argument("--by", required=True)
+    sk_good.add_argument("--evidence", required=True)
+    sk_good.add_argument("--signature", default=None)
+    sk_back = sk_sub.add_parser("rollback", help="one step back to the newest known-good version")
+    sk_back.add_argument("name")
+    sk_back.add_argument("--by", required=True)
+    sk_back.add_argument("--signature", default=None)
+    sk_back.add_argument("--allow-loosen", action="store_true")
+    sk_hist = sk_sub.add_parser("history")
+    sk_hist.add_argument("name")
+    sk_inst = sk_sub.add_parser("install", help="write the active version to a directory")
+    sk_inst.add_argument("name")
+    sk_inst.add_argument("--to", type=Path, required=True)
+
     pub = sub.add_parser("publish", help="credentialed sends: receipts and reconciliation")
     pub_sub = pub.add_subparsers(dest="publish_command", required=True)
     pub_sub.add_parser("list", help="every send and whether it is confirmed")
@@ -596,6 +631,44 @@ def cmd_artifacts(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespa
     return 1 if problems else 0
 
 
+def cmd_skillstore(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    key = operator_keys.load_public(args.operator_pubkey) if args.operator_pubkey else None
+    store = SkillStore(queue._conn, ArtifactStore(args.store or args.db.parent / "artifacts",
+                                                  queue._conn), key)
+    cmd = args.skillstore_command
+    try:
+        if cmd == "submit":
+            vid = store.submit(args.directory, args.tier, _escape(args.by),
+                               derived_from=args.derived_from)
+            row = store.get(vid)
+            print(f"{row['name']} v{row['version']} stored as a candidate "
+                  f"(tier {row['tier']}, id {vid})")
+        elif cmd == "promote":
+            store.promote(args.version_id, _escape(args.by), signature=args.signature,
+                          allow_loosen=args.allow_loosen)
+            print(f"version {args.version_id} is now active")
+        elif cmd == "known-good":
+            store.mark_known_good(args.version_id, _escape(args.by), args.evidence,
+                                  signature=args.signature)
+            print(f"version {args.version_id} marked known good")
+        elif cmd == "rollback":
+            to = store.rollback(args.name, _escape(args.by), signature=args.signature,
+                                allow_loosen=args.allow_loosen)
+            print(f"{args.name} rolled back to v{to}")
+        elif cmd == "history":
+            for r in store.history(args.name):
+                print(f"v{r['version']:<3} {r['state']:<12} tier {r['tier']:<10} "
+                      f"{'known-good ' if r['known_good'] else ''}by {_escape(r['submitted_by'])}"
+                      f"  {r['content_sha256'][:12]}")
+        else:
+            done = store.install(args.name, args.to)
+            print(f"installed {done.name} v{done.version} (tier {done.tier}) at {done.path}")
+    except (SkillStoreError, operator_keys.OperatorKeyError) as exc:
+        print(f"skillstore: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_publish(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     conn = queue._conn
     cmd = args.publish_command
@@ -731,6 +804,7 @@ def cmd_ledger(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace)
 
 
 COMMANDS = {
+    "skillstore": cmd_skillstore,
     "publish": cmd_publish,
     "memory": cmd_memory,
     "route": cmd_route,
