@@ -47,14 +47,16 @@ def process_proposals(queue: TaskQueue) -> list[tuple[str, dict]]:
         task = queue.lease(weight="light")
         if task is None:
             break
+        token = task.lease
+        assert token is not None
         if task.agent_kind != "proposal":
             # Not ours to process; put it back for whatever this queue
             # is really for. Never happens in the slice's own test
             # fixtures, but a shared queue is a shared queue.
-            queue.fail(task.id, "not a proposal task, releasing")
+            queue.fail(token, "not a proposal task, releasing")
             break
 
-        queue.start(task.id)
+        queue.start(token)
         decision = route_by_evidence_weight(task.payload)
         draft_text = draft(task.payload, decision)
         result = {
@@ -63,7 +65,7 @@ def process_proposals(queue: TaskQueue) -> list[tuple[str, dict]]:
             "draft": draft_text,
             "published": False,
         }
-        queue.succeed(task.id, result=result)
+        queue.succeed(token, result=result)
         log.info("processed %s -> %s (stopped before publish)",
                  task.id, decision.route)
         processed.append((task.id, result))

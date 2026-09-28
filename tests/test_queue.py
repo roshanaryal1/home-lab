@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from lab.queue import LeaseLost, TaskQueue, TransitionError
+from lab.queue import LeaseLost, LeaseToken, TaskQueue, TransitionError
 
 
 @pytest.fixture()
@@ -37,11 +37,13 @@ def test_lease_then_run_then_succeed(q: TaskQueue) -> None:
     assert leased is not None and leased.id == task_id
     assert leased.state == "leased"
     assert leased.attempts == 1
+    tok = leased.lease
+    assert tok is not None and tok.task_id == task_id and tok.generation == 1
 
-    q.start(task_id)
+    q.start(tok)
     assert q.get(task_id).state == "running"
 
-    q.succeed(task_id, {"ok": True})
+    q.succeed(tok, {"ok": True})
     assert q.get(task_id).state == "succeeded"
 
 
@@ -62,14 +64,14 @@ def test_leased_task_is_not_leased_twice(q: TaskQueue) -> None:
 
 
 def test_illegal_transition_is_rejected(q: TaskQueue) -> None:
-    task_id = q.add_task("no skipping")
-    q.lease()
+    q.add_task("no skipping")
+    tok = q.lease().lease
     # Holds a genuinely live lease throughout, so this exercises the
     # transition-legality guard specifically, not the fencing check
     # (see test_committing_with_no_lease_at_all_is_rejected for that):
     # leased -> succeeded skips running entirely.
     with pytest.raises(TransitionError):
-        q.succeed(task_id)
+        q.succeed(tok)
 
 
 def test_committing_with_no_lease_at_all_is_rejected(q: TaskQueue) -> None:
@@ -77,15 +79,16 @@ def test_committing_with_no_lease_at_all_is_rejected(q: TaskQueue) -> None:
     never be able to commit a result, regardless of what state the
     task happens to be in. LeaseLost, not a state-machine detail."""
     task_id = q.add_task("never leased by anyone")
+    forged = LeaseToken(task_id, "made-up", 1, q._holder)
     with pytest.raises(LeaseLost):
-        q.succeed(task_id)
+        q.succeed(forged)
 
 
 def test_terminal_state_cannot_transition(q: TaskQueue) -> None:
     task_id = q.add_task("done is done")
-    q.lease()
-    q.start(task_id)
-    q.succeed(task_id)
+    tok = q.lease().lease
+    q.start(tok)
+    q.succeed(tok)
     with pytest.raises(TransitionError):
         q.cancel(task_id)
 
@@ -97,14 +100,14 @@ def test_failure_retries_until_max_attempts(q: TaskQueue) -> None:
     # test.
     task_id = q.add_task("flaky", max_attempts=2, idempotent=True)
 
-    q.lease()
-    q.start(task_id)
-    q.fail(task_id, "boom", retry_in=timedelta(0))
+    tok = q.lease().lease
+    q.start(tok)
+    q.fail(tok, "boom", retry_in=timedelta(0))
     assert q.get(task_id).state == "queued", "should retry while attempts remain"
 
-    q.lease()
-    q.start(task_id)
-    q.fail(task_id, "boom again", retry_in=timedelta(0))
+    tok = q.lease().lease
+    q.start(tok)
+    q.fail(tok, "boom again", retry_in=timedelta(0))
     task = q.get(task_id)
     assert task.state == "failed", "should stay failed once attempts are spent"
     assert task.attempts == 2
@@ -113,9 +116,9 @@ def test_failure_retries_until_max_attempts(q: TaskQueue) -> None:
 
 def test_retry_backoff_makes_task_unavailable_immediately(q: TaskQueue) -> None:
     task_id = q.add_task("backoff", max_attempts=3, idempotent=True)
-    q.lease()
-    q.start(task_id)
-    q.fail(task_id, "transient", retry_in=timedelta(minutes=5))
+    tok = q.lease().lease
+    q.start(tok)
+    q.fail(tok, "transient", retry_in=timedelta(minutes=5))
 
     assert q.get(task_id).state == "queued"
     assert q.lease() is None, "backoff must keep the task out of the queue"
@@ -126,8 +129,8 @@ def test_retry_backoff_makes_task_unavailable_immediately(q: TaskQueue) -> None:
 
 def test_recovery_requeues_idempotent_task(q: TaskQueue) -> None:
     task_id = q.add_task("safe to repeat", idempotent=True)
-    q.lease()
-    q.start(task_id)
+    tok = q.lease().lease
+    q.start(tok)
     # Simulate a crash: the process dies here, leaving state 'running'.
 
     stats = q.recover()
@@ -138,8 +141,8 @@ def test_recovery_requeues_idempotent_task(q: TaskQueue) -> None:
 def test_recovery_holds_non_idempotent_task_for_review(q: TaskQueue) -> None:
     """The core safety rule: never blindly replay a destructive task."""
     task_id = q.add_task("sends real email", idempotent=False)
-    q.lease()
-    q.start(task_id)
+    tok = q.lease().lease
+    q.start(tok)
 
     stats = q.recover()
     assert stats == {"interrupted": 1, "requeued": 0, "held_for_review": 1}
@@ -150,8 +153,8 @@ def test_recovery_holds_non_idempotent_task_for_review(q: TaskQueue) -> None:
 def test_recovery_holds_idempotent_task_with_no_attempts_left(q: TaskQueue) -> None:
     task_id = q.add_task("repeatable but exhausted", idempotent=True,
                          max_attempts=1)
-    q.lease()
-    q.start(task_id)
+    tok = q.lease().lease
+    q.start(tok)
 
     stats = q.recover()
     assert stats["requeued"] == 0
@@ -167,8 +170,8 @@ def test_recovery_is_a_noop_on_a_clean_queue(q: TaskQueue) -> None:
 
 def test_recovery_releases_the_lease(q: TaskQueue) -> None:
     task_id = q.add_task("stranded", idempotent=True)
-    q.lease()
-    q.start(task_id)
+    tok = q.lease().lease
+    q.start(tok)
     q.recover()
 
     live = q._conn.execute(
@@ -186,8 +189,8 @@ def test_restart_reclaims_its_own_stranded_work(tmp_path: Path) -> None:
 
     with TaskQueue(db, owner=owner) as first:
         task_id = first.add_task("interrupted work", idempotent=True)
-        first.lease()
-        first.start(task_id)
+        tok = first.lease().lease
+        first.start(tok)
 
     with TaskQueue(db, owner=owner) as restarted:
         assert restarted.get(task_id).state == "running"
@@ -208,8 +211,8 @@ def test_a_different_supervisor_will_not_steal_live_work(
 
     with TaskQueue(db, owner="supervisor-a") as a:
         task_id = a.add_task("long running work", idempotent=True)
-        a.lease(ttl_seconds=300)
-        a.start(task_id)
+        tok = a.lease(ttl_seconds=300).lease
+        a.start(tok)
 
         with TaskQueue(db, owner="supervisor-b") as b:
             stats = b.recover()
@@ -227,8 +230,8 @@ def test_expired_lease_is_reclaimed_by_another_supervisor(
 
     with TaskQueue(db, owner="supervisor-a") as a:
         task_id = a.add_task("abandoned", idempotent=True)
-        a.lease(ttl_seconds=300)
-        a.start(task_id)
+        tok = a.lease(ttl_seconds=300).lease
+        a.start(tok)
         # The worker dies here. Nothing renews the lease, so it expires.
         a._conn.execute(
             "UPDATE leases SET expires_at = datetime('now', '-1 second') "
@@ -246,10 +249,10 @@ def test_renewal_keeps_a_long_task_alive(tmp_path: Path) -> None:
     db = tmp_path / "lab.db"
 
     with TaskQueue(db, owner="supervisor-a") as a:
-        task_id = a.add_task("slow", idempotent=True)
-        a.lease(ttl_seconds=1)
-        a.start(task_id)
-        assert a.renew_lease(task_id, ttl_seconds=300) is True
+        a.add_task("slow", idempotent=True)
+        tok = a.lease(ttl_seconds=1).lease
+        a.start(tok)
+        assert a.renew_lease(tok, ttl_seconds=300) is True
 
         with TaskQueue(db, owner="supervisor-b") as b:
             assert b.recover()["interrupted"] == 0, "renewed lease is alive"
@@ -261,8 +264,8 @@ def test_worker_cannot_commit_after_losing_its_lease(tmp_path: Path) -> None:
 
     with TaskQueue(db, owner="supervisor-a") as a:
         task_id = a.add_task("contended", idempotent=True)
-        a.lease(ttl_seconds=300)
-        a.start(task_id)
+        tok = a.lease(ttl_seconds=300).lease
+        a.start(tok)
         a._conn.execute(
             "UPDATE leases SET expires_at = datetime('now', '-1 second') "
             "WHERE task_id = ?", (task_id,)
@@ -272,7 +275,7 @@ def test_worker_cannot_commit_after_losing_its_lease(tmp_path: Path) -> None:
             b.recover()
 
         with pytest.raises(LeaseLost):
-            a.succeed(task_id, {"written": "by the wrong worker"})
+            a.succeed(tok, {"written": "by the wrong worker"})
 
 
 # -------------------------------------------------------------- audit
@@ -280,9 +283,9 @@ def test_worker_cannot_commit_after_losing_its_lease(tmp_path: Path) -> None:
 
 def test_every_transition_is_audited(q: TaskQueue) -> None:
     task_id = q.add_task("audited")
-    q.lease()
-    q.start(task_id)
-    q.succeed(task_id)
+    tok = q.lease().lease
+    q.start(tok)
+    q.succeed(tok)
 
     kinds = [row["kind"] for row in q.events(task_id)]
     assert kinds == ["created", "leased", "running", "succeeded"]
@@ -335,51 +338,51 @@ def test_crash_mid_park_leaves_no_partial_state(
     q: TaskQueue, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     task_id = q.add_task("send an email")
-    q.lease()
+    tok = q.lease().lease
 
     def boom(*_a, **_kw):
         raise RuntimeError("simulated crash between transition and release")
 
     monkeypatch.setattr(q, "_release_lease", boom)
     with pytest.raises(RuntimeError):
-        q.park_for_approval(task_id, "needs a human")
+        q.park_for_approval(tok, "needs a human")
 
     # Rolled back, not half-applied: state must NOT show awaiting_approval
     # with no way back, and the lease must still be exactly what it was
     # before the crash, not silently dropped or left ambiguous.
     task = q.get(task_id)
     assert task.state == "leased"
-    assert q.owns_lease(task_id)
+    assert q.owns_lease(tok)
 
 
 def test_successful_park_still_releases_the_lease(q: TaskQueue) -> None:
     """The fix must not turn a normal park into a permanent hold."""
     task_id = q.add_task("send an email")
-    q.lease()
-    q.park_for_approval(task_id, "needs a human")
+    tok = q.lease().lease
+    q.park_for_approval(tok, "needs a human")
 
     task = q.get(task_id)
     assert task.state == "awaiting_approval"
-    assert not q.owns_lease(task_id)
+    assert not q.owns_lease(tok)
 
 
 def test_crash_mid_succeed_leaves_no_partial_state(
     q: TaskQueue, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     task_id = q.add_task("build the thing")
-    q.lease()
-    q.start(task_id)
+    tok = q.lease().lease
+    q.start(tok)
 
     monkeypatch.setattr(
         q, "_release_lease",
         lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("crash")),
     )
     with pytest.raises(RuntimeError):
-        q.succeed(task_id, result={"ok": True})
+        q.succeed(tok, result={"ok": True})
 
     task = q.get(task_id)
     assert task.state == "running"
-    assert q.owns_lease(task_id)
+    assert q.owns_lease(tok)
 
 
 # ---------------------------------------------------------------- issue 51
@@ -394,9 +397,9 @@ def test_crash_mid_succeed_leaves_no_partial_state(
 
 def test_non_idempotent_failure_is_not_auto_retried(q: TaskQueue) -> None:
     task_id = q.add_task("send an email", max_attempts=3, idempotent=False)
-    q.lease()
-    q.start(task_id)
-    q.fail(task_id, "timeout, unknown whether it sent")
+    tok = q.lease().lease
+    q.start(tok)
+    q.fail(tok, "timeout, unknown whether it sent")
 
     task = q.get(task_id)
     assert task.state == "failed", (
@@ -409,9 +412,9 @@ def test_non_idempotent_failure_is_not_auto_retried(q: TaskQueue) -> None:
 def test_idempotent_failure_still_auto_retries(q: TaskQueue) -> None:
     """The fix must not stop safe retries from happening."""
     task_id = q.add_task("re-run a read", max_attempts=3, idempotent=True)
-    q.lease()
-    q.start(task_id)
-    q.fail(task_id, "transient", retry_in=timedelta(0))
+    tok = q.lease().lease
+    q.start(tok)
+    q.fail(tok, "transient", retry_in=timedelta(0))
 
     assert q.get(task_id).state == "queued"
 
@@ -436,16 +439,149 @@ def test_a_fresh_instance_with_the_same_owner_cannot_steal_a_live_task(
 
     with TaskQueue(db, owner="supervisor@shared-host") as a:
         task_id = a.add_task("send an email")
-        a.lease(ttl_seconds=300)
-        a.start(task_id)
+        tok = a.lease(ttl_seconds=300).lease
+        a.start(tok)
 
         # A second, independent instance with the SAME owner name.
         # Before the fix this passed _require_lease's "never held any
         # lease" shortcut and could commit a's still-running task.
         with TaskQueue(db, owner="supervisor@shared-host") as b:
             with pytest.raises(LeaseLost):
-                b.succeed(task_id, {"sent": True})
+                b.succeed(tok, {"sent": True})
 
             # a's own claim on its own live task is unaffected.
-            assert a.owns_lease(task_id)
+            assert a.owns_lease(tok)
             assert a.get(task_id).state == "running"
+
+
+# ------------------------------------------------------------ item 1.3
+#
+# Fencing on the holder alone let an older claim by the *same* instance
+# pass, and checked the lease in one statement while writing in another.
+# Every lease-scoped call now presents a LeaseToken, and the check and
+# the write commit in one transaction.
+
+
+def _expire(q: TaskQueue, task_id: str) -> None:
+    q._conn.execute(
+        "UPDATE leases SET expires_at = datetime('now', '-1 second') "
+        "WHERE task_id = ? AND released_at IS NULL", (task_id,)
+    )
+
+
+def _live_lease_ids(q: TaskQueue, task_id: str) -> list[str]:
+    return [r["id"] for r in q._conn.execute(
+        "SELECT id FROM leases WHERE task_id = ? AND released_at IS NULL",
+        (task_id,),
+    )]
+
+
+def test_generation_rises_on_every_claim(q: TaskQueue) -> None:
+    task_id = q.add_task("flaky", idempotent=True, max_attempts=3)
+    first = q.lease().lease
+    q.start(first)
+    q.fail(first, "transient", retry_in=timedelta(0))
+    second = q.lease().lease
+    assert (first.generation, second.generation) == (1, 2)
+    assert first.lease_id != second.lease_id
+    assert second.task_id == task_id
+
+
+def test_stale_generation_from_the_same_instance_is_refused(tmp_path: Path) -> None:
+    """A worker coroutine that outlived its lease shares the instance,
+    so the holder matches. Only the lease id tells the claims apart."""
+    db = tmp_path / "lab.db"
+    with TaskQueue(db, owner="sup-a") as a, TaskQueue(db, owner="sup-b") as b:
+        task_id = a.add_task("work", idempotent=True)
+        old = a.lease().lease
+        a.start(old)
+        _expire(a, task_id)
+        b.recover()                       # requeued by someone else
+        new = a.lease().lease             # same instance claims it again
+        assert new.generation == old.generation + 1
+
+        with pytest.raises(LeaseLost):
+            a.succeed(old, {"from": "the stale claim"})
+        assert a.get(task_id).state == "leased"
+        assert _live_lease_ids(a, task_id) == [new.lease_id]
+        a.start(new)
+        a.succeed(new, {"from": "the live claim"})
+        assert a.get(task_id).state == "succeeded"
+
+
+def test_late_result_after_restart_cannot_release_the_replacement(
+    tmp_path: Path,
+) -> None:
+    """R04: a stale process sharing the owner name finished after recovery
+    and released the replacement's lease. The loser must change nothing."""
+    db = tmp_path / "lab.db"
+    with TaskQueue(db, owner="supervisor@host") as stale:
+        task_id = stale.add_task("work", idempotent=True)
+        old = stale.lease().lease
+        stale.start(old)
+
+        with TaskQueue(db, owner="supervisor@host") as restarted:
+            assert restarted.recover()["requeued"] == 1
+            new = restarted.lease().lease
+            restarted.start(new)
+
+            for late in (lambda: stale.succeed(old, {"late": True}),
+                         lambda: stale.fail(old, "late failure"),
+                         lambda: stale.park_for_approval(old, "late park")):
+                with pytest.raises(LeaseLost):
+                    late()
+            assert restarted.get(task_id).state == "running"
+            assert _live_lease_ids(restarted, task_id) == [new.lease_id]
+            assert restarted.owns_lease(new)
+
+
+def test_expired_renewal_fails_and_expired_token_cannot_commit(q: TaskQueue) -> None:
+    task_id = q.add_task("slow")
+    tok = q.lease(ttl_seconds=300).lease
+    q.start(tok)
+    _expire(q, task_id)
+    assert q.renew_lease(tok) is False
+    with pytest.raises(LeaseLost):
+        q.succeed(tok, {"ok": True})
+    assert q.get(task_id).state == "running"
+
+
+def test_a_token_is_useless_to_another_instance(tmp_path: Path) -> None:
+    """Holding a copy of someone else's token grants nothing."""
+    db = tmp_path / "lab.db"
+    with TaskQueue(db) as a, TaskQueue(db) as b:
+        task_id = a.add_task("work")
+        tok = a.lease().lease
+        assert not b.owns_lease(tok)
+        assert b.renew_lease(tok) is False
+        with pytest.raises(LeaseLost):
+            b.start(tok)
+        assert a.get(task_id).state == "leased"
+
+
+def test_every_refusal_is_audited_with_the_claim(q: TaskQueue) -> None:
+    task_id = q.add_task("work")
+    tok = q.lease().lease
+    _expire(q, task_id)
+    with pytest.raises(LeaseLost):
+        q.start(tok)
+    row = q._conn.execute(
+        "SELECT detail FROM events WHERE task_id = ? AND kind = 'lease_lost'",
+        (task_id,),
+    ).fetchone()
+    assert tok.lease_id in row["detail"]
+
+
+def test_a_pre_token_database_still_opens(tmp_path: Path) -> None:
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE leases (id TEXT PRIMARY KEY, task_id TEXT NOT NULL,
+            owner TEXT NOT NULL, holder TEXT NOT NULL,
+            acquired_at TEXT NOT NULL DEFAULT (datetime('now')),
+            expires_at TEXT NOT NULL, released_at TEXT);
+    """)
+    conn.close()
+    with TaskQueue(db) as q:
+        q.add_task("after upgrade")
+        assert q.lease().lease.generation == 1

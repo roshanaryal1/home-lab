@@ -54,7 +54,9 @@ Implemented and tested:
   well as `..`, default-deny tool allowlists per task, byte and file-count
   ceilings, and an artifact manifest per execution.
 - **Durable task state** with bounded dispatch, lease renewal, atomic
-  state transitions (#44), per-instance lease fencing (#47) and durable
+  state transitions (#44), lease tokens checked in the same transaction
+  as each write with a generation per claim and a host singleton lock
+  (#47, #55, `tests/test_queue.py` item 1.3 section), and durable
   commits on a SQLite without the WAL-reset bug (item 1.9,
   `tests/test_durability.py`).
 
@@ -71,8 +73,8 @@ every draft by hand.
   (#49).
 - Workspace path checks race with symlink swaps, and sandboxed commands
   inherit the supervisor's environment (#50).
-- Lease fencing lacks a generation counter and a host singleton lock
-  (#55); retries do not yet distinguish an unknown remote outcome (#56).
+- Retries do not yet distinguish an unknown remote outcome (#56), and
+  broker calls do not yet carry the lease token (item 1.2, #48).
 - A worker crash or lease loss does not stop the running handler (#52).
 
 ## What does NOT exist yet
