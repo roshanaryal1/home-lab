@@ -46,3 +46,10 @@ async def record_pid_then_sleep(task: Task, tools: ToolSession) -> dict:
     tools.submit("fs.write", path="pid", content=str(os.getpid()))
     await asyncio.sleep(float(task.payload.get("seconds", 60)))
     return {"slept": True}
+
+
+async def reject_input(task: Task, tools: ToolSession) -> dict:
+    """A permanent failure: no retry will make this input valid."""
+    from lab.broker import PermanentFailure
+    raise PermanentFailure("payload has no 'note'")
+

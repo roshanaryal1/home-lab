@@ -20,6 +20,7 @@ from lab.broker import (
     ToolNotAllowed,
     ToolResult,
 )
+from lab.journal import OperationJournal
 from lab.policy import PolicyEngine, Tier
 from lab.queue import TaskQueue
 from lab.sandbox import available as _sandbox_available
@@ -48,7 +49,8 @@ def contexts(queue: TaskQueue) -> dict[str, ExecutionContext]:
 @pytest.fixture()
 def broker(tmp_path: Path, queue: TaskQueue, contexts) -> ExecutionBroker:
     b = ExecutionBroker(workspace_root=tmp_path / "workspaces",
-                        policy=PolicyEngine(queue._conn), leases=queue.owns_lease)
+                        policy=PolicyEngine(queue._conn), leases=queue.owns_lease,
+                        journal=OperationJournal(queue._conn))
     b.test_contexts = contexts  # type: ignore[attr-defined]
     return b
 

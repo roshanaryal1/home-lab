@@ -26,7 +26,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Self
 
-from lab.broker import ApprovalRequired, ExecutionBroker, ExecutionContext, ToolSession
+from lab.broker import (
+    ApprovalRequired,
+    ExecutionBroker,
+    ExecutionContext,
+    OutcomeUnknown,
+    PermanentFailure,
+    ToolSession,
+)
+from lab.journal import OperationJournal
 from lab.policy import Decision, PolicyEngine
 from lab.queue import LeaseLost, LeaseToken, Task, TaskQueue
 from lab.worker import check_reference, run_in_worker
@@ -125,6 +133,7 @@ class SupervisorStats:
     denied: int = 0
     awaiting_approval: int = 0
     worker_errors: int = 0
+    held_for_review: int = 0
     lease_losses: int = 0
     stopped: int = 0
     recovered: dict[str, int] = field(default_factory=dict)
@@ -138,8 +147,9 @@ class Supervisor:
         self.queue = TaskQueue(config.db_path, owner=config.resolved_owner())
         self.policy = PolicyEngine(self.queue._conn)
         root = config.workspace_root or Path(config.db_path).parent / "workspaces"
+        self.journal = OperationJournal(self.queue._conn)
         self.broker = ExecutionBroker(Path(root), policy=self.policy,
-                                      leases=self.queue.owns_lease)
+                                      leases=self.queue.owns_lease, journal=self.journal)
         self._tools: dict[str, frozenset[str]] = {}
         self.stats = SupervisorStats()
         self._handlers: dict[str, Handler] = {}
@@ -428,6 +438,22 @@ class Supervisor:
             except LeaseLost:
                 log.error("cannot record timeout of %s: lease lost", task.id)
             log.error("task %s exceeded its %gs wall-clock ceiling", task.id, limit)
+        except OutcomeUnknown as exc:
+            # A retry reached an operation that may already have happened.
+            # Never guess: hold the task until a person reconciles it (1.7).
+            try:
+                self.queue.hold_for_review(token, str(exc))
+                self.stats.held_for_review += 1
+            except LeaseLost:
+                log.error("cannot hold %s: lease lost", task.id)
+            log.warning("task %s held for reconciliation: %s", task.id, exc)
+        except PermanentFailure as exc:
+            try:
+                self.queue.fail(token, f"permanent: {exc}", retry=False)
+                self.stats.failed += 1
+            except LeaseLost:
+                log.error("cannot record failure of %s: lease lost", task.id)
+            log.error("task %s failed permanently: %s", task.id, exc)
         except ApprovalRequired as exc:
             # A tool call inside the handler needs a human first (item
             # 1.1). The broker already opened the request for that exact

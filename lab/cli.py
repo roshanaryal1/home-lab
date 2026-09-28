@@ -16,6 +16,8 @@ Usage:
     python3 -m lab.cli approve <id> --by roshan [--minutes 15]
     python3 -m lab.cli deny <id> --by roshan [--reason "..."]
     python3 -m lab.cli tasks
+    python3 -m lab.cli ops
+    python3 -m lab.cli resolve <op> --happened|--not-happened --by roshan
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from lab.journal import OperationJournal
 from lab.policy import PolicyEngine, task_intent
 from lab.queue import TaskQueue
 
@@ -183,6 +186,43 @@ def cmd_tasks(queue: TaskQueue, policy: PolicyEngine, args) -> int:
     return 0
 
 
+def cmd_ops(queue: TaskQueue, policy: PolicyEngine, args) -> int:
+    """Operations whose outcome nobody knows (item 1.7)."""
+    rows = OperationJournal(queue._conn).unresolved()
+    if not rows:
+        print("No unresolved operations.")
+        return 0
+    print(f"{len(rows)} unresolved:\n")
+    for row in rows:
+        print(f"  {row['id'][:12]}  {row['state']:<9}  {row['tool']:<10}  "
+              f"task {row['task_id'][:12]}  {_age(row['started_at'])}")
+        if row["error"]:
+            print(f"                {row['error']}")
+    print("\nCheck whether each really happened, then: "
+          "resolve <op> --happened|--not-happened --by <you>")
+    return 0
+
+
+def cmd_resolve(queue: TaskQueue, policy: PolicyEngine, args) -> int:
+    journal = OperationJournal(queue._conn)
+    matches = [r for r in journal.unresolved() if r["id"].startswith(args.id)]
+    if len(matches) != 1:
+        print(f"{len(matches)} unresolved operations match {args.id!r}; "
+              "give a longer, unique prefix", file=sys.stderr)
+        return 1
+    op = matches[0]
+    task_id = journal.resolve(op["id"], happened=args.happened, decided_by=args.by)
+    if task_id is None:
+        print("Operation changed state; nothing done", file=sys.stderr)
+        return 1
+    verdict = "happened: it will not run again" if args.happened else \
+        "did not happen: the retry will run it"
+    print(f"Resolved {op['id'][:12]} ({verdict}), by {args.by}")
+    if not journal.unresolved(task_id) and queue.requeue_held(task_id):
+        print(f"Task {task_id[:12]} returned to the queue.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lab", description="Operate the home lab."
@@ -209,6 +249,16 @@ def build_parser() -> argparse.ArgumentParser:
     deny.add_argument("--by", required=True)
     deny.add_argument("--reason", default="denied by operator")
 
+    sub.add_parser("ops", help="operations whose outcome is unknown")
+    resolve = sub.add_parser("resolve", help="reconcile an unknown operation")
+    resolve.add_argument("id", help="operation id, or a unique prefix")
+    outcome = resolve.add_mutually_exclusive_group(required=True)
+    outcome.add_argument("--happened", dest="happened", action="store_true",
+                         help="it took effect; never run it again")
+    outcome.add_argument("--not-happened", dest="happened", action="store_false",
+                         help="it had no effect; the retry may run it")
+    resolve.add_argument("--by", required=True)
+
     return parser
 
 
@@ -218,6 +268,8 @@ COMMANDS = {
     "approve": cmd_approve,
     "deny": cmd_deny,
     "tasks": cmd_tasks,
+    "ops": cmd_ops,
+    "resolve": cmd_resolve,
 }
 
 

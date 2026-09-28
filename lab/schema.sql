@@ -64,7 +64,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- Only idempotent tasks may be auto-requeued after an interrupted
     -- run. Anything with side effects must be re-approved by a human.
     idempotent    INTEGER NOT NULL DEFAULT 0 CHECK (idempotent IN (0, 1)),
+    -- attempts counts claims (every lease, including ones that only
+    -- parked for approval); executions counts runs that actually started.
+    -- Retry budgets are spent by executions (item 1.7).
     attempts      INTEGER NOT NULL DEFAULT 0,
+    executions    INTEGER NOT NULL DEFAULT 0,
     max_attempts  INTEGER NOT NULL DEFAULT 3,
     last_error    TEXT,
     result        TEXT,                         -- JSON
@@ -164,3 +168,27 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_task ON events (task_id, id);
 CREATE INDEX IF NOT EXISTS idx_events_kind ON events (kind, id);
+
+-- ------------------------------------------------------------ operations
+--
+-- Journal of operations that are not safe to repeat (item 1.7, #56). The
+-- row is committed as 'executing' before the operation starts, so a
+-- crash leaves evidence that it may have happened. See lab/journal.py.
+
+CREATE TABLE IF NOT EXISTS operations (
+    id            TEXT PRIMARY KEY,   -- sha256(task, tool, params, seq)
+    task_id       TEXT NOT NULL REFERENCES tasks(id),
+    tool          TEXT NOT NULL,
+    params_sha256 TEXT NOT NULL,
+    seq           INTEGER NOT NULL,   -- nth identical call within a run
+    state         TEXT NOT NULL
+                  CHECK (state IN ('executing', 'confirmed', 'failed', 'uncertain')),
+    result        TEXT,               -- JSON, for confirmed
+    error         TEXT,
+    resolved_by   TEXT,               -- set when a person reconciled it
+    started_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+    finished_at   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_operations_unresolved
+    ON operations (state, task_id) WHERE state IN ('executing', 'uncertain');

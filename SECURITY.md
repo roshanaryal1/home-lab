@@ -72,7 +72,11 @@ Implemented and tested:
   emergency stop cancels the running handler and kills its worker
   process group, the stop revoking broker authority first, and a
   supervisor-side error releases the task instead of stranding it
-  (item 1.8, `tests/test_stopping.py`); and durable
+  (item 1.8, `tests/test_stopping.py`); non-idempotent tool calls are
+  journaled before they run, so a retry replays a confirmed outcome and
+  holds an unknown one for a person to reconcile (`lab.cli ops`,
+  `resolve`) instead of repeating it, and retry budgets count executions,
+  not approval waits (item 1.7, `tests/test_journal.py`); and durable
   commits on a SQLite without the WAL-reset bug (item 1.9,
   `tests/test_durability.py`).
 
@@ -88,7 +92,6 @@ every draft by hand.
   the same OS user, so a hostile handler that found the database file
   could open it; the separate lab account closes that (#70). Only code
   under `lab.handlers` can be loaded into a worker.
-- Retries do not yet distinguish an unknown remote outcome (#56).
 
 ## What does NOT exist yet
 

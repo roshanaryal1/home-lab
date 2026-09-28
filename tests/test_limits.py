@@ -17,6 +17,7 @@ from lab import broker as broker_mod
 from lab import queue as queue_mod
 from lab import sandbox
 from lab.broker import ExecutionBroker, ExecutionContext, ToolSession
+from lab.journal import OperationJournal
 from lab.policy import PolicyEngine
 from lab.queue import ChildLimitExceeded, Task, TaskQueue
 from lab.supervisor import Supervisor, SupervisorConfig
@@ -109,7 +110,7 @@ def setup(tmp_path):
         task = q.lease()
         ctx = ExecutionContext(task.id, "test", task.attempts, task.lease)
         b = ExecutionBroker(tmp_path / "ws", policy=PolicyEngine(q._conn),
-                            leases=q.owns_lease)
+                            leases=q.owns_lease, journal=OperationJournal(q._conn))
         yield q, b, b.session(ctx)
 
 

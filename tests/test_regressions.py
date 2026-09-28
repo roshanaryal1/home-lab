@@ -26,6 +26,7 @@ from lab.broker import (
     ToolSession,
     Workspace,
 )
+from lab.journal import OperationJournal
 from lab.policy import PolicyEngine, action_hash
 from lab.queue import LeaseLost, Task, TaskQueue
 from lab.supervisor import Supervisor, SupervisorConfig
@@ -46,7 +47,7 @@ def _broker(tmp_path: Path, q: TaskQueue,
     while (task := q.lease()) is not None:
         contexts[task.id] = ExecutionContext(task.id, "test", task.attempts, task.lease)
     broker = ExecutionBroker(tmp_path / "ws", policy=PolicyEngine(q._conn),
-                             leases=q.owns_lease)
+                             leases=q.owns_lease, journal=OperationJournal(q._conn))
     return broker, contexts
 
 

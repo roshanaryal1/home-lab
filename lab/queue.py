@@ -149,6 +149,8 @@ class Task:
     capability_tier: str = "autonomous"
     agent_kind: str | None = None
     last_error: str | None = None
+    # Runs that actually started, as opposed to claims (attempts).
+    executions: int = 0
     # Set only on the Task returned by lease(); None everywhere else.
     lease: LeaseToken | None = None
 
@@ -167,6 +169,7 @@ class Task:
             capability_tier=row["capability_tier"],
             agent_kind=row["agent_kind"],
             last_error=row["last_error"],
+            executions=row["executions"],
         )
 
 
@@ -199,6 +202,7 @@ class TaskQueue:
         for table, column, ddl in (
             ("leases", "generation", "INTEGER NOT NULL DEFAULT 0"),
             ("approvals", "intent", "TEXT"),
+            ("tasks", "executions", "INTEGER NOT NULL DEFAULT 0"),
         ):
             cols = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
             if column not in cols:
@@ -491,6 +495,9 @@ class TaskQueue:
     def start(self, token: LeaseToken) -> None:
         with self._fenced(token):
             self._transition(token.task_id, "running")
+            self._conn.execute(
+                "UPDATE tasks SET executions = executions + 1 WHERE id = ?",
+                (token.task_id,))
 
     def succeed(self, token: LeaseToken, result: dict | None = None) -> None:
         with self._fenced(token):
@@ -498,7 +505,7 @@ class TaskQueue:
             self._release_lease(token.task_id)
 
     def fail(self, token: LeaseToken, error: str,
-             retry_in: timedelta | None = None) -> None:
+             retry_in: timedelta | None = None, *, retry: bool = True) -> None:
         """Fail a task, retrying it if attempts remain and it is safe to.
 
         Issue #51 (HL07): idempotency has to govern *every* retry, not
@@ -510,24 +517,49 @@ class TaskQueue:
         A non-idempotent failure is left in ``failed`` rather than
         requeued, the same "hold for review" outcome ``recover()``
         already gives a non-idempotent task that ran out of attempts.
+
+        The budget is spent by executions, not claims (item 1.7): leasing a
+        task that then parked for approval does not use up its retries.
+        ``retry=False`` is for permanent errors, which no retry can fix.
         """
         task_id = token.task_id
         with self._fenced(token):
             row = self._conn.execute(
-                "SELECT attempts, max_attempts, idempotent FROM tasks WHERE id = ?",
+                "SELECT executions, max_attempts, idempotent FROM tasks WHERE id = ?",
                 (task_id,),
             ).fetchone()
             if row is None:
                 raise TransitionError(f"no such task: {task_id}")
             self._transition(task_id, "failed", error=error)
             self._release_lease(task_id)
-            if row["idempotent"] and row["attempts"] < row["max_attempts"]:
+            if retry and row["idempotent"] and row["executions"] < row["max_attempts"]:
                 # `is not None`, not a truthiness check: timedelta(0) is
                 # falsy, and an explicit "retry immediately" must not be
                 # silently replaced by the default backoff.
                 backoff = (retry_in if retry_in is not None
-                           else timedelta(seconds=2 ** row["attempts"]))
+                           else timedelta(seconds=2 ** row["executions"]))
                 self._transition(task_id, "queued", available_in=backoff)
+
+    def hold_for_review(self, token: LeaseToken, reason: str) -> None:
+        """Stop a running task whose outcome nobody knows (item 1.7).
+
+        ``interrupted`` is never requeued automatically. A person
+        reconciles the unresolved operation, and ``requeue_held`` then
+        puts the task back.
+        """
+        with self._fenced(token):
+            self._transition(token.task_id, "interrupted", error=reason)
+            self._release_lease(token.task_id)
+
+    def requeue_held(self, task_id: str) -> bool:
+        """Return a held (interrupted) task to the queue. Admin action."""
+        with self._tx():
+            row = self._conn.execute("SELECT state FROM tasks WHERE id = ?",
+                                     (task_id,)).fetchone()
+            if row is None or row["state"] != "interrupted":
+                return False
+            self._transition(task_id, "queued")
+            return True
 
     def release_unstarted(self, token: LeaseToken, reason: str,
                           retry_in: timedelta | None = None) -> None:
@@ -562,6 +594,12 @@ class TaskQueue:
         would block recovery and mislead every other supervisor.
         """
         with self._fenced(token):
+            # A run paused for a human mid-way is resumed after the grant,
+            # not failed, so it gives its execution back (item 1.7).
+            self._conn.execute(
+                "UPDATE tasks SET executions = executions - 1 "
+                "WHERE id = ? AND state = 'running' AND executions > 0",
+                (token.task_id,))
             self._transition(token.task_id, "awaiting_approval", error=reason)
             self._release_lease(token.task_id)
 
@@ -605,7 +643,7 @@ class TaskQueue:
         and it is the right trade.
         """
         stranded = self._conn.execute(
-            "SELECT t.id, t.idempotent, t.attempts, t.max_attempts "
+            "SELECT t.id, t.idempotent, t.executions, t.max_attempts "
             "FROM tasks t "
             "JOIN leases l ON l.task_id = t.id AND l.released_at IS NULL "
             "WHERE t.state IN ('leased', 'running') "
@@ -625,7 +663,7 @@ class TaskQueue:
                 self._release_lease(row["id"])
                 interrupted += 1
 
-                if row["idempotent"] and row["attempts"] < row["max_attempts"]:
+                if row["idempotent"] and row["executions"] < row["max_attempts"]:
                     self._transition(row["id"], "queued")
                     requeued += 1
                 else:
