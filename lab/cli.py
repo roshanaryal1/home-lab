@@ -25,10 +25,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from lab import skills
 from lab.journal import OperationJournal
 from lab.policy import PolicyEngine, task_intent
 from lab.queue import TaskQueue
@@ -260,7 +262,35 @@ def build_parser() -> argparse.ArgumentParser:
                          help="it had no effect; the retry may run it")
     resolve.add_argument("--by", required=True)
 
+    skills_cmd = sub.add_parser("skills", help="check and list a skill library (read-only)")
+    skills_sub = skills_cmd.add_subparsers(dest="skills_command", required=True)
+    validate = skills_sub.add_parser("validate", help="exit 1 if any skill breaks a rule")
+    validate.add_argument("--root", type=Path, required=True, help="directory of skill directories")
+    inventory = skills_sub.add_parser("inventory", help="list skills with content hashes")
+    inventory.add_argument("--root", type=Path, required=True)
+    inventory.add_argument("--json", action="store_true")
+
     return parser
+
+
+def cmd_skills(args: argparse.Namespace) -> int:
+    result = skills.scan(args.root)
+    if args.skills_command == "inventory":
+        if args.json:
+            print(json.dumps([asdict(skill) for skill in result.skills], indent=2))
+        else:
+            for skill in result.skills:
+                print(f"{skill.name}  {skill.sha256[:12]}  files={skill.files}  "
+                      f"scripts={len(skill.scripts)}  {skill.path}")
+        if result.problems:
+            print(f"{len(result.problems)} problem(s); run `lab skills validate`", file=sys.stderr)
+        return 0
+
+    for found in result.problems:
+        print(f"{found.skill or '-'}: {found.code}: {found.message}")
+    count = len(result.skills)
+    print(f"{count} skill{'s' if count != 1 else ''} checked, {len(result.problems)} problem(s)")
+    return 1 if result.problems else 0
 
 
 COMMANDS = {
@@ -276,6 +306,8 @@ COMMANDS = {
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "skills":
+        return cmd_skills(args)
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1
