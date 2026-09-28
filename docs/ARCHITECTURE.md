@@ -19,7 +19,7 @@ flowchart TB
         direction TB
         queue["SQLite WAL queue<br/>lab/queue.py<br/>leases, fencing, idempotency"]
         supervisor["Supervisor<br/>lab/supervisor.py<br/>bounded worker pool"]
-        gate["Capability gate<br/>lab/policy.py, lab/broker.py<br/>4 tiers, parameter-bound approvals"]
+        gate["Capability gate<br/>lab/policy.py, lab/broker.py<br/>4 tiers at task level; per-tool enforcement open, #43"]
         sandbox["Seatbelt sandbox<br/>lab/sandbox.py<br/>verified macOS 26.5.1 + 27"]
         queue --> supervisor --> gate --> sandbox
     end
@@ -74,7 +74,7 @@ re-losing.
 |---|---|---|---|
 | Queue | `lab/queue.py`, `lab/schema.sql` | Built, tested | n/a |
 | Supervisor | `lab/supervisor.py` | Built, tested | n/a |
-| Capability gate | `lab/policy.py`, `lab/broker.py` | Built, tested | n/a |
+| Capability gate | `lab/policy.py`, `lab/broker.py` | Task-level: built, tested. Per-tool-call: **not enforced**, [#43](https://github.com/roshanaryal1/home-lab/issues/43) | n/a |
 | Sandbox | `lab/sandbox.py` | Built, tested on macOS 26.5.1 and 27 | n/a |
 | Heavy model | Qwen3-Coder-30B-A3B, MLX 4-bit | Chosen, **unbenchmarked** on the M6 | [ADR 0001](decisions/0001-heavy-model.md) |
 | Python runtime | uv-managed | Chosen; mini needs patch-version pin | [ADR 0002](decisions/0002-python-runtime.md) |
