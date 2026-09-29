@@ -183,6 +183,10 @@ def test_crash_drill_passes_and_is_logged_as_a_rehearsal(tmp_path: Path, monkeyp
     results = drills.drill_crash(tmp_path)
     assert [r.name for r in results] == ["crash-idempotent", "crash-non-idempotent"]
     assert all(r.passed for r in results), [r.actual for r in results]
+    assert [r.injected for r in results] == [
+        "SIGKILL of the process while an idempotent task was running",
+        "SIGKILL of the process while a non-idempotent task was running",
+    ]
     path = drills.record(results[0], tmp_path / "log")
     text = path.read_text()
     assert "counts as demonstrated: no" in text and "rehearsal" in text
