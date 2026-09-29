@@ -228,6 +228,6 @@ paste the text or a screenshot and I will fold the content in.
 Deliberately out of scope here, tracked in `PLAN.md`:
 
 - The execution broker itself (Phase 1)
-- Model adapter and swap manager (Phase 2, needs the M6)
+- Model adapter and swap manager (Phase 2; the adapter runs against the real model on the M6, ADR 0001; the swap manager is not built)
 - The dashboard and emergency stop (Phase 4)
 - Phase 0's two confirmed defects, which block all of the above
