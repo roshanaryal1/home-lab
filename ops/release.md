@@ -8,8 +8,7 @@ repository owner can do.
 
 - [ ] Sign in to Zenodo with the GitHub account that owns the repository and
       switch the `roshanaryal1/home-lab` toggle on under GitHub integration.
-      (The repository is private today; Zenodo needs it public, or an
-      approved private-repository arrangement. Decide that first.)
+      (The repository is public, which is what Zenodo needs.)
 - [ ] Optionally add an ORCID iD under `authors` in `CITATION.cff`.
 
 ## Per paper, or per version worth citing

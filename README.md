@@ -72,6 +72,10 @@ five minutes and a crash sending the same email twice.
 
 ## Security status
 
+The repository is public: nothing in it is a credential by design, and the
+history is scanned for secrets in CI. See [SECURITY.md](SECURITY.md) for the
+repository controls and how to report a vulnerability privately.
+
 Run the lab only with dummy data, review every draft by hand and connect
 no real credentials until three things are true, because none of them can
 be finished without the Mac mini: a separate non-admin lab account that

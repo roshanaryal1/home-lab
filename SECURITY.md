@@ -22,10 +22,20 @@ Expect an acknowledgement within 7 days.
   must pass.
 - CI actions are pinned to commit SHAs and audited by zizmor.
 - Dependabot alerts and security updates are on for `uv.lock` and actions.
-- The repository is private, so GitHub secret scanning, push protection
-  and CodeQL are not available without Advanced Security. gitleaks scans
-  the full history in CI instead. It runs after a push, so it detects a
-  leaked secret rather than preventing it.
+- The repository is public. GitHub secret scanning with push protection,
+  CodeQL default setup and private vulnerability reporting are repository
+  settings the owner switches on (Settings, Code security); they are not
+  verifiable from the code, so check the Security tab rather than trusting
+  this line. Push protection prevents a leaked secret from landing; the
+  gitleaks job in CI is kept as an independent full-history check with a
+  binary pinned by checksum, and it only detects after a push.
+- An OpenSSF Scorecard workflow (`.github/workflows/scorecard.yml`) runs
+  weekly and on pushes to `main` and uploads its findings to code scanning.
+  It is advisory, not a merge gate. Every action in every workflow is pinned
+  to a full commit SHA, and a test keeps it that way.
+- Because the repository is public, its history is public too. Nothing in it
+  is a secret by design (credentials come from the Keychain or the
+  environment at run time), and gitleaks over the full history is clean.
 
 ## Scope
 
