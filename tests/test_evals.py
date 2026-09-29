@@ -214,9 +214,11 @@ def test_the_provenance_marks_a_non_target_machine() -> None:
 
 class _Endpoint(BaseHTTPRequestHandler):
     down: ClassVar[bool] = False
+    last: ClassVar[dict] = {}
 
     def do_POST(self) -> None:
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        type(self).last = request
         if type(self).down:
             self.send_response(503)
             self.end_headers()
@@ -288,3 +290,53 @@ def test_the_summary_counts_tool_calls_the_strict_parser_refused() -> None:
     wrapped = run_suite(config(), MockAdapter(fenced))
     assert wrapped.summary["refused_tool_calls"] == 3
     assert wrapped.summary["refused_call_rate"] == 1.0
+
+
+# ------------------------------- held-out corpora and constrained decoding (#76)
+
+
+def test_the_committed_records_still_verify_after_the_config_grew() -> None:
+    records = sorted((evals.ROOT / "evals" / "runs").glob("run-*.json"))
+    assert records, "the M6 records are committed"
+    for path in records:
+        assert load_record(path).config.response_format is None
+
+
+def test_a_plain_run_seals_exactly_as_before() -> None:
+    record = run_suite(config(), MockAdapter(oracle))
+    assert "response_format" not in record.body()["config"]
+
+
+def test_a_constrained_run_sends_the_format_and_is_sealed_with_it(endpoint, tmp_path) -> None:
+    fmt = {"type": "json_object"}
+    record = run_suite(make_config(endpoint, SPEC, response_format=fmt))
+    assert _Endpoint.last["response_format"] == fmt
+    loaded = load_record(save(record, tmp_path))
+    assert loaded.config.response_format == fmt
+    assert loaded.body()["config"]["response_format"] == fmt
+
+
+@pytest.mark.parametrize("answer,verdict", [
+    ('{"tool": "fs.read", "arguments": {"path": "x/y.md"}}', True),
+    ('{"tool": "fs.read", "arguments": {"path": "x/z.md"}}', False),
+    ('{"tool": "fs.list", "arguments": {"path": "x/y.md"}}', False),
+])
+def test_a_tool_call_check_can_require_the_exact_arguments(answer: str, verdict: bool) -> None:
+    check = {"type": "tool_call", "tool": "fs.read", "arguments": {"path": "x/y.md"}}
+    assert grade(check, answer) is verdict
+
+
+def test_cli_eval_run_takes_a_task_file_and_a_grammar(endpoint, tmp_path, capsys) -> None:
+    tasks = tmp_path / "tasks.jsonl"
+    lines = evals.DEFAULT_TASKS.read_text(encoding="utf-8").splitlines()
+    tasks.write_text("\n".join(lines[:2]) + "\n", encoding="utf-8")
+    out = tmp_path / "runs"
+    argv = ["eval", "run", "--endpoint", endpoint, "--model", "stub-model",
+            "--revision", "a" * 40, "--tokenizer-revision", "b" * 64, "--weights-mb", "1000",
+            "--tasks", str(tasks), "--grammar", "--out", str(out)]
+    assert main(["--db", str(tmp_path / "unused.db"), *argv]) == 0
+    assert "passed 2/2" in capsys.readouterr().out
+    assert _Endpoint.last["response_format"]["type"] == "json_schema"
+    (path,) = out.glob("run-*.json")
+    record = load_record(path)
+    assert record.config.tasks_path == str(tasks) and record.config.response_format

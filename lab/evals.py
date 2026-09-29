@@ -95,9 +95,12 @@ def grade(check: dict[str, Any], answer: str) -> bool:
         return isinstance(value, str) and re.fullmatch(value, text, re.S) is not None
     if kind == "tool_call":
         try:
-            return parse_tool_call(answer).tool == check.get("tool")
+            call = parse_tool_call(answer)
         except MalformedToolCall:
             return False
+        if "arguments" in check and call.arguments != check["arguments"]:
+            return False
+        return call.tool == check.get("tool")
     raise EvalError(f"unknown check type {kind!r}")
 
 
@@ -144,6 +147,10 @@ class RunConfig:
     tasks_path: str
     tasks_sha256: str
     suite: str = "utility-v1"
+    # Sent with every request when set (constrained decoding, #76). Left out
+    # of the sealed body when unset, so records made before it existed, and
+    # plain runs, seal exactly as they did.
+    response_format: dict[str, Any] | None = None
 
 
 @dataclass
@@ -171,6 +178,8 @@ class RunRecord:
     def body(self) -> dict[str, Any]:
         data = asdict(self)
         data.pop("record_sha256")
+        if data["config"].get("response_format") is None:
+            data["config"].pop("response_format", None)
         return data
 
     def seal(self) -> RunRecord:
@@ -211,7 +220,8 @@ def run_suite(config: RunConfig, adapter: Adapter | None = None, *,
     if sha != config.tasks_sha256:
         raise EvalError("the task file has changed since this configuration was made")
     spec = ModelSpec(**config.model)
-    model = BoundedModel(spec, adapter or OpenAICompatibleAdapter(config.endpoint))
+    model = BoundedModel(spec, adapter or OpenAICompatibleAdapter(
+        config.endpoint, response_format=config.response_format))
     started = datetime.now(UTC).isoformat(timespec="seconds")
     results: list[TaskResult] = []
     for task in tasks:
@@ -232,10 +242,11 @@ def run_suite(config: RunConfig, adapter: Adapter | None = None, *,
 
 
 def make_config(endpoint: str, spec: ModelSpec, *, seed: int = 0, max_tokens: int = 256,
-                timeout_seconds: float = 120.0, tasks_path: Path = DEFAULT_TASKS) -> RunConfig:
+                timeout_seconds: float = 120.0, tasks_path: Path = DEFAULT_TASKS,
+                response_format: dict[str, Any] | None = None) -> RunConfig:
     _, sha = load_tasks(tasks_path)
     return RunConfig(endpoint, asdict(spec), seed, max_tokens, timeout_seconds,
-                     str(tasks_path), sha)
+                     str(tasks_path), sha, response_format=response_format)
 
 
 def save(record: RunRecord, out_dir: Path) -> Path:
@@ -326,6 +337,10 @@ def main(argv: list[str]) -> int:
     run.add_argument("--max-output-tokens", type=int, default=1024)
     run.add_argument("--weights-mb", type=int, required=True)
     run.add_argument("--seed", type=int, default=0)
+    run.add_argument("--tasks", type=Path, default=DEFAULT_TASKS,
+                     help="task file (default: the frozen evals/tasks.jsonl)")
+    run.add_argument("--grammar", action="store_true",
+                     help="send lab.grammar.response_format() with every request")
     run.add_argument("--out", type=Path, default=Path("evals/runs"))
     run.add_argument("--db", type=Path, default=None,
                      help="also record the run as a measurement event in this lab database")
@@ -339,7 +354,12 @@ def main(argv: list[str]) -> int:
         if args.cmd == "run":
             spec = ModelSpec(args.model, args.revision, args.tokenizer_revision,
                              args.context_tokens, args.max_output_tokens, args.weights_mb)
-            record = run_suite(make_config(args.endpoint, spec, seed=args.seed))
+            fmt = None
+            if args.grammar:
+                from lab import grammar
+                fmt = grammar.response_format()
+            record = run_suite(make_config(args.endpoint, spec, seed=args.seed,
+                                           tasks_path=args.tasks, response_format=fmt))
         else:
             record, comparison = rerun(args.record,
                                        allow_different_commit=args.allow_different_commit)
