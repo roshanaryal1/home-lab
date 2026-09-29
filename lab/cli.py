@@ -391,7 +391,9 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument("manifest", type=Path)
     rc.add_argument("--into", type=Path, required=True, help="must not exist or be empty")
     drill = sub.add_parser("drill", help="inject a real failure and log the outcome")
-    drill.add_argument("name", choices=["crash", "restore"])
+    drill.add_argument("name", choices=["crash", "restore", "model-load"])
+    drill.add_argument("--endpoint", default=None,
+                       help="model-load: a live loopback server for the wrong-model case")
     drill.add_argument("--log", type=Path, default=Path("ops/drills/log"),
                        help="where the dated record is written (default: ops/drills/log)")
 
@@ -737,6 +739,8 @@ def cmd_backup(args: argparse.Namespace) -> int:
 def cmd_drill(args: argparse.Namespace) -> int:
     if args.name == "crash":
         results = drills.drill_crash()
+    elif args.name == "model-load":
+        results = drills.drill_model_load(args.endpoint)
     else:
         if not args.db.exists():
             print(f"No database at {args.db}", file=sys.stderr)
