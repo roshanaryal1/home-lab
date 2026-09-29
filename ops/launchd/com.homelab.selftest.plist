@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.homelab.selftest</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/homelab/.venv/bin/python</string>
+		<string>-m</string>
+		<string>lab.cli</string>
+		<string>--db</string>
+		<string>/var/homelab/lab.db</string>
+		<string>selftest</string>
+		<string>--alert-config</string>
+		<string>/etc/homelab/alert.json</string>
+	</array>
+	<key>StandardErrorPath</key>
+	<string>/var/log/homelab/selftest.err</string>
+	<key>StandardOutPath</key>
+	<string>/var/log/homelab/selftest.log</string>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>3</integer>
+		<key>Minute</key>
+		<integer>17</integer>
+	</dict>
+	<key>UserName</key>
+	<string>lab</string>
+	<key>WorkingDirectory</key>
+	<string>/opt/homelab</string>
+</dict>
+</plist>

@@ -152,3 +152,20 @@ def keepawake_plist(*, python: str, workdir: str, db: str) -> bytes:
     ``caffeinate`` only while work is pending."""
     return _plist(KEEPAWAKE_LABEL, [python, "-m", "lab.cli", "--db", db, "keepawake"], workdir,
                   RunAtLoad=True, KeepAlive=True, ThrottleInterval=30)
+
+
+def selftest_plist(*, user: str, python: str, workdir: str, db: str,
+                   alert_config: str) -> bytes:
+    """The nightly self-test at 03:17, alerting on failure."""
+    return _plist("com.homelab.selftest",
+                  [python, "-m", "lab.cli", "--db", db, "selftest", "--alert-config",
+                   alert_config], workdir, UserName=user,
+                  StartCalendarInterval={"Hour": 3, "Minute": 17})
+
+
+def statuscheck_plist(*, user: str, python: str, workdir: str, db: str,
+                      alert_config: str) -> bytes:
+    """``lab status`` every five minutes; it alerts when the lab is unhealthy."""
+    return _plist("com.homelab.statuscheck",
+                  [python, "-m", "lab.cli", "--db", db, "status", "--alert-config",
+                   alert_config], workdir, UserName=user, StartInterval=300)

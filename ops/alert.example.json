@@ -1,0 +1,5 @@
+{
+  "command": ["/usr/local/bin/notify-lab", "--priority", "high"],
+  "timeout_seconds": 20,
+  "min_interval_seconds": 3600
+}

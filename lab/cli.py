@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any
 
 from lab import (
+    alert,
     audit,
     backup,
     control,
@@ -62,6 +63,7 @@ from lab import (
     metrics,
     publish,
     rubric,
+    selftest,
     service,
     skills,
     supervisor,
@@ -471,6 +473,13 @@ def build_parser() -> argparse.ArgumentParser:
         m_end.add_argument("--reason", required=True)
     mem_sub.add_parser("sweep", help="retire expired memories")
 
+    stc = sub.add_parser("selftest", help="verify the audit chain, a backup restore, health and "
+                         "the safety tests; alert on failure")
+    stc.add_argument("--no-safety-tests", action="store_true")
+    stc.add_argument("--tests-dir", type=Path, default=None)
+    stc.add_argument("--alert-config", type=Path, default=None,
+                     help="operator-owned JSON naming the alert command")
+
     ka = sub.add_parser("keepawake", help="hold the machine awake only while work is pending")
     ka.add_argument("--once", action="store_true", help="print the decision and exit")
     ka.add_argument("--grace", type=float, default=keepawake.DEFAULT_GRACE_SECONDS)
@@ -536,6 +545,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="count events from the last N hours (default: all time)")
     st.add_argument("--stall-seconds", type=float, default=metrics.DEFAULT_STALL_SECONDS,
                     help="how long work may wait with no worker before it is unhealthy")
+    st.add_argument("--alert-config", type=Path, default=None,
+                    help="operator-owned JSON naming a command to run when unhealthy")
 
     audit_cmd = sub.add_parser("audit", help="verify the audit log and its signed checkpoints")
     audit_sub = audit_cmd.add_subparsers(dest="audit_command", required=True)
@@ -629,7 +640,36 @@ def cmd_status(args: argparse.Namespace) -> int:
         conn.close()
     print(json.dumps(report.as_dict(), indent=2, sort_keys=True) if args.json
           else metrics.render(report))
+    if report.health == "unhealthy" and args.alert_config is not None:
+        _send_alert(args, "unhealthy", "; ".join(report.reasons) or "the lab is unhealthy")
     return 2 if report.health == "unhealthy" else 0
+
+
+def _send_alert(args: argparse.Namespace, kind: str, message: str) -> None:
+    """Run the operator's hook. A broken hook never changes the exit code."""
+    try:
+        config = alert.load(args.alert_config)
+    except alert.AlertConfigError as exc:
+        print(f"alert: {exc}", file=sys.stderr)
+        return
+    sent = alert.send(config, kind=kind, message=message,
+                      state_file=Path(f"{args.db}.alert"))
+    print(f"alert: {'sent' if sent else 'not sent (suppressed or the hook failed)'}",
+          file=sys.stderr)
+
+
+def cmd_selftest(args: argparse.Namespace) -> int:
+    if not args.db.exists():
+        print(f"No database at {args.db}", file=sys.stderr)
+        return 1
+    report = selftest.run(args.db, tests_dir=args.tests_dir,
+                          run_safety_tests=not args.no_safety_tests)
+    for check in report.checks:
+        print(f"{'ok  ' if check.ok else 'FAIL'} {check.name:<15} {_escape(check.detail)}")
+    if not report.ok and args.alert_config is not None:
+        _send_alert(args, "selftest", "; ".join(f"{c.name}: {c.detail}"
+                                                 for c in report.failures()))
+    return 0 if report.ok else 1
 
 
 def cmd_backup(args: argparse.Namespace) -> int:
@@ -1028,6 +1068,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_watchdog(args)
     if args.command == "tick":
         return cmd_tick(args)
+    if args.command == "selftest":
+        return cmd_selftest(args)
     if args.command == "keepawake":
         return cmd_keepawake(args)
     if args.command == "eval":
