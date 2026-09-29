@@ -75,7 +75,10 @@ External 1 TB, mounted at a stable path:
       with `rsync -aL`: the Hugging Face cache now links some blobs into a
       shared store, and a plain `rsync -a` copied those as dangling links.
       The internal copies are still there (about 32 GB) and can be removed.
-- [ ] Research corpus, PDFs, datasets.
+- [x] Research corpus, PDFs, datasets. 2026-09-30: the papers the docs cite
+      (`docs/REFERENCES.md`), as version-pinned arXiv PDFs plus AgentDojo's
+      NeurIPS 2024 proceedings PDF, on `labbackup` under
+      `research-corpus/papers/` with a `MANIFEST.sha256`. No datasets yet.
 - [x] Archived repositories, experiment artifacts, long-term logs.
       2026-09-30: the raw outputs of the 2026-09-29 runs (AgentDojo case
       logs, confirmatory, H3 and DWQ run folders, the model server log) are on
