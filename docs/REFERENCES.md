@@ -12,7 +12,7 @@ requests (rate limits), so they are not part of this check.
 
 | arXiv | Title (first author) | Status | Published version |
 |---|---|---|---|
-| 2406.13352 | AgentDojo: A Dynamic Environment to Evaluate Prompt Injection Attacks and Defenses for LLM Agents (Debenedetti) | **Published**, peer reviewed | *Advances in Neural Information Processing Systems 37* (NeurIPS 2024), pp. 82895-82920, [doi:10.52202/079017-2636](https://doi.org/10.52202/079017-2636). Crossref record: same title and six authors. |
+| 2406.13352 | AgentDojo: A Dynamic Environment to Evaluate Prompt Injection Attacks and Defenses for LLM Agents (Debenedetti) | **Published**, peer reviewed | *Advances in Neural Information Processing Systems 37* (NeurIPS 2024), Track on Datasets and Benchmarks, pp. 82895-82920, [doi:10.52202/079017-2636](https://doi.org/10.52202/079017-2636). Crossref record: same title and six authors. The track is stated on the first page of the [proceedings copy](https://proceedings.neurips.cc/paper_files/paper/2024/file/97091a5177d8dc64b1da8bf3e1f6fb54-Paper-Datasets_and_Benchmarks_Track.pdf), read 2026-09-30. |
 | 2608.27886 | Resource Constraints and Performance in Agentic AI Systems (Salman) | Preprint | none found |
 | 2608.12851 | Practice Makes Unsafe: Skill Misevolution in Self-Improving LLM Agents (Mao) | Preprint | none found |
 | 2608.13867 | Engineering Reliable Coding Agents: Evaluating and Operating the System Around the Model (Jarmak) | Preprint (the arXiv comment calls it a technical review and monograph) | none found |
