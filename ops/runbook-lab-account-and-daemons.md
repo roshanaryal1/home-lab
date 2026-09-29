@@ -21,11 +21,13 @@ on copies of the committed plists and pass `plutil -lint`.
   reboot it starts only once the operator logs in (FileVault, section 17),
   so until then `tick` records model errors; that is expected.
 
-Variables used below (paste once into the terminal):
+Variables used below. Replace the two `PASTE_...` values first, then paste
+the block once into the terminal:
 
 ```sh
 REPO="$HOME/Research and Development /home-lab"
-COMMIT=<the commit you wrote down>
+COMMIT="PASTE_THE_COMMIT_YOU_WROTE_DOWN"
+MODEL_REV="PASTE_THE_SERVING_MODEL_40_HEX_REVISION"   # ADR 0001, the build now served
 UV=/Users/$USER/.local/bin/uv
 ```
 
@@ -60,12 +62,26 @@ sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
   --operator-pubkey /Users/$USER/.lab-operator/operator.pub
 ```
 
-- Check: the four `[check]` lines it prints all pass (lab cannot sudo, is
-  not admin, cannot read `operator.key`, cannot touch a service file).
-- Undo: `sudo launchctl bootout system/com.homelab.<name>` for anything
-  loaded, `sudo rm /Library/LaunchDaemons/com.homelab.*.plist`,
-  `sudo rm -r /etc/homelab /var/homelab /var/log/homelab`,
-  `sudo sysadminctl -deleteUser lab`.
+- Check: `--apply` runs the changing steps only; it prints the four checks
+  for you to run. Run them with these exact commands (the printed key check
+  uses a literal `~operator`, which does not expand inside quotes, so use
+  the absolute path here):
+
+  ```sh
+  sudo -u lab /usr/bin/sudo -n -l                                  # expect a refusal
+  /usr/bin/dscl . -read /Groups/admin GroupMembership              # expect no "lab"
+  sudo -u lab /bin/cat /Users/$USER/.lab-operator/operator.key      # expect Permission denied
+  sudo -u lab /usr/bin/touch /Library/LaunchDaemons/com.homelab.supervisor.plist  # expect Permission denied
+  ```
+
+- Undo, before step 7 only (no lab data exists yet):
+  `sudo launchctl bootout system/com.homelab.<name>` for anything loaded,
+  `sudo rm /Library/LaunchDaemons/com.homelab.*.plist`,
+  `sudo sysadminctl -deleteUser lab`, and `sudo rm -r /etc/homelab`.
+  Removing `/var/homelab` or `/var/log/homelab` deletes the lab's database
+  and logs; that is a separate teardown, never part of an undo: first back
+  up with `sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db backup --to /Volumes/labbackup/home-lab-backups/before-teardown`,
+  confirm the manifest exists, and only then remove them.
 - Closes: 1 "dedicated non-admin account" and "lab user cannot sudo";
   11 "create the non-admin lab account", "copy only operator.pub", "as
   lab, try cat operator.key"; 16 "create the lab account and
@@ -104,7 +120,7 @@ MODEL_ID=$(curl -s http://127.0.0.1:8080/v1/models | python3 -c 'import sys,json
 sudo plutil -insert EnvironmentVariables -dictionary $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_URL -string http://127.0.0.1:8080/v1 $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_NAME -string "$MODEL_ID" $P/com.homelab.tick.plist
-sudo plutil -insert EnvironmentVariables.LAB_MODEL_REVISION -string <the serving model's 40-hex revision, ADR 0001> $P/com.homelab.tick.plist
+sudo plutil -insert EnvironmentVariables.LAB_MODEL_REVISION -string "$MODEL_REV" $P/com.homelab.tick.plist
 sudo plutil -lint $P/com.homelab.*.plist
 ```
 
@@ -153,10 +169,14 @@ done
 ## Step 6. Drills (sudo)
 
 ```sh
-sudo kill -9 $(pgrep -f lab.supervisor)      # launchd restarts it within ~30 s
-sleep 40; pgrep -f lab.supervisor && echo restarted
-sudo kill -STOP $(pgrep -f lab.supervisor)   # frozen; the watchdog must kill it
-sleep 150; pgrep -f lab.supervisor && echo "restarted after freeze"
+OLD=$(pgrep -f lab.supervisor); sudo kill -9 "$OLD"   # launchd restarts it within ~30 s
+sleep 40; NEW=$(pgrep -f lab.supervisor)
+[ -n "$NEW" ] && [ "$NEW" != "$OLD" ] && echo "restarted as $NEW" || echo "NOT restarted"
+OLD=$NEW; sudo kill -STOP "$OLD"                     # frozen; the watchdog must kill it
+sleep 150; NEW=$(pgrep -f lab.supervisor)
+if ps -p "$OLD" >/dev/null; then echo "FAIL: frozen $OLD still exists"; \
+elif [ -n "$NEW" ] && [ "$NEW" != "$OLD" ]; then echo "replaced: $OLD -> $NEW"; \
+else echo "FAIL: no new supervisor"; fi
 sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db watchdog --dry-run
 ```
 
