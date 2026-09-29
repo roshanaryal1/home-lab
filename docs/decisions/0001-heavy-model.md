@@ -187,11 +187,31 @@ Recorded as measured; no figure above was adjusted to fit.
    spliced in (`build/out/tpublic/timeline.md`, `roroster.yaml`); the same
    odd `public` showed up as an invented parameter in section 13. The GGUF
    Q4_K_M build of the same base model under `llama-server` passed 69 of
-   70 on the same prompts. The cause (the MLX quantisation, or `mlx-lm`
-   0.31.3) is not established. It is the strongest reason so far to
-   revisit the runtime rather than the model: the model looks fine, this
-   build of it does not. Next evidence: the same corpus on an 8-bit or DWQ
-   MLX build, and on a newer `mlx-lm`.
+   70 on the same prompts.
+
+   **Cause found, 2026-09-29 (exploratory).** Twenty copy prompts (the
+   `fs.read` and `fs.write` tasks of `evals/toolcalls-v1.jsonl`), temperature
+   0, exact path in the reply:
+
+   | build, same runtime unless noted | exact paths |
+   |---|---|
+   | plain 4-bit (`...-4bit` @ `6e302ea6`), through the server | 28/70 on the full set |
+   | plain 4-bit, `mlx_lm.generate` directly, no server or cache | 4/20 |
+   | plain 4-bit, `mlx` 0.31.2 instead of 0.32.3 | 4/20, identical text |
+   | DWQ 4-bit (`...-4bit-DWQ` @ `cfcade72`) | **20/20** |
+
+   The server, the prompt cache and the `mlx` version are ruled out, and the
+   two builds' tokenizers produce identical token ids (checked against the
+   base model's tokenizer too). What differs is the quantisation: the plain
+   4-bit build is defective for copying; the DWQ build of the same model is
+   not. On the full sets the DWQ build passed 66 of 70 tool calls and 22 of
+   24 utility tasks, decoding at 77.3 tok/s with the same 16 GiB footprint.
+
+   **The served build is now the DWQ one** (2026-09-30):
+   `mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ` at commit
+   `cfcade7221ccd128681961446e5f7906c08cae55`, weight shards checked against
+   their SHA-256. The pre-registered results above were measured on the plain
+   build and stay as they are; they describe that build.
 
 ## Before committing
 
