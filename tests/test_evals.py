@@ -299,7 +299,10 @@ def test_the_committed_records_still_verify_after_the_config_grew() -> None:
     records = sorted((evals.ROOT / "evals" / "runs").glob("run-*.json"))
     assert records, "the M6 records are committed"
     for path in records:
-        assert load_record(path).config.response_format is None
+        record = load_record(path)                    # raises if the seal no longer matches
+        raw = json.loads(path.read_text(encoding="utf-8"))["config"]
+        if "response_format" not in raw:              # made before the field existed
+            assert record.config.response_format is None
 
 
 def test_a_plain_run_seals_exactly_as_before() -> None:

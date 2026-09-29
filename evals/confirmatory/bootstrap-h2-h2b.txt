@@ -1,0 +1,7 @@
+H2 llama.cpp plain vs grammar: n=70
+  refused  0/70 -> 0/70  diff +0.000  95% CI [+0.000, +0.000]
+  passed   69/70 -> 69/70  diff +0.000  95% CI [+0.000, +0.000]
+H2b MLX plain vs schema-in-prompt: n=70
+  refused  9/70 -> 6/70  diff -0.043  95% CI [-0.143, +0.071]
+  passed   28/70 -> 63/70  diff +0.500  95% CI [+0.386, +0.629]
+bootstrap: 10,000 paired resamples over tasks, seed 20260930

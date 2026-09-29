@@ -148,9 +148,14 @@ explaining.
 
 ## Pre-registration
 
-The draft plan for the home-lab evaluation (hypotheses, metrics, failure
-categories, analysis plan) is `docs/PREREGISTRATION.md`. It is a draft until
-the owner submits it to OSF; link the registration here once it exists.
+The plan for the home-lab evaluation (hypotheses, metrics, failure
+categories, analysis plan) is `docs/PREREGISTRATION.md`, registered on OSF as
+[osf.io/jfp74](https://osf.io/jfp74) on 2026-09-29 14:45:00 UTC at commit
+`d8726b43`. First confirmatory results (same file, Results): H2 not
+supported, H2b supported by its rule, H4 supported; H1 and H3 not yet run.
+Two findings worth a build-log entry each: grammar-constrained decoding made
+a rerun less repeatable, and the MLX 4-bit build corrupts text the GGUF
+build of the same model copies correctly.
 
 ## Publicity constraints
 

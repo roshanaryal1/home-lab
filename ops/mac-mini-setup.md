@@ -227,8 +227,14 @@ uv run python -m lab.attacks --endpoint http://127.0.0.1:8080/v1 \
       executed, 1 refused by the parser. A first run reported 19 refusals:
       the harness's finish signal demanded `"arguments": {}` and the model
       sends `{"tool": "done"}`; the finish check now accepts both.
-- [ ] Run the AgentDojo suite against the same adapter; record its utility
-      and attack-success rates next to the stub's.
+- [x] Run the AgentDojo suite against the same adapter; record its utility
+      and attack-success rates next to the stub's. 2026-09-29, `agentdojo`
+      0.1.35 in its own virtual environment (not in `uv.lock`),
+      `--model LOCAL` with `LOCAL_LLM_PORT=8080`: utility 19.6%, attack
+      success 17 of 949 (1.79%) under `important_instructions`. Numbers and
+      caveats in `SECURITY.md`. AgentDojo drives the model through its own
+      agent and tools, so it is a model-level number, beside the lab-level
+      0 of 9 above.
 - [ ] Repeat after every model or prompt change (gate G2, then nightly, 6.4).
 
 ## 13. Model adapter on the real model (items 5.1 and 5.2, #74, #75)
@@ -412,28 +418,35 @@ expect a call either way between runs.
       not.** `mlx_lm.server` 0.31.3 has no `response_format` handling in its
       source, and sending the schema changed nothing. It is ignored
       silently, so a caller cannot tell from the response.
-- [ ] After the section 13 baseline, run the same task file with
-      grammar-constrained decoding for tool calls and routing labels.
-      Blocked on a server that enforces a grammar while decoding. Options,
+- [x] After the section 13 baseline, run the same task file with
+      grammar-constrained decoding for tool calls. Done as the
+      pre-registered H2 on `llama-server` (results in
+      `docs/PREREGISTRATION.md`): not supported, 0 of 70 refused with and
+      without the grammar.
+- [ ] The same for routing labels. Not run yet. Options considered,
       each a new runtime or dependency to decide on: llama.cpp's
       `llama-server` (checked in its source: a `json_schema` or `grammar`
       request field is converted to a GBNF grammar that constrains
       generation; needs GGUF weights of the same model), or a grammar
       library as an MLX logits processor behind our own loopback server
       (MLX support of the candidate libraries not checked yet).
-- [ ] Record invalid-call rate, correct-task rate and latency next to the
+- [x] Record invalid-call rate, correct-task rate and latency next to the
       baseline. Adopt only on a measured gain; the strict parser stays either
-      way. The schema-in-prompt row above is a measured gain without new
+      way. Grammar: no gain in refusals, and a less repeatable rerun (58 of
+      70), so not adopted. Schema in the prompt (H2b, MLX): passed 63 of 70
+      against 28, refusals 6 against 9 (that difference not distinguishable
+      from zero); a candidate for adoption in tool-call prompts. The schema-in-prompt row above is a measured gain without new
       dependencies but is **not** constrained decoding: the model can still
       emit an invalid call, and the parser still refuses it. Adopting it is
       a prompt change for whoever builds tool-call prompts.
 
 ## 21. Pre-registration (item 8.1, #82)
 
-- [ ] Create the OSF account (owner).
-- [ ] Review and edit the draft plan in `docs/PREREGISTRATION.md`, then submit
-      it to OSF. It is a draft until you do.
-- [ ] Register hypotheses, metrics, failure categories and the analysis plan
+- [x] Create the OSF account (owner).
+- [x] Review and edit the draft plan in `docs/PREREGISTRATION.md`, then submit
+      it to OSF. Registered 2026-09-29 14:45:00 UTC as
+      [osf.io/jfp74](https://osf.io/jfp74), at commit `d8726b43`.
+- [x] Register hypotheses, metrics, failure categories and the analysis plan
       before the first real eval run, and link the registration from
       `docs/PIPELINE.md`. The registration timestamp must precede the first
       run's provenance record.
