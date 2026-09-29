@@ -48,39 +48,45 @@ wrong; do not plan capacity against that number.
 
 Internal 512 GB, latency-sensitive state only:
 
-- [ ] macOS, applications, Python runtime.
+- [x] macOS, applications, Python runtime. (Python 3.13.15 via uv.)
 - [ ] Supervisor code and SQLite databases including WAL files.
-- [ ] Check the Python's linked SQLite before first start:
+- [x] Check the Python's linked SQLite before first start:
       `python -c 'import sqlite3; print(sqlite3.sqlite_version)'` must be
       3.51.3 or later, or 3.50.7+ / 3.44.6+. The supervisor refuses to
       start otherwise (WAL-reset bug, https://sqlite.org/wal.html section 11).
-- [ ] Active repositories and worktrees.
-- [ ] Hot model weights, the ones in daily use.
+      2026-09-30: 3.53.1 with the repo's Python.
+- [x] Active repositories and worktrees.
+- [x] Hot model weights, the ones in daily use. (The heavy model's MLX
+      and GGUF builds, in the Hugging Face cache.)
 - [ ] Keep a substantial free-space reserve. Do not fill the internal
       disk just because there is capacity; leave room for swap, WAL
-      growth and model swapping.
+      growth and model swapping. 2026-09-30: about 309 GiB free.
 
 External 1 TB, mounted at a stable path:
 
 - [ ] Full model library, cold weights.
 - [ ] Research corpus, PDFs, datasets.
 - [ ] Archived repositories, experiment artifacts, long-term logs.
-- [ ] Backup sets.
+- [x] Backup sets. The encrypted `labbackup` volume (section 10); only a
+      test backup so far.
 
 The external SSD is storage, **not a backup strategy**. Anything that
 matters needs a third destination as well.
 
 ## 4. Runtime
 
-- [ ] Install the Xcode command line tools.
-- [ ] Install Python 3.13 or newer.
-- [ ] Install the MLX family for inference. The study was unanimous on
-      MLX over the alternatives for this hardware.
-- [ ] Decide the heavy model. The study did **not** reach consensus
+- [x] Install the Xcode command line tools.
+- [x] Install Python 3.13 or newer. (3.13.15, managed by uv.)
+- [x] Install the MLX family for inference. The study was unanimous on
+      MLX over the alternatives for this hardware. `mlx` 0.32.3 and
+      `mlx-lm` 0.31.3 as a uv tool; llama.cpp 0.5.0 also installed for the
+      grammar measurement (ADR 0001 point 5 questions the MLX build).
+- [x] Decide the heavy model. The study did **not** reach consensus
       here, so this is an open choice, not a settled one: the candidates
       were Qwen3-Coder-30B-A3B, Qwen3.6-35B-A3B, and a dense 2024-era
       32B. Pick one, write down why, and benchmark before committing.
-- [ ] Plan for exactly **one heavy inference slot**. Two concurrent
+      Qwen3-Coder-30B-A3B, benchmarked on the M6 (ADR 0001, section 14).
+- [x] Plan for exactly **one heavy inference slot**. Two concurrent
       heavy models do not fit in 32 GB. The supervisor already enforces
       this with a semaphore; do not raise it without measuring first.
 
@@ -353,7 +359,9 @@ the paths, then:
 ## 17. Power and disk encryption (item 6.1, #77)
 
 - [ ] Set "Start up automatically after a power failure" (System Settings,
-      Energy) and confirm it survives a reboot.
+      Energy) and confirm it survives a reboot. Set on 2026-09-30 ("After
+      Power Failure", `pmset` autorestart 1); surviving a reboot not tested
+      yet.
 - [ ] Decide FileVault. With it on, the Mac waits at the password screen after
       any reboot and the lab does not start; with it off, disk contents are
       readable to anyone holding the drive. Record the decision and why here
