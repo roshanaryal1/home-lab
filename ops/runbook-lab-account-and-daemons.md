@@ -111,7 +111,9 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
   `sudo -u lab /opt/homelab/.venv/bin/python -c "import sqlite3, lab; print(sqlite3.sqlite_version)"`
   prints 3.53.1 or later; and `sudo -u lab /usr/bin/touch /opt/homelab/x`
   is refused.
-- Undo: `sudo rm -rf /opt/homelab /opt/homelab-python`.
+- Undo: first unload anything step 5 started
+  (`for s in supervisor watchdog keepawake statuscheck selftest tick; do sudo launchctl bootout system/com.homelab.$s; done`),
+  then `sudo rm -rf /opt/homelab /opt/homelab-python`.
 - Rehearsal note: the scratch rehearsal ran `uv sync` as the operator too.
 
 ## Step 4. Settings the service files need (sudo)
@@ -127,6 +129,10 @@ sudo plutil -insert EnvironmentVariables -dictionary $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_URL -string http://127.0.0.1:8080/v1 $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_NAME -string "$MODEL_ID" $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_REVISION -string "$MODEL_REV" $P/com.homelab.tick.plist
+# Section 16: the supervisor needs the same three, so the daemon registers the summarizer.
+sudo plutil -insert EnvironmentVariables.LAB_MODEL_URL -string http://127.0.0.1:8080/v1 $P/com.homelab.supervisor.plist
+sudo plutil -insert EnvironmentVariables.LAB_MODEL_NAME -string "$MODEL_ID" $P/com.homelab.supervisor.plist
+sudo plutil -insert EnvironmentVariables.LAB_MODEL_REVISION -string "$MODEL_REV" $P/com.homelab.supervisor.plist
 fi
 sudo plutil -lint $P/com.homelab.*.plist
 ```
@@ -183,14 +189,18 @@ OLD=$NEW; sudo kill -STOP "$OLD"                     # frozen; the watchdog must
 sleep 150; NEW=$(pgrep -f lab.supervisor)
 if ps -p "$OLD" >/dev/null; then echo "FAIL: frozen $OLD still exists; resuming it"; sudo kill -CONT "$OLD"; \
 elif [ -n "$NEW" ] && [ "$NEW" != "$OLD" ]; then echo "replaced: $OLD -> $NEW"; \
-else echo "FAIL: no new supervisor"; fi
+else echo "FAIL: no new supervisor; kicking it"; sudo launchctl kickstart -k system/com.homelab.supervisor; \
+  sleep 10; pgrep -f lab.supervisor >/dev/null && echo "supervisor running again" || echo "STOP: supervisor still down"; fi
 sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db watchdog --dry-run
 ```
 
 Log both as drills with `LAB_TARGET=mac-mini` (see `ops/drills/README.md`).
 
-- Closes: 5 "confirm startup recovery works"; 16 "kill -9 the
-  supervisor", "freeze it instead", "watchdog --dry-run prints healthy".
+- Closes: 16 "kill -9 the supervisor", "freeze it instead", "watchdog
+  --dry-run prints healthy". Not section 5's "confirm startup recovery":
+  that needs a task in flight when the supervisor dies (queue a dummy
+  idempotent and a non-idempotent task first, then check requeue and
+  review); do it as a separate drill.
 
 ## Step 7. Backups, now that a live database exists
 
