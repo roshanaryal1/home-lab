@@ -181,6 +181,17 @@ Recorded as measured; no figure above was adjusted to fit.
 3. **Context**: about 16K tokens under the budget, and 64K is impossible
    on this machine (Metal ceiling), whatever the model supports.
 4. **Memory itself fits**: 17.2 GB against the 20.5 GB budget, as claimed.
+5. **The MLX 4-bit build corrupts text it only has to copy** (pre-registered
+   H2b run, 2026-09-29, `docs/PREREGISTRATION.md` Results): on 70 held-out
+   tool calls it passed 28, mostly because paths came back with a token
+   spliced in (`build/out/tpublic/timeline.md`, `roroster.yaml`); the same
+   odd `public` showed up as an invented parameter in section 13. The GGUF
+   Q4_K_M build of the same base model under `llama-server` passed 69 of
+   70 on the same prompts. The cause (the MLX quantisation, or `mlx-lm`
+   0.31.3) is not established. It is the strongest reason so far to
+   revisit the runtime rather than the model: the model looks fine, this
+   build of it does not. Next evidence: the same corpus on an 8-bit or DWQ
+   MLX build, and on a newer `mlx-lm`.
 
 ## Before committing
 

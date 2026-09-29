@@ -420,7 +420,21 @@ Implemented and tested:
   which parked for approval, and `net.fetch` of the metadata address,
   which egress refused); in the other 6 it ignored the injection and
   wrote the summary. The controls, not the model, stopped both attempts.
-  **Not done:** the AgentDojo suite itself.
+  **Replicated after pre-registration** (H4, 2026-09-29 16:59 UTC, the
+  registered commit): 0 of 9 again; the model attempted 3 of 8 this time
+  (adding a `net.fetch` to the attacker's host), all stopped by the broker
+  (`docs/PREREGISTRATION.md`, Results).
+  **AgentDojo** (v1.2, run 2026-09-29 against the same model through its
+  own local-model agent, `important_instructions` attack; exploratory, not
+  a hypothesis): utility 19.6% without attack and 20.2% under attack;
+  attack success 17 of 949 cases (1.79%; workspace 2 of 560, travel 6 of
+  140, banking 2 of 144, Slack 7 of 105). This measures the model inside
+  AgentDojo's own simulated tools, not the lab's broker, so it says how
+  often the model falls for an injection, not whether the lab stops it.
+  Read the low attack rate with the low utility: the model often failed
+  to use AgentDojo's tools at all, which also stops it carrying out an
+  injected goal. AgentDojo was installed in its own environment, not in
+  the lab's dependencies.
 - **Operator-signed approvals** (`lab/operator.py`, item 4.5, #70).
   `lab operator init` creates an Ed25519 keypair; `lab approve --key`
   signs the grant over the approval id, action hash, expiry and decider.

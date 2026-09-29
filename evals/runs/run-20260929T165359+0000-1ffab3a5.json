@@ -1,0 +1,684 @@
+{
+  "config": {
+    "endpoint": "http://127.0.0.1:8080/v1",
+    "max_tokens": 256,
+    "model": {
+      "context_tokens": 8192,
+      "heavy": true,
+      "kv_bytes_per_token": 200000,
+      "max_output_tokens": 1024,
+      "name": "/Users/roshanaryal/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit/snapshots/6e302ea604ad9ab206367e2c501d1571023e7b6d",
+      "revision": "6e302ea604ad9ab206367e2c501d1571023e7b6d",
+      "tokenizer_revision": "6e302ea604ad9ab206367e2c501d1571023e7b6d",
+      "weights_mb": 17180
+    },
+    "response_format": null,
+    "seed": 0,
+    "suite": "utility-v1",
+    "tasks_path": "evals/toolcalls-v1-schema.jsonl",
+    "tasks_sha256": "e0af2523afe96796adb312ab4d25fabe1e33c96da038e37769320901ac7f5873",
+    "timeout_seconds": 120.0
+  },
+  "provenance": {
+    "cryptography": "50.0.1",
+    "lab_commit": "d8726b43be5290afbb2ce6ae2f6722632705d9a8",
+    "lab_version": "0.1.0",
+    "machine": "arm64",
+    "macos_build": "26A428",
+    "on_target": true,
+    "os": "Darwin 27.0.0",
+    "power_settings": "AC Power:\n Sleep On Power Button 1\n autorestartatconnect 0\n lowpowermode         0\n standby              0\n ttyskeepawake        1\n powernap             1\n displaysleep         10\n womp                 1\n networkoversleep     0\n sleep                0\n tcpkeepalive         1\n autorestart          1\n disksleep            0",
+    "power_settings_sha256": "096fdfcb8af7c55a3128ebeec021ad7c529b9ba9fac5b4337eaa7b24cbe05ac8",
+    "python": "3.13.15",
+    "sqlite": "3.53.1",
+    "tree_dirty": false
+  },
+  "record_sha256": "1ffab3a573008f9dac95dc0e3c5896fefa8f1c8ae1976851fa47e06e1ccb8b14",
+  "record_version": 1,
+  "rerun_of": null,
+  "results": [
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"archive/q2/packing-list.csv\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-fs-read-00",
+      "passed": true,
+      "prompt_tokens": 629,
+      "seconds": 0.7986198750440963
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"archive/q2/budget.txt\"}}",
+      "completion_tokens": 22,
+      "error": null,
+      "id": "tc-fs-read-01",
+      "passed": true,
+      "prompt_tokens": 628,
+      "seconds": 0.48478104098467156
+    },
+    {
+      "answer": "{\n  \"tool\": \"fs.read\",\n  \"arguments\": {\n    \"path\": \"build/out/invoice-17.txt\"\n  }\n}",
+      "completion_tokens": 32,
+      "error": null,
+      "id": "tc-fs-read-02",
+      "passed": true,
+      "prompt_tokens": 630,
+      "seconds": 0.6291892920271493
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"vendor/manuals/invoice-17.json\"}}",
+      "completion_tokens": 25,
+      "error": null,
+      "id": "tc-fs-read-03",
+      "passed": true,
+      "prompt_tokens": 631,
+      "seconds": 0.5404194169677794
+    },
+    {
+      "answer": "```json\n{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"fixtures/io/roster.json\"}}\n```",
+      "completion_tokens": 26,
+      "error": null,
+      "id": "tc-fs-read-04",
+      "passed": false,
+      "prompt_tokens": 628,
+      "seconds": 0.5391408749856055
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"build/out/timeline.md\"}}",
+      "completion_tokens": 21,
+      "error": null,
+      "id": "tc-fs-read-05",
+      "passed": true,
+      "prompt_tokens": 627,
+      "seconds": 0.46793895796872675
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"assets/img/budget.txt\"}}",
+      "completion_tokens": 21,
+      "error": null,
+      "id": "tc-fs-read-06",
+      "passed": true,
+      "prompt_tokens": 627,
+      "seconds": 0.467053540982306
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"build/out/outline.txt\"}}",
+      "completion_tokens": 21,
+      "error": null,
+      "id": "tc-fs-read-07",
+      "passed": true,
+      "prompt_tokens": 627,
+      "seconds": 0.46797416696790606
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"meetings/weekly/budget.csv\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-fs-read-08",
+      "passed": true,
+      "prompt_tokens": 628,
+      "seconds": 0.4988027079962194
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"vendor/manuals/roster.yaml\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-fs-read-09",
+      "passed": true,
+      "prompt_tokens": 629,
+      "seconds": 0.5015920829609968
+    },
+    {
+      "answer": "{\n  \"tool\": \"fs.write\",\n  \"arguments\": {\n    \"path\": \"photos/raw/metrics.csv\",\n  \"content\": \"done\"\n  }\n}",
+      "completion_tokens": 36,
+      "error": null,
+      "id": "tc-fs-write-00",
+      "passed": true,
+      "prompt_tokens": 635,
+      "seconds": 0.7210134160122834
+    },
+    {
+      "answer": "{\n  \"tool\": \"fs.write\",\n  \"arguments\": {\n    \"path\": \"vendor/manuals/changelog.json\",\n    \"content\": \"ready for review\"\n  }\n}",
+      "completion_tokens": 39,
+      "error": null,
+      "id": "tc-fs-write-01",
+      "passed": true,
+      "prompt_tokens": 638,
+      "seconds": 0.777459875040222
+    },
+    {
+      "answer": "{\n  \"tool\": \"fs.write\",\n  \"arguments\": {\n    \"path\": \"build/out/outline.yaml\",\n \"content\": \"v2 approved\"\n  }\n}",
+      "completion_tokens": 37,
+      "error": null,
+      "id": "tc-fs-write-02",
+      "passed": true,
+      "prompt_tokens": 637,
+      "seconds": 0.7293651250074618
+    },
+    {
+      "answer": "{\n  \"tool\": \"fs.write\",\n  \"arguments\": {\n    \"path\": \"archive/q2/roster.yaml\",\n    \"content\": \"total 42\"\n  }\n}",
+      "completion_tokens": 41,
+      "error": null,
+      "id": "tc-fs-write-03",
+      "passed": true,
+      "prompt_tokens": 640,
+      "seconds": 0.7947717920178548
+    },
+    {
+      "answer": "{\n  \"tool\": \"fs.write\",\n  \"arguments\": {\n    \"path\": \"drafts/essays/invoice-17.md\",\n    \"content\": \"see ticket 881\"\n  }\n}",
+      "completion_tokens": 47,
+      "error": null,
+      "id": "tc-fs-write-04",
+      "passed": true,
+      "prompt_tokens": 645,
+      "seconds": 0.8936642920016311
+    },
+    {
+      "answer": "{\n  \"tool\": \"fs.write\",\n  \"arguments\": {\n    \"path\": \"inventory/roster.csv\",\n \"content\": \"moved to Friday\"\n  }\n}",
+      "completion_tokens": 37,
+      "error": null,
+      "id": "tc-fs-write-05",
+      "passed": true,
+      "prompt_tokens": 637,
+      "seconds": 0.7299633340444416
+    },
+    {
+      "answer": "{\n  \"tool\": \"fs.write\",\n  \"arguments\": {\n    \"path\": \"inventory/outline.md\",\n    \"content\": \"no changes\"\n  }\n}",
+      "completion_tokens": 36,
+      "error": null,
+      "id": "tc-fs-write-06",
+      "passed": true,
+      "prompt_tokens": 635,
+      "seconds": 0.709209542023018
+    },
+    {
+      "answer": "{\n  \"tool\": \"fs.write\",\n  \"arguments\": {\n    \"path\": \"meetings/weekly/glossary.md\",\n    \"content\": \"all tests green\"\n  }\n}",
+      "completion_tokens": 41,
+      "error": null,
+      "id": "tc-fs-write-07",
+      "passed": true,
+      "prompt_tokens": 639,
+      "seconds": 0.8057054160162807
+    },
+    {
+      "answer": "{\n  \"tool\": \"fs.write\",\n \"arguments\": {\n    \"path\": \"vendor/manuals/roster.txt\",\n    \"content\": \"call back at 3\"\n  }\n}",
+      "completion_tokens": 41,
+      "error": null,
+      "id": "tc-fs-write-08",
+      "passed": true,
+      "prompt_tokens": 641,
+      "seconds": 0.8016996249789372
+    },
+    {
+      "answer": "{\n  \"tool\": \"fs.write\",\n  \"arguments\": {\n    \"path\": \"vendor/manuals/metrics.yaml\",\n    \"content\": \"draft 3\"\n  }\n}",
+      "completion_tokens": 39,
+      "error": null,
+      "id": "tc-fs-write-09",
+      "passed": true,
+      "prompt_tokens": 638,
+      "seconds": 0.7614207910373807
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"fixtures/io/glossary.csv\"}}",
+      "completion_tokens": 22,
+      "error": null,
+      "id": "tc-fs-delete-00",
+      "passed": true,
+      "prompt_tokens": 628,
+      "seconds": 0.4992007499677129
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"archive/q2/packing-list.yaml\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-fs-delete-01",
+      "passed": true,
+      "prompt_tokens": 629,
+      "seconds": 0.5020704999915324
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"photos/raw/invoice-17.csv\"}}",
+      "completion_tokens": 24,
+      "error": null,
+      "id": "tc-fs-delete-02",
+      "passed": true,
+      "prompt_tokens": 630,
+      "seconds": 0.5205058330320753
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"drafts/essays/glossary.yaml\"}}",
+      "completion_tokens": 25,
+      "error": null,
+      "id": "tc-fs-delete-03",
+      "passed": true,
+      "prompt_tokens": 630,
+      "seconds": 0.5322281250264496
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"vendor/manuals/packing-list.txt\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-fs-delete-04",
+      "passed": true,
+      "prompt_tokens": 629,
+      "seconds": 0.5017925830325112
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"meetings/weekly/timeline.yaml\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-fs-delete-05",
+      "passed": true,
+      "prompt_tokens": 628,
+      "seconds": 0.4979034169809893
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"archive/q2/invoice-17.md\"}}",
+      "completion_tokens": 25,
+      "error": null,
+      "id": "tc-fs-delete-06",
+      "passed": true,
+      "prompt_tokens": 631,
+      "seconds": 0.5368339580018073
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"inventory/roster.json\"}}",
+      "completion_tokens": 21,
+      "error": null,
+      "id": "tc-fs-delete-07",
+      "passed": true,
+      "prompt_tokens": 627,
+      "seconds": 0.4674909579916857
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"drafts/essays/changelog.csv\"}}",
+      "completion_tokens": 24,
+      "error": null,
+      "id": "tc-fs-delete-08",
+      "passed": true,
+      "prompt_tokens": 629,
+      "seconds": 0.5145976669737138
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"inventory/invoice-17.md\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-fs-delete-09",
+      "passed": true,
+      "prompt_tokens": 629,
+      "seconds": 0.5023328749812208
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \"meetings/weekly\"}}",
+      "completion_tokens": 20,
+      "error": null,
+      "id": "tc-fs-list-00",
+      "passed": true,
+      "prompt_tokens": 626,
+      "seconds": 0.45990491699194536
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\"}",
+      "completion_tokens": 8,
+      "error": null,
+      "id": "tc-fs-list-01",
+      "passed": false,
+      "prompt_tokens": 624,
+      "seconds": 0.2801592089817859
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \"drafts/essays\"}}",
+      "completion_tokens": 21,
+      "error": null,
+      "id": "tc-fs-list-02",
+      "passed": true,
+      "prompt_tokens": 627,
+      "seconds": 0.47117345803417265
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\"}",
+      "completion_tokens": 8,
+      "error": null,
+      "id": "tc-fs-list-03",
+      "passed": false,
+      "prompt_tokens": 627,
+      "seconds": 0.289639291993808
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\"}",
+      "completion_tokens": 8,
+      "error": null,
+      "id": "tc-fs-list-04",
+      "passed": false,
+      "prompt_tokens": 624,
+      "seconds": 0.28013704100158066
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \".\"}}",
+      "completion_tokens": 16,
+      "error": null,
+      "id": "tc-fs-list-05",
+      "passed": false,
+      "prompt_tokens": 627,
+      "seconds": 0.40649641602067277
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \"ledger/2026\"}}",
+      "completion_tokens": 22,
+      "error": null,
+      "id": "tc-fs-list-06",
+      "passed": true,
+      "prompt_tokens": 629,
+      "seconds": 0.49669712502509356
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\"}",
+      "completion_tokens": 8,
+      "error": null,
+      "id": "tc-fs-list-07",
+      "passed": false,
+      "prompt_tokens": 627,
+      "seconds": 0.2867354580084793
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \"build/out\"}}",
+      "completion_tokens": 18,
+      "error": null,
+      "id": "tc-fs-list-08",
+      "passed": true,
+      "prompt_tokens": 625,
+      "seconds": 0.4201152499881573
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\"}",
+      "completion_tokens": 8,
+      "error": null,
+      "id": "tc-fs-list-09",
+      "passed": false,
+      "prompt_tokens": 628,
+      "seconds": 0.292603500012774
+    },
+    {
+      "answer": "{\n  \"tool\": \"shell.run\",\n  \"arguments\": {\n    \"argv\": [\"git\", \"status\"],\n    \"timeout\": 30\n  }\n}",
+      "completion_tokens": 36,
+      "error": null,
+      "id": "tc-shell-run-00",
+      "passed": true,
+      "prompt_tokens": 641,
+      "seconds": 0.7403449169942178
+    },
+    {
+      "answer": "{\n  \"tool\": \"shell.run\",\n  \"arguments\": {\n    \"argv\": [\"python3\", \"--version\"]\n  }\n}",
+      "completion_tokens": 29,
+      "error": null,
+      "id": "tc-shell-run-01",
+      "passed": true,
+      "prompt_tokens": 635,
+      "seconds": 0.6134533750009723
+    },
+    {
+      "answer": "{\n  \"tool\": \"shell.run\",\n  \"arguments\": {\n    \"argv\": [\"uname\", \"-a\"]\n  }\n}",
+      "completion_tokens": 28,
+      "error": null,
+      "id": "tc-shell-run-02",
+      "passed": true,
+      "prompt_tokens": 634,
+      "seconds": 0.5960581669933163
+    },
+    {
+      "answer": "{\n  \"tool\": \"shell.run\",\n  \"arguments\": {\n    \"argv\": [\"df\", \"-h\"],\n    \"timeout\": 30\n  }\n}",
+      "completion_tokens": 36,
+      "error": null,
+      "id": "tc-shell-run-03",
+      "passed": true,
+      "prompt_tokens": 642,
+      "seconds": 0.7324927500449121
+    },
+    {
+      "answer": "{\n  \"tool\": \"shell.run\",\n  \"arguments\": {\n    \"argv\": [\"wc\", \"-l\", \"inventory.csv\"]\n  }\n}",
+      "completion_tokens": 32,
+      "error": null,
+      "id": "tc-shell-run-04",
+      "passed": true,
+      "prompt_tokens": 636,
+      "seconds": 0.6567320000031032
+    },
+    {
+      "answer": "{\n  \"tool\": \"shell.run\",\n  \"arguments\": {\n    \"argv\": [\"echo\", \"hello\"]\n  }\n}",
+      "completion_tokens": 28,
+      "error": null,
+      "id": "tc-shell-run-05",
+      "passed": true,
+      "prompt_tokens": 633,
+      "seconds": 0.581656624970492
+    },
+    {
+      "answer": "{\n  \"tool\": \"shell.run\",\n  \"arguments\": {\n    \"argv\": [\"whoami\"],\n    \"timeout\": 30\n  }\n}",
+      "completion_tokens": 34,
+      "error": null,
+      "id": "tc-shell-run-06",
+      "passed": true,
+      "prompt_tokens": 641,
+      "seconds": 0.7011090000160038
+    },
+    {
+      "answer": "{\n  \"tool\": \"shell.run\",\n  \"arguments\": {\n    \"argv\": [\"pwd\"]\n  }\n}",
+      "completion_tokens": 25,
+      "error": null,
+      "id": "tc-shell-run-07",
+      "passed": true,
+      "prompt_tokens": 632,
+      "seconds": 0.5374096250161529
+    },
+    {
+      "answer": "{\n  \"tool\": \"shell.run\",\n  \"arguments\": {\n    \"argv\": [\"ls\", \"-la\", \"build\"]\n  }\n}",
+      "completion_tokens": 31,
+      "error": null,
+      "id": "tc-shell-run-08",
+      "passed": true,
+      "prompt_tokens": 635,
+      "seconds": 0.6399950829800218
+    },
+    {
+      "answer": "{\n  \"tool\": \"shell.run\",\n  \"arguments\": {\n    \"argv\": [\"sw_vers\", \"-productVersion\"],\n    \"timeout\": 30\n  }\n}",
+      "completion_tokens": 39,
+      "error": null,
+      "id": "tc-shell-run-09",
+      "passed": true,
+      "prompt_tokens": 645,
+      "seconds": 0.7861816249787807
+    },
+    {
+      "answer": "{\n  \"tool\": \"net.fetch\",\n  \"arguments\": {\n    \"url\": \"https://example.org/status\"\n  }\n}",
+      "completion_tokens": 29,
+      "error": null,
+      "id": "tc-net-fetch-00",
+      "passed": true,
+      "prompt_tokens": 628,
+      "seconds": 0.5921144160092808
+    },
+    {
+      "answer": "{\n  \"tool\": \"net.fetch\",\n  \"arguments\": {\n    \"url\": \"https://example.com/feeds/latest.xml\"\n  }\n}",
+      "completion_tokens": 32,
+      "error": null,
+      "id": "tc-net-fetch-01",
+      "passed": true,
+      "prompt_tokens": 631,
+      "seconds": 0.6205370409879833
+    },
+    {
+      "answer": "{\n  \"tool\": \"net.fetch\",\n  \"arguments\": {\n    \"url\": \"https://example.net/api/v2/health\"\n  }\n}",
+      "completion_tokens": 33,
+      "error": null,
+      "id": "tc-net-fetch-02",
+      "passed": true,
+      "prompt_tokens": 632,
+      "seconds": 0.6376010830281302
+    },
+    {
+      "answer": "{\n  \"tool\": \"net.fetch\",\n  \"arguments\": {\n    \"url\": \"https://example.org/docs/intro.html\"\n  }\n}",
+      "completion_tokens": 32,
+      "error": null,
+      "id": "tc-net-fetch-03",
+      "passed": true,
+      "prompt_tokens": 631,
+      "seconds": 0.6214985410333611
+    },
+    {
+      "answer": "{\n  \"tool\": \"net.fetch\",\n  \"arguments\": {\n    \"url\": \"https://example.com/releases/2026-09.json\"\n  }\n}",
+      "completion_tokens": 38,
+      "error": null,
+      "id": "tc-net-fetch-04",
+      "passed": true,
+      "prompt_tokens": 637,
+      "seconds": 0.7366873749997467
+    },
+    {
+      "answer": "{\n  \"tool\": \"net.fetch\",\n  \"arguments\": {\n    \"url\": \"https://example.net/robots.txt\"\n  }\n}",
+      "completion_tokens": 31,
+      "error": null,
+      "id": "tc-net-fetch-05",
+      "passed": true,
+      "prompt_tokens": 630,
+      "seconds": 0.6041240000049584
+    },
+    {
+      "answer": "{\n  \"tool\": \"net.fetch\",\n  \"arguments\": {\n    \"url\": \"https://example.org/wiki/Main_Page\"\n  }\n}",
+      "completion_tokens": 31,
+      "error": null,
+      "id": "tc-net-fetch-06",
+      "passed": true,
+      "prompt_tokens": 630,
+      "seconds": 0.6034280830062926
+    },
+    {
+      "answer": "{\n  \"tool\": \"net.fetch\",\n  \"arguments\": {\n    \"url\": \"https://example.com/images/logo.svg\"\n  }\n}",
+      "completion_tokens": 31,
+      "error": null,
+      "id": "tc-net-fetch-07",
+      "passed": true,
+      "prompt_tokens": 630,
+      "seconds": 0.6032441660063341
+    },
+    {
+      "answer": "{\"tool\": \"net.fetch\", \"arguments\": {\"url\": \"https://example.net/search?q=sqlite\"}}",
+      "completion_tokens": 24,
+      "error": null,
+      "id": "tc-net-fetch-08",
+      "passed": true,
+      "prompt_tokens": 631,
+      "seconds": 0.5208258330239914
+    },
+    {
+      "answer": "{\n  \"tool\": \"net.fetch\",\n  \"arguments\": {\n    \"url\": \"https://example.org/changelog.md\"\n  }\n}",
+      "completion_tokens": 31,
+      "error": null,
+      "id": "tc-net-fetch-09",
+      "passed": true,
+      "prompt_tokens": 630,
+      "seconds": 0.6341038340469822
+    },
+    {
+      "answer": "{\n  \"tool\": \"connector.call\",\n \"arguments\": {\n    \"connector\": \"github\",\n    \"path\": \"/v1/items/790\",\n    \"method\": \"GET\"\n  }\n}",
+      "completion_tokens": 44,
+      "error": null,
+      "id": "tc-connector-call-00",
+      "passed": true,
+      "prompt_tokens": 645,
+      "seconds": 0.876899124996271
+    },
+    {
+      "answer": "{\n  \"tool\": \"connector.call\",\n  \"arguments\": {\n    \"connector\": \"mastodon\",\n \"path\": \"/v1/items/429\"\n  }\n}",
+      "completion_tokens": 38,
+      "error": null,
+      "id": "tc-connector-call-01",
+      "passed": true,
+      "prompt_tokens": 643,
+      "seconds": 0.770802957995329
+    },
+    {
+      "answer": "{\n  \"tool\": \"connector.call\",\n  \"arguments\": {\n    \"connector\": \"calendar\",\n    \"path\": \"/v1/items/908\",\n    \"method\": \"DELETE\"\n  }\n}",
+      "completion_tokens": 45,
+      "error": null,
+      "id": "tc-connector-call-02",
+      "passed": true,
+      "prompt_tokens": 645,
+      "seconds": 0.8737156249699183
+    },
+    {
+      "answer": "{\n  \"tool\": \"connector.call\",\n \"arguments\": {\n    \"connector\": \"weather\",\n    \"path\": \"/v1/items/962\"\n  }\n}",
+      "completion_tokens": 37,
+      "error": null,
+      "id": "tc-connector-call-03",
+      "passed": true,
+      "prompt_tokens": 642,
+      "seconds": 0.7526524589629844
+    },
+    {
+      "answer": "{\n  \"tool\": \"connector.call\",\n  \"arguments\": {\n    \"connector\": \"notes\",\n \"path\": \"/v1/items/166\",\n \"method\": \"POST\"\n  }\n}",
+      "completion_tokens": 43,
+      "error": null,
+      "id": "tc-connector-call-04",
+      "passed": true,
+      "prompt_tokens": 645,
+      "seconds": 0.8450941659975797
+    },
+    {
+      "answer": "{\n  \"tool\": \"connector.call\",\n  \"arguments\": {\n    \"connector\": \"github\",\n  \"path\": \"/v1/items/901\"\n  }\n}",
+      "completion_tokens": 38,
+      "error": null,
+      "id": "tc-connector-call-05",
+      "passed": true,
+      "prompt_tokens": 642,
+      "seconds": 0.766856917005498
+    },
+    {
+      "answer": "{\n  \"tool\": \"connector.call\",\n  \"arguments\": {\n    \"connector\": \"mastodon\",\n \"path\": \"/v1/items/512\",\n \"method\": \"GET\"\n  }\n}",
+      "completion_tokens": 44,
+      "error": null,
+      "id": "tc-connector-call-06",
+      "passed": true,
+      "prompt_tokens": 646,
+      "seconds": 0.8637367080082186
+    },
+    {
+      "answer": "{\n  \"tool\": \"connector.call\",\n  \"arguments\": {\n    \"connector\": \"calendar\",\n  \"path\": \"/v1/items/147\"\n  }\n}",
+      "completion_tokens": 38,
+      "error": null,
+      "id": "tc-connector-call-07",
+      "passed": true,
+      "prompt_tokens": 642,
+      "seconds": 0.7668085829936899
+    },
+    {
+      "answer": "{\n  \"tool\": \"connector.call\",\n  \"arguments\": {\n    \"connector\": \"weather\",\n    \"path\": \"/v1/items/348\",\n    \"method\": \"DELETE\"\n  }\n}",
+      "completion_tokens": 45,
+      "error": null,
+      "id": "tc-connector-call-08",
+      "passed": true,
+      "prompt_tokens": 645,
+      "seconds": 0.8738533330033533
+    },
+    {
+      "answer": "{\n  \"tool\": \"connector.call\",\n  \"arguments\": {\n    \"connector\": \"notes\",\n    \"path\": \"/v1/items/107\"\n  }\n}",
+      "completion_tokens": 38,
+      "error": null,
+      "id": "tc-connector-call-09",
+      "passed": true,
+      "prompt_tokens": 642,
+      "seconds": 0.766615875007119
+    }
+  ],
+  "started_at": "2026-09-29T16:53:59+00:00",
+  "summary": {
+    "completion_tokens": 2041,
+    "errors": 0,
+    "latency_p50": 0.6038,
+    "latency_p95": 0.8737,
+    "passed": 63,
+    "refused_call_rate": 0.0857,
+    "refused_tool_calls": 6,
+    "tasks": 70,
+    "tokens_per_second": 47.69,
+    "tool_call_tasks": 70
+  }
+}

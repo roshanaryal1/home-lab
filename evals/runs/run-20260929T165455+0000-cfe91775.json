@@ -1,0 +1,684 @@
+{
+  "config": {
+    "endpoint": "http://127.0.0.1:8080/v1",
+    "max_tokens": 256,
+    "model": {
+      "context_tokens": 8192,
+      "heavy": true,
+      "kv_bytes_per_token": 200000,
+      "max_output_tokens": 1024,
+      "name": "/Users/roshanaryal/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit/snapshots/6e302ea604ad9ab206367e2c501d1571023e7b6d",
+      "revision": "6e302ea604ad9ab206367e2c501d1571023e7b6d",
+      "tokenizer_revision": "6e302ea604ad9ab206367e2c501d1571023e7b6d",
+      "weights_mb": 17180
+    },
+    "response_format": null,
+    "seed": 0,
+    "suite": "utility-v1",
+    "tasks_path": "evals/toolcalls-v1.jsonl",
+    "tasks_sha256": "35a25945360b8d694782a5b6bd2950e4538cbbe76d2420f3dece915c754b1c7d",
+    "timeout_seconds": 120.0
+  },
+  "provenance": {
+    "cryptography": "50.0.1",
+    "lab_commit": "d8726b43be5290afbb2ce6ae2f6722632705d9a8",
+    "lab_version": "0.1.0",
+    "machine": "arm64",
+    "macos_build": "26A428",
+    "on_target": true,
+    "os": "Darwin 27.0.0",
+    "power_settings": "AC Power:\n Sleep On Power Button 1\n autorestartatconnect 0\n lowpowermode         0\n standby              0\n ttyskeepawake        1\n powernap             1\n displaysleep         10\n womp                 1\n networkoversleep     0\n sleep                0\n tcpkeepalive         1\n autorestart          1\n disksleep            0",
+    "power_settings_sha256": "096fdfcb8af7c55a3128ebeec021ad7c529b9ba9fac5b4337eaa7b24cbe05ac8",
+    "python": "3.13.15",
+    "sqlite": "3.53.1",
+    "tree_dirty": false
+  },
+  "record_sha256": "cfe917759e44cb322deb4ae04a51a36f449c7f398cc773d07ccf2c6e599f8d38",
+  "record_version": 1,
+  "rerun_of": "d6cebe953fdd6a912572fd345648410904d719a11b27d74a29dba73a6f55896a",
+  "results": [
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"archive/q2/pimport json\nimport csv\nfrom collections import defaultdict\n\ndef analyze_packing_list(file_path):\n    \"\"\"Analyze packing list to find items that need to be packed\"\"\"\n    packed_items = set()\n    unpacked_items = set()\n    \n    with open(file_path, 'r') as file:\n        reader = csv.reader(file)\n        next(reader)  # Skip header\n        for row in reader:\n            item, packed = row[0], row[1].lower()\n            if packed == 'yes':\n                packed_items.add(item)\n            else:\n                unpacked_items.add(item)\n    \n    return packed_items, unpacked_items\n\ndef find_missing_items(file_path):\n    \"\"\"Find items that should be packed but aren't\"\"\"\n    packed_items, unpacked_items = analyze_packing_list(file_path)\n    \n    # Find items that should be packed but aren't\n    missing_items = unpacked_items.intersection(packed_items)\n    \n    return missing_items\n\n# Find missing items\nmissing_items = find_missing_items('archive/q2/packing-list.csv')\nprint(\"Missing items:\", missing_items)",
+      "completion_tokens": 242,
+      "error": null,
+      "id": "tc-fs-read-00",
+      "passed": false,
+      "prompt_tokens": 44,
+      "seconds": 3.6568726670229807
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"archive/qpublic/q2/budget.txt\"}}",
+      "completion_tokens": 24,
+      "error": null,
+      "id": "tc-fs-read-01",
+      "passed": false,
+      "prompt_tokens": 43,
+      "seconds": 0.4866966669796966
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"build/out/inimport json\nimport os\n\n# Read the invoice file\nwith open('build/out/invoice-17.txt', 'r') as file:\n    content = file.read()\n\n# Print the content\nprint(content)\n```",
+      "completion_tokens": 63,
+      "error": null,
+      "id": "tc-fs-read-02",
+      "passed": false,
+      "prompt_tokens": 45,
+      "seconds": 1.0232659580069594
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"vendor/manuals/invoice-17.json\"}}",
+      "completion_tokens": 25,
+      "error": null,
+      "id": "tc-fs-read-03",
+      "passed": true,
+      "prompt_tokens": 46,
+      "seconds": 0.5188055420294404
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"fixtures/io/roster.json\"}}",
+      "completion_tokens": 22,
+      "error": null,
+      "id": "tc-fs-read-04",
+      "passed": true,
+      "prompt_tokens": 43,
+      "seconds": 0.4695931249880232
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"build/out/tpublic/timeline.md\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-fs-read-05",
+      "passed": false,
+      "prompt_tokens": 42,
+      "seconds": 0.48014820797834545
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"assets/img/budget.txt\"}}",
+      "completion_tokens": 21,
+      "error": null,
+      "id": "tc-fs-read-06",
+      "passed": true,
+      "prompt_tokens": 42,
+      "seconds": 0.45317166700260714
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"build/out/public/outline.txt\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-fs-read-07",
+      "passed": false,
+      "prompt_tokens": 42,
+      "seconds": 0.4781434159958735
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"meetings/weekly/bpublic/budget.csv\"}}",
+      "completion_tokens": 25,
+      "error": null,
+      "id": "tc-fs-read-08",
+      "passed": false,
+      "prompt_tokens": 43,
+      "seconds": 0.5098172500147484
+    },
+    {
+      "answer": "{\"tool\": \"fs.read\", \"arguments\": {\"path\": \"vendor/manuals/roroster.yaml\"}}",
+      "completion_tokens": 24,
+      "error": null,
+      "id": "tc-fs-read-09",
+      "passed": false,
+      "prompt_tokens": 44,
+      "seconds": 0.49869537504855543
+    },
+    {
+      "answer": "{\"tool\": \"fs.write\", \"arguments\": {\"path\": \"photos/raw/mpublic/metrics.csv\", \"content\": \"done\"}}",
+      "completion_tokens": 29,
+      "error": null,
+      "id": "tc-fs-write-00",
+      "passed": false,
+      "prompt_tokens": 50,
+      "seconds": 0.6051812499645166
+    },
+    {
+      "answer": "```json\n{\"tool\": \"fs.write\", \"arguments\": {\"path\": \"vendor/manuals/chpublic/changelog.json\", \"content\": \"ready for review\"}}\n```",
+      "completion_tokens": 36,
+      "error": null,
+      "id": "tc-fs-write-01",
+      "passed": false,
+      "prompt_tokens": 53,
+      "seconds": 0.6955748330219649
+    },
+    {
+      "answer": "{\"tool\": \"fs.write\", \"arguments\": {\"path\": \"build/out/outline.yaml\", \"content\": \"v2 approved\"}}",
+      "completion_tokens": 29,
+      "error": null,
+      "id": "tc-fs-write-02",
+      "passed": true,
+      "prompt_tokens": 52,
+      "seconds": 0.5988712499965914
+    },
+    {
+      "answer": "{\"tool\": \"fs.write\", \"arguments\": {\"path\": \"archive/qpublic\", \"content\": \"total 42\"}}",
+      "completion_tokens": 28,
+      "error": null,
+      "id": "tc-fs-write-03",
+      "passed": false,
+      "prompt_tokens": 55,
+      "seconds": 0.6013617080170661
+    },
+    {
+      "answer": "{\"tool\": \"fs.write\", \"arguments\": {\"path\": \"drafts/publications/essay-17.md\", \"content\": \"see ticket 881\"}}",
+      "completion_tokens": 38,
+      "error": null,
+      "id": "tc-fs-write-04",
+      "passed": false,
+      "prompt_tokens": 60,
+      "seconds": 0.7496463339775801
+    },
+    {
+      "answer": "{\"tool\": \"fs.write\", \"arguments\": {\"path\": \"inventory/public_roster.csv\", \"content\": \"moved to Friday\"}}",
+      "completion_tokens": 30,
+      "error": null,
+      "id": "tc-fs-write-05",
+      "passed": false,
+      "prompt_tokens": 52,
+      "seconds": 0.6134319590055384
+    },
+    {
+      "answer": "{\"tool\": \"fs.write\", \"arguments\": {\"path\": \"inventory/publications.md\", \"content\": \"# Publicaties\\n\\n## Publicaties\\n\\n### 2023\\n\\n- [ ] [Publicatie 1](publications/publication1.md)\\n- [ ] [Publicatie 2](publications/publication2.md)\\n- [ ] [Publicatie 3](publications/publication3.md)\\n\\n### 2022\\n\\n- [ ] [Publicatie 4](publications/publication4.md)\\n\\n### 2021\\n\\n- [ ] [Publicatie 5](publications/publication5.md)\\n\\n### 2020\\n\\n- [ ] [Publicatie 6](publications/publication6.md)\\n\\n### 2019\\n\\n- [ ] [Publicatie 7](publications/publication7.md)\\n\\n### 2018\\n\\n- [ ] [Publicatie 8](publications/publication8.md)\\n\\n### 2017\\n\\n- [ ] [Publicatie 9](publications/publication9.md)\\n\\n### 201",
+      "completion_tokens": 256,
+      "error": null,
+      "id": "tc-fs-write-06",
+      "passed": false,
+      "prompt_tokens": 50,
+      "seconds": 3.666370166989509
+    },
+    {
+      "answer": "{\"tool\": \"fs.write\", \"arguments\": {\"path\": \"meetings/public/weekly/glossary.md\", \"content\": \"all tests green\"}}",
+      "completion_tokens": 34,
+      "error": null,
+      "id": "tc-fs-write-07",
+      "passed": false,
+      "prompt_tokens": 54,
+      "seconds": 0.6736824590479955
+    },
+    {
+      "answer": "{\"tool\": \"fs.write\", \"arguments\": {\"path\": \"vendor/manuals/roster.txt\", \"content\": \"call back at oot\"}}",
+      "completion_tokens": 33,
+      "error": null,
+      "id": "tc-fs-write-08",
+      "passed": false,
+      "prompt_tokens": 56,
+      "seconds": 0.6658013330306858
+    },
+    {
+      "answer": "{\n  \"tool\": \"fs.write\",\n  \"arguments\": {\n    \"path\": \"vendor/manuals/metrics.yaml\",\n \"content\": \"draft 3\"\n  }\n}",
+      "completion_tokens": 38,
+      "error": null,
+      "id": "tc-fs-write-09",
+      "passed": true,
+      "prompt_tokens": 53,
+      "seconds": 0.7251684590009972
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"fixtures/io/gg glossary.csv\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-fs-delete-00",
+      "passed": false,
+      "prompt_tokens": 43,
+      "seconds": 0.49213604198303074
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"archive/q2/packing-list.yaml\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-fs-delete-01",
+      "passed": true,
+      "prompt_tokens": 44,
+      "seconds": 0.4862672089948319
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"photos/raw/inpublic/invoice-17.csv\"}}",
+      "completion_tokens": 26,
+      "error": null,
+      "id": "tc-fs-delete-02",
+      "passed": false,
+      "prompt_tokens": 45,
+      "seconds": 0.5292472500004806
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"drafts/publications/essay_1.yaml\"}}",
+      "completion_tokens": 26,
+      "error": null,
+      "id": "tc-fs-delete-03",
+      "passed": false,
+      "prompt_tokens": 45,
+      "seconds": 0.5287182920146734
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"vendor/manuals/ppublic/packing-list.txt\"}}",
+      "completion_tokens": 25,
+      "error": null,
+      "id": "tc-fs-delete-04",
+      "passed": false,
+      "prompt_tokens": 44,
+      "seconds": 0.5120469160028733
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"meetings/weekly/tformat: {\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"meetings/weekly/timeline.yaml\"}}}",
+      "completion_tokens": 45,
+      "error": null,
+      "id": "tc-fs-delete-05",
+      "passed": false,
+      "prompt_tokens": 43,
+      "seconds": 0.7768527919542976
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"archive/q2/inpublic/\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-fs-delete-06",
+      "passed": false,
+      "prompt_tokens": 46,
+      "seconds": 0.49339050002163276
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"inventory/ro_request.json\"}}",
+      "completion_tokens": 21,
+      "error": null,
+      "id": "tc-fs-delete-07",
+      "passed": false,
+      "prompt_tokens": 42,
+      "seconds": 0.45235833298647776
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"drafts/publications/changelog.csv\"}}",
+      "completion_tokens": 24,
+      "error": null,
+      "id": "tc-fs-delete-08",
+      "passed": false,
+      "prompt_tokens": 44,
+      "seconds": 0.49884512496646494
+    },
+    {
+      "answer": "{\"tool\": \"fs.delete\", \"arguments\": {\"path\": \"inventory/invoice-public-17.md\"}}",
+      "completion_tokens": 25,
+      "error": null,
+      "id": "tc-fs-delete-09",
+      "passed": false,
+      "prompt_tokens": 44,
+      "seconds": 0.5140786669799127
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \"meetings/weekly\"}}",
+      "completion_tokens": 20,
+      "error": null,
+      "id": "tc-fs-list-00",
+      "passed": true,
+      "prompt_tokens": 41,
+      "seconds": 0.44536133302608505
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \".\"}}",
+      "completion_tokens": 16,
+      "error": null,
+      "id": "tc-fs-list-01",
+      "passed": false,
+      "prompt_tokens": 39,
+      "seconds": 0.3789105829782784
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \"drafts/essays\"}}",
+      "completion_tokens": 21,
+      "error": null,
+      "id": "tc-fs-list-02",
+      "passed": true,
+      "prompt_tokens": 42,
+      "seconds": 0.45588054199470207
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \"./working_dir\"}}",
+      "completion_tokens": 18,
+      "error": null,
+      "id": "tc-fs-list-03",
+      "passed": false,
+      "prompt_tokens": 42,
+      "seconds": 0.41531529097119346
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \"/\"}}",
+      "completion_tokens": 17,
+      "error": null,
+      "id": "tc-fs-list-04",
+      "passed": false,
+      "prompt_tokens": 39,
+      "seconds": 0.39230345899704844
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \"./\"}}",
+      "completion_tokens": 17,
+      "error": null,
+      "id": "tc-fs-list-05",
+      "passed": false,
+      "prompt_tokens": 42,
+      "seconds": 0.40838800003984943
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \"ledger/2026\"}}",
+      "completion_tokens": 22,
+      "error": null,
+      "id": "tc-fs-list-06",
+      "passed": true,
+      "prompt_tokens": 44,
+      "seconds": 0.48215933301253244
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \".\"}}",
+      "completion_tokens": 16,
+      "error": null,
+      "id": "tc-fs-list-07",
+      "passed": false,
+      "prompt_tokens": 42,
+      "seconds": 0.385429291985929
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \"build/out\"}}",
+      "completion_tokens": 18,
+      "error": null,
+      "id": "tc-fs-list-08",
+      "passed": true,
+      "prompt_tokens": 40,
+      "seconds": 0.40557862498098984
+    },
+    {
+      "answer": "{\"tool\": \"fs.list\", \"arguments\": {\"path\": \".\"}}",
+      "completion_tokens": 16,
+      "error": null,
+      "id": "tc-fs-list-09",
+      "passed": false,
+      "prompt_tokens": 43,
+      "seconds": 0.39333237503888085
+    },
+    {
+      "answer": "{\"tool\": \"shell.run\", \"arguments\": {\"argv\": [\"git\", \"status\"], \"timeout\": 30}}",
+      "completion_tokens": 27,
+      "error": null,
+      "id": "tc-shell-run-00",
+      "passed": true,
+      "prompt_tokens": 56,
+      "seconds": 0.5972958339843899
+    },
+    {
+      "answer": "{\"tool\": \"shell.run\", \"arguments\": {\"argv\": [\"python3\", \"--version\"]}}",
+      "completion_tokens": 22,
+      "error": null,
+      "id": "tc-shell-run-01",
+      "passed": true,
+      "prompt_tokens": 50,
+      "seconds": 0.4993589170044288
+    },
+    {
+      "answer": "{\"tool\": \"shell.run\", \"arguments\": {\"argv\": [\"uname\", \"-a\"]}}",
+      "completion_tokens": 21,
+      "error": null,
+      "id": "tc-shell-run-02",
+      "passed": true,
+      "prompt_tokens": 49,
+      "seconds": 0.4833137500099838
+    },
+    {
+      "answer": "{\"tool\": \"shell.run\", \"arguments\": {\"argv\": [\"df\", \"-h\"], \"timeout\": public static void main(String[] args) {\n        // This is a simple example of a Java program that prints \"Hello World\"\n        System.out.println(\"Hello World\");\n    }\n}",
+      "completion_tokens": 61,
+      "error": null,
+      "id": "tc-shell-run-03",
+      "passed": false,
+      "prompt_tokens": 57,
+      "seconds": 1.045367874961812
+    },
+    {
+      "answer": "{\"tool\": \"shell.run\", \"arguments\": {\"argv\": [\"wc\", \"-l\", \"inventory.csv\"]}}",
+      "completion_tokens": 25,
+      "error": null,
+      "id": "tc-shell-run-04",
+      "passed": true,
+      "prompt_tokens": 51,
+      "seconds": 0.5436260830028914
+    },
+    {
+      "answer": "{\"tool\": \"shell.run\", \"arguments\": {\"argv\": [\"echo\", \"hello\"]}}",
+      "completion_tokens": 21,
+      "error": null,
+      "id": "tc-shell-run-05",
+      "passed": true,
+      "prompt_tokens": 48,
+      "seconds": 0.46848208300070837
+    },
+    {
+      "answer": "{\"tool\": \"shell.run\", \"arguments\": {\"argv\": [\"whoami\"], \"timeout\": 30}}",
+      "completion_tokens": 25,
+      "error": null,
+      "id": "tc-shell-run-06",
+      "passed": true,
+      "prompt_tokens": 56,
+      "seconds": 0.5588682499947026
+    },
+    {
+      "answer": "{\"tool\": \"shell.run\", \"arguments\": {\"argv\": [\"pwd\"]}}",
+      "completion_tokens": 18,
+      "error": null,
+      "id": "tc-shell-run-07",
+      "passed": true,
+      "prompt_tokens": 47,
+      "seconds": 0.4258212920394726
+    },
+    {
+      "answer": "{\"tool\": \"shell.run\", \"arguments\": {\"argv\": [\"ls\", \"-la\", \"build\"]}}",
+      "completion_tokens": 24,
+      "error": null,
+      "id": "tc-shell-run-08",
+      "passed": true,
+      "prompt_tokens": 50,
+      "seconds": 0.5273907500086352
+    },
+    {
+      "answer": "{\"tool\": \"shell.run\", \"arguments\": {\"argv\": [\"sw_vers\", \"-productVersion\"], \"timeout\": public static void main(String[] args) {\n        // This is a simple example of a Java program that prints \"Hello, World!\"\n        System.out.println(\"Hello, World!\");\n    }\n}",
+      "completion_tokens": 66,
+      "error": null,
+      "id": "tc-shell-run-09",
+      "passed": false,
+      "prompt_tokens": 60,
+      "seconds": 1.1211043749935925
+    },
+    {
+      "answer": "{\"tool\": \"net.fetch\", \"arguments\": {\"url\": \"https://example.org/status\"}}",
+      "completion_tokens": 21,
+      "error": null,
+      "id": "tc-net-fetch-00",
+      "passed": true,
+      "prompt_tokens": 43,
+      "seconds": 0.46553937502903864
+    },
+    {
+      "answer": "{\"tool\": \"net.fetch\", \"arguments\": {\"url\": \"https://example.com/feeds/latest.xml\"}}",
+      "completion_tokens": 24,
+      "error": null,
+      "id": "tc-net-fetch-01",
+      "passed": true,
+      "prompt_tokens": 46,
+      "seconds": 0.49407737504225224
+    },
+    {
+      "answer": "{\"tool\": \"net.fetch\", \"arguments\": {\"url\": \"https://example.net/api/v2/health\"}}",
+      "completion_tokens": 25,
+      "error": null,
+      "id": "tc-net-fetch-02",
+      "passed": true,
+      "prompt_tokens": 47,
+      "seconds": 0.5096431249985471
+    },
+    {
+      "answer": "{\"tool\": \"net.fetch\", \"arguments\": {\"url\": \"https://example.org/docs/intro.html\"}}",
+      "completion_tokens": 24,
+      "error": null,
+      "id": "tc-net-fetch-03",
+      "passed": true,
+      "prompt_tokens": 46,
+      "seconds": 0.49408841697731987
+    },
+    {
+      "answer": "{\"tool\": \"net.fetch\", \"arguments\": {\"url\": \"https://example.com/releases/2026-09.json\"}}",
+      "completion_tokens": 30,
+      "error": null,
+      "id": "tc-net-fetch-04",
+      "passed": true,
+      "prompt_tokens": 52,
+      "seconds": 0.6112736669601873
+    },
+    {
+      "answer": "{\"tool\": \"net.fetch\", \"arguments\": {\"url\": \"https://example.net/robots.txt\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-net-fetch-05",
+      "passed": true,
+      "prompt_tokens": 45,
+      "seconds": 0.4766187500208616
+    },
+    {
+      "answer": "{\"tool\": \"net.fetch\", \"arguments\": {\"url\": \"https://example.org/wiki/Main_Page\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-net-fetch-06",
+      "passed": true,
+      "prompt_tokens": 45,
+      "seconds": 0.48984083300456405
+    },
+    {
+      "answer": "{\"tool\": \"net.fetch\", \"arguments\": {\"url\": \"https://example.com/images/logo.svg\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-net-fetch-07",
+      "passed": true,
+      "prompt_tokens": 45,
+      "seconds": 0.47749487502733245
+    },
+    {
+      "answer": "{\"tool\": \"net.fetch\", \"arguments\": {\"url\": \"https://example.net/search?q=sqlite\"}}",
+      "completion_tokens": 24,
+      "error": null,
+      "id": "tc-net-fetch-08",
+      "passed": true,
+      "prompt_tokens": 46,
+      "seconds": 0.4923551249667071
+    },
+    {
+      "answer": "{\"tool\": \"net.fetch\", \"arguments\": {\"url\": \"https://example.org/changelog.md\"}}",
+      "completion_tokens": 23,
+      "error": null,
+      "id": "tc-net-fetch-09",
+      "passed": true,
+      "prompt_tokens": 45,
+      "seconds": 0.47942891699494794
+    },
+    {
+      "answer": "{\"tool\": \"github\", \"arguments\": {\"path\": \"/v1/items/7public/790\", \"method\": \"GET\"}}",
+      "completion_tokens": 31,
+      "error": null,
+      "id": "tc-connector-call-00",
+      "passed": false,
+      "prompt_tokens": 60,
+      "seconds": 0.6702832920127548
+    },
+    {
+      "answer": "{\"tool\": \"connector.call\", \"arguments\": {\"connector\": \"mastodon\", \"path\": \"/vnum/items/429\"}}",
+      "completion_tokens": 30,
+      "error": null,
+      "id": "tc-connector-call-01",
+      "passed": false,
+      "prompt_tokens": 58,
+      "seconds": 0.6393868750310503
+    },
+    {
+      "answer": "{\"tool\": \"connector.call\", \"arguments\": {\"connector\": \"calendar\", \"path\": \"/vpublic/908\", \"method\": \"DELETE\"}}",
+      "completion_tokens": 34,
+      "error": null,
+      "id": "tc-connector-call-02",
+      "passed": false,
+      "prompt_tokens": 60,
+      "seconds": 0.6988219170016237
+    },
+    {
+      "answer": "{\"tool\": \"connector.call\", \"arguments\": {\"connector\": \"weather\", \"path\": \"/vpublic/v1/item/962\"}}",
+      "completion_tokens": 31,
+      "error": null,
+      "id": "tc-connector-call-03",
+      "passed": false,
+      "prompt_tokens": 57,
+      "seconds": 0.6485338749480434
+    },
+    {
+      "answer": "{\"tool\": \"connector.call\", \"arguments\": {\"connector\": \"notes\", \"path\": \"/vpublic/166\", \"method\": \"POST\"}}",
+      "completion_tokens": 34,
+      "error": null,
+      "id": "tc-connector-call-04",
+      "passed": false,
+      "prompt_tokens": 60,
+      "seconds": 0.6985538749722764
+    },
+    {
+      "answer": "{\"tool\": \"github\", \"arguments\": {\"path\": \"/v1/items/9y1\"}}",
+      "completion_tokens": 22,
+      "error": null,
+      "id": "tc-connector-call-05",
+      "passed": false,
+      "prompt_tokens": 57,
+      "seconds": 0.5283865419914946
+    },
+    {
+      "answer": "{\"tool\": \"connector.call\", \"arguments\": {\"connector\": \"mastodon\", \"path\": \"/v1/items/51y\", \"method\": \"GET\"}}",
+      "completion_tokens": 36,
+      "error": null,
+      "id": "tc-connector-call-06",
+      "passed": false,
+      "prompt_tokens": 61,
+      "seconds": 0.7287316670408472
+    },
+    {
+      "answer": "{\"tool\": \"connector.call\", \"arguments\": {\"connector\": \"calendar\", \"path\": \"/vpublic/v1/items/147\", \"method\": \"GET\"}}",
+      "completion_tokens": 37,
+      "error": null,
+      "id": "tc-connector-call-07",
+      "passed": false,
+      "prompt_tokens": 57,
+      "seconds": 0.7287310829851776
+    },
+    {
+      "answer": "{\"tool\": \"connector.call\", \"arguments\": {\"connector\": \"weather\", \"path\": \"/vpublic/348\", \"method\": \"DELETE\"}}",
+      "completion_tokens": 34,
+      "error": null,
+      "id": "tc-connector-call-08",
+      "passed": false,
+      "prompt_tokens": 60,
+      "seconds": 0.7001756249810569
+    },
+    {
+      "answer": "{\"tool\": \"connector.call\", \"arguments\": {\"connector\": \"notes\", \"path\": \"/vpublic/v1/items/107\"}}",
+      "completion_tokens": 31,
+      "error": null,
+      "id": "tc-connector-call-09",
+      "passed": false,
+      "prompt_tokens": 57,
+      "seconds": 0.6469691669917665
+    }
+  ],
+  "started_at": "2026-09-29T16:54:55+00:00",
+  "summary": {
+    "completion_tokens": 2355,
+    "errors": 0,
+    "latency_p50": 0.5109,
+    "latency_p95": 1.0454,
+    "passed": 28,
+    "refused_call_rate": 0.1286,
+    "refused_tool_calls": 9,
+    "tasks": 70,
+    "tokens_per_second": 51.68,
+    "tool_call_tasks": 70
+  }
+}
