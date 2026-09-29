@@ -86,7 +86,7 @@ constraints:
 | PicoClaw | targets ~USD 10 hardware, air-gapped capable |
 
 **The number that matters most**, from *Resource Constraints and Performance in
-Agentic AI Systems* ([arXiv 2608.27886](https://arxiv.org/abs/2608.27886)),
+Agentic AI Systems* ([arXiv 2608.27886](https://arxiv.org/abs/2608.27886), a preprint),
 which compared OpenClaw and NanoBot head to head:
 
 > In the primary benchmark, the rate of full task completion was **31% for
@@ -133,7 +133,7 @@ that is measurably unsafe by default, and I would rather tell you now than after
 it is built.
 
 From *Practice Makes Unsafe: Skill Misevolution in Self-Improving LLM Agents*
-([arXiv 2608.12851](https://arxiv.org/abs/2608.12851)):
+([arXiv 2608.12851](https://arxiv.org/abs/2608.12851), a preprint):
 
 > Across 25 agent-method configurations, **all 21 evolved skill variants
 > produced unsafe artifacts**, and 15 caused harm in fresh sessions. Malicious
@@ -161,11 +161,12 @@ I checked whether "benchmark local agent platforms" is novel. It largely is not:
 **ReliabilityBench** covers consistency, perturbation robustness and
 chaos-engineering-style fault injection; there is a public environment,
 AgentDojo, with **97 tasks and 629 security tests** for prompt injection on
-tool-using agents (as stated in its paper, arXiv 2406.13352; checked
+tool-using agents (as stated in its paper, published at NeurIPS 2024,
+[doi:10.52202/079017-2636](https://doi.org/10.52202/079017-2636), preprint arXiv 2406.13352; checked
 2026-09-29 UTC. Separately, this lab's own local AgentDojo v1.2 run on
 2026-09-29 had 949 attack cases);
-*Engineering Reliable Coding Agents* ([arXiv 2608.13867](https://arxiv.org/abs/2608.13867))
-and *Where Reliability Lives* ([arXiv 2609.03192](https://arxiv.org/abs/2609.03192))
+*Engineering Reliable Coding Agents* ([arXiv 2608.13867](https://arxiv.org/abs/2608.13867), preprint)
+and *Where Reliability Lives* ([arXiv 2609.03192](https://arxiv.org/abs/2609.03192), preprint)
 both exist.
 
 **The gap that remains open** is duration. Everything above measures behaviour
@@ -385,8 +386,8 @@ emailed far more reliably than a workshop paper does.
 | Eleven LLMs designed the same system. Here is what they agreed on. | P1 consensus matrix | now |
 | An LLM flagged 14 real tools as hallucinations. Zero were fake. | P2 seed finding | now |
 | I tested my own task queue and found it leases 19 jobs when it can run 1. | the defect confirmation above | now |
-| OpenClaw uses 19x the memory of NanoBot for no completion advantage. | arXiv 2608.27886 | now |
-| Every self-improving skill variant we have measured produced unsafe artifacts. | arXiv 2608.12851 | now |
+| OpenClaw uses 19x the memory of NanoBot for no completion advantage. | arXiv 2608.27886 (preprint) | now |
+| Every self-improving skill variant we have measured produced unsafe artifacts. | arXiv 2608.12851 (preprint) | now |
 | Build log, weekly | P3 in progress | from Phase 0 |
 
 The build-log series is the highest-value one, because **it doubles as P3's raw
