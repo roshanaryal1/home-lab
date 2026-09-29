@@ -64,7 +64,13 @@ Internal 512 GB, latency-sensitive state only:
 
 External 1 TB, mounted at a stable path:
 
-- [ ] Full model library, cold weights.
+- [x] Full model library, cold weights. 2026-09-29: the builds not being
+      served (plain MLX 4-bit, needed to reproduce the pre-registered H2b
+      runs, and the GGUF used for H2) are on the encrypted `labbackup` volume
+      under `models/hf-cache/`, every blob checked against its SHA-256. Copy
+      with `rsync -aL`: the Hugging Face cache now links some blobs into a
+      shared store, and a plain `rsync -a` copied those as dangling links.
+      The internal copies are still there (about 32 GB) and can be removed.
 - [ ] Research corpus, PDFs, datasets.
 - [ ] Archived repositories, experiment artifacts, long-term logs.
 - [x] Backup sets. The encrypted `labbackup` volume (section 10); only a
