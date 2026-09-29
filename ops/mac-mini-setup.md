@@ -17,7 +17,10 @@ wrong; do not plan capacity against that number.
 
 ## 1. Accounts
 
-- [ ] Complete macOS setup with your normal admin account.
+The `sudo` sitting for sections 1, 5, 11 and 16 is scripted step by step in
+`ops/runbook-lab-account-and-daemons.md`.
+
+- [x] Complete macOS setup with your normal admin account.
 - [ ] Create a **dedicated non-admin account** for the lab, for example
       `lab`. Everything the agents do runs as this user. This is the
       single most important control in the whole design: it is what
@@ -25,7 +28,8 @@ wrong; do not plan capacity against that number.
       one.
 - [ ] Confirm the `lab` user cannot `sudo`: run `sudo -l` while logged
       in as it and expect a refusal.
-- [ ] Turn on FileVault.
+- [x] Turn on FileVault. On (`fdesetup status`, 2026-09-30); the restart
+      trade-off is decided in section 17.
 
 ## 2. Network
 
