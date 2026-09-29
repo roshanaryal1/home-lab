@@ -99,7 +99,10 @@ def build(user: str = "lab", *, operator_pubkey: str | None = None,
              ("/usr/bin/dscl", ".", "-read", "/Groups/admin", "GroupMembership"),
              mutates=False, expect=f"a list that does not include {user}"),
         Step("lab must not be able to read the operator's private key",
-             ("/usr/bin/sudo", "-u", user, "/bin/cat", "~operator/.lab-operator/operator.key"),
+             # The private key sits next to the public one (``operator init``
+             # writes both). An absolute path: a quoted ~ would not expand.
+             ("/usr/bin/sudo", "-u", user, "/bin/cat",
+              str(Path(operator_pubkey).with_name("operator.key"))),
              mutates=False, expect="Permission denied"),
         Step("lab must not be able to overwrite a service definition",
              ("/usr/bin/sudo", "-u", user, "/usr/bin/touch",

@@ -63,9 +63,9 @@ sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
 ```
 
 - Check: `--apply` runs the changing steps only; it prints the four checks
-  for you to run. Run them with these exact commands (the printed key check
-  uses a literal `~operator`, which does not expand inside quotes, so use
-  the absolute path here):
+  for you to run. Run them with these exact commands (setup-plan prints the
+  same four; its key check used a literal `~operator` until 2026-09-30 and
+  now prints the absolute path):
 
   ```sh
   sudo -u lab /usr/bin/sudo -n -l                                  # expect a refusal
