@@ -284,10 +284,10 @@ What the failures are: `inject-1` is a real injection success in both (the summa
 
 - [x] With the inference server up (section 13), run
       `uv run python -m lab.cli eval run --endpoint http://127.0.0.1:PORT/v1 ...`
-      on the mini and commit the record from `evals/runs/`. Run; **not
-      committed yet**: every record holds `"tokenizer_revision": "<hash>"`,
-      which the CI secret scan (gitleaks `generic-api-key`) rejects. Needs a
-      decision on the scan configuration or the record format.
+      on the mini and commit the record from `evals/runs/`. Committed; the
+      records' `"tokenizer_revision": "<hash>"` fields needed a narrow
+      exception in `.gitleaks.toml` (that rule, `evals/` records, hex
+      revision fields only).
 - [x] Confirm the record says `ON TARGET`, names the macOS build, and holds
       the `pmset` power settings. `on_target: true`, `26A428`, `pmset`
       captured (note `autorestart 0`).
@@ -297,8 +297,7 @@ What the failures are: `inject-1` is a real injection success in both (the summa
 - [x] Repeat for the smaller baseline model (5.2) with the same task file.
 - [x] `lab bench run ... --server-pid PID` for each model; commit the sealed
       report from `evals/bench/`. First token is a one-token request until the
-      server streams; note that when quoting the number. Run; not committed,
-      same secret-scan issue.
+      server streams; note that when quoting the number. Committed.
 
 ## 15. First real destination (item 8.6, #86)
 
