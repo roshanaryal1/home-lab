@@ -386,6 +386,12 @@ the paths, then:
 
 ## 20. Constrained decoding (item 5.3, #76)
 
+**Exploratory, not the pre-registered H2.** `docs/PREREGISTRATION.md`
+defines H2 over the three frozen `tool_call` tasks in `evals/tasks.jsonl`
+only. The figures below add 48 generated prompts and a schema-in-prompt
+condition that the pre-registration does not name, so they can guide the
+next step but cannot confirm or refute H2 without a dated amendment.
+
 Measured 2026-09-30 on the heavy model, 51 tool-call prompts (the 3
 `tool_call` tasks in `evals/tasks.jsonl` plus `fs.read`, `fs.write` and
 `fs.list` over 16 paths), temperature 0, graded by `parse_tool_call`:
