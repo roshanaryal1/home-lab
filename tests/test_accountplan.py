@@ -161,3 +161,12 @@ def test_a_missing_executable_stops_the_apply_instead_of_crashing(
     monkeypatch.setattr(subprocess, "run", missing)
     result = accountplan.apply(accountplan.build(), platform="darwin")
     assert not result.ok and result.failed is not None and "no such file" in result.detail
+
+
+def test_the_private_key_check_uses_an_absolute_path_next_to_the_public_key() -> None:
+    """A literal ~operator is not expanded inside a quoted argument, so the
+    check would test a path that does not exist and pass for the wrong reason."""
+    plan = accountplan.build(operator_pubkey="/Users/op/.lab-operator/operator.pub")
+    (check,) = [s for s in plan if "operator.key" in s.command]
+    assert check.argv[-1] == "/Users/op/.lab-operator/operator.key"
+    assert not any("~" in arg for s in plan for arg in s.argv)
