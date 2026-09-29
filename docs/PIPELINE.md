@@ -151,7 +151,7 @@ None of S1 to S6 touch the double-blind paper, so none are blocked.
 |---|---|---|
 | `roshanaryal1/llm-architects` | public | the P1 paper artifact, data, analysis |
 | `roshanaryal1/llm-architects-planning` | private | strategy: `paper/portfolio.md`, `paper/venue-strategy.md`, DMLR package, submission logistics |
-| `roshanaryal1/home-lab` | private | the build, which is paper P3 |
+| `roshanaryal1/home-lab` | public (since 2026-09-29) | the build, which is paper P3 |
 | `roshanaryal1/the-rater-is-stale` | private | paper P2 |
 | `roshanaryal1/writing` | private | short-form drafts, see below |
 
