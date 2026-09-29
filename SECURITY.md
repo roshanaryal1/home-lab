@@ -287,6 +287,23 @@ Implemented and tested:
   moved. Tested against a stub endpoint; no real model has been run, and
   the records are not signed, only self-hashed, so they detect accident
   and casual edits, not an adversary who recomputes the hash.
+- **Nightly self-test and the alert hook** (`lab/selftest.py`, `lab/alert.py`,
+  H5b). `lab selftest` verifies the live audit chain, backs the database up
+  and restores it into a fresh directory with every hash checked, confirms
+  `lab status` is not unhealthy, and runs the safety-marked tests; it writes
+  one `selftest` event to the log. On failure, and when `lab status` reports
+  unhealthy, the operator's alert command runs. The command is read only from
+  a JSON file the running user owns that no one else can write, must be an
+  argv list with an absolute first element, and is never taken from the
+  database, a task or a model. The message goes on stdin after control
+  characters are stripped and the text is bounded; the environment is PATH and
+  a fixed `LAB_ALERT_KIND`; no shell is involved. A hook that hangs is killed
+  with its process group, a failing hook never changes an exit code, and the
+  same kind of alert is not repeated within an hour, decided under a lock so two
+  overlapping runs cannot both send. The config is opened once without following
+  a symlink and its owner and mode are read from the open descriptor. The channel itself (which
+  service, which account) is not chosen here and the dead-man switch that
+  catches the lab going silent is not built (#79).
 - **Sleep prevention and logs** (`lab/keepawake.py`, `lab/logsetup.py`, H5a).
   `lab keepawake` is read-only on the database: it holds `caffeinate -i`
   while a task is queued, leased or running or the log moved within the

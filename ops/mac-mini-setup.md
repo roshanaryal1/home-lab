@@ -295,8 +295,14 @@ the paths, then:
 `lab control` and `lab cancel` are built. What needs the mini and an account:
 
 - [ ] Pick the alert channel (a push service or email) and create the account.
-- [ ] `lab status` exits 2 when unhealthy; run it from a LaunchDaemon and send
-      an alert on exit 2.
+- [ ] Alert command (built: `lab/alert.py`). Copy `ops/alert.example.json` to
+      `/etc/homelab/alert.json`, owned by `lab`, mode 600, and point `command` at
+      your notifier (an absolute path; it reads the message on stdin). Install
+      `com.homelab.statuscheck.plist` (runs `lab status` every 5 minutes and
+      alerts when unhealthy) and `com.homelab.selftest.plist` (03:17 nightly).
+      To test it, run `lab status --alert-config` against a scratch database
+      holding a task whose lease has expired (a paused or stopped lab is not
+      unhealthy, so `lab control` will not trigger it).
 - [ ] Dead-man switch: an external service expects a ping every few minutes
       from the lab and alerts when it stops. Unplug the network; the alert must
       arrive within ten minutes.
