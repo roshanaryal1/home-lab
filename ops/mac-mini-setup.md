@@ -136,20 +136,26 @@ meaningfully exercised on a laptop.
 
 ## 9. Isolation measurements (item 4.6, #71, ADR 0007)
 
-Parked until the M6 is on the desk. None of this is run yet.
+Run on the M6 on 2026-09-29, except the heavy-model check. Numbers are in
+ADR 0007, "Measured on the M6".
 
-- [ ] Install Apple's `container` tool (macOS 26 or later, Apple silicon);
-      record the version and the macOS build it ran on.
-- [ ] Start and stop one container from a small Linux image, 20 times.
+- [x] Install Apple's `container` tool (macOS 26 or later, Apple silicon);
+      record the version and the macOS build it ran on. `container` 1.5.0
+      (commit `d265d66`) on macOS 27.0 (26A428).
+- [x] Start and stop one container from a small Linux image, 20 times.
       Record start-up time (median and worst) and resident memory of the
       container's VM at idle and while running a Python test suite.
+      Median 0.637 s; worst 17.377 s (first run after install), 0.706 s
+      after that. VM RSS 381 MiB idle, peak 1980 MiB during the lab's
+      suite with a 1024 MB guest.
 - [ ] With the heavy model loaded and generating, start one container.
       Record memory pressure and swap before and during. Pass only if no
-      swap growth.
-- [ ] Confirm from inside a container that the host's directory service
+      swap growth. Waits for the real model (section 13).
+- [x] Confirm from inside a container that the host's directory service
       is unreachable (`getent passwd` shows only the guest's accounts) and
-      that only the mounted workspace is visible.
-- [ ] Write the numbers into ADR 0007, replacing "not measured yet".
+      that only the mounted workspace is visible. Also found: networking
+      is on by default; `--network none` turns it off.
+- [x] Write the numbers into ADR 0007, replacing "not measured yet".
 
 ## 10. Backup and recovery drills (items 3.4 and #91, #67)
 
