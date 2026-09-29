@@ -15,7 +15,7 @@ snippet. Current literature has sharpened that into something buildable.
 ### What the field settled on
 
 *From Fluent to Verifiable: Claim-Level Auditability for Deep Research Agents*
-([arXiv 2602.13855](https://arxiv.org/abs/2602.13855)) proposes claim-level
+([arXiv 2602.13855](https://arxiv.org/abs/2602.13855), a preprint) proposes claim-level
 auditability as a first-class design target, measured on four axes:
 
 - **provenance coverage**: what fraction of claims have a source at all
@@ -79,10 +79,10 @@ You asked for agents that improve themselves and their skills. `PLAN.md` §1.4
 established that unguarded self-improvement is measurably unsafe: across 25
 configurations, **all 21 evolved skill variants produced unsafe artifacts**, and
 malicious exposure raised unsafe carryover from 16.0% to 35.3%
-([arXiv 2608.12851](https://arxiv.org/abs/2608.12851)).
+([arXiv 2608.12851](https://arxiv.org/abs/2608.12851), a preprint).
 
 The field's answer is not "don't", it is **governed skill lifecycles**. From
-*SkillsVote* ([arXiv 2605.18401](https://arxiv.org/abs/2605.18401)) and the
+*SkillsVote* ([arXiv 2605.18401](https://arxiv.org/abs/2605.18401), a preprint) and the
 lifecycle surveys:
 
 - candidate changes are **proposed and validated**, never applied directly to
