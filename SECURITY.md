@@ -299,7 +299,9 @@ Implemented and tested:
   characters are stripped and the text is bounded; the environment is PATH and
   a fixed `LAB_ALERT_KIND`; no shell is involved. A hook that hangs is killed
   with its process group, a failing hook never changes an exit code, and the
-  same kind of alert is not repeated within an hour. The channel itself (which
+  same kind of alert is not repeated within an hour, decided under a lock so two
+  overlapping runs cannot both send. The config is opened once without following
+  a symlink and its owner and mode are read from the open descriptor. The channel itself (which
   service, which account) is not chosen here and the dead-man switch that
   catches the lab going silent is not built (#79).
 - **Sleep prevention and logs** (`lab/keepawake.py`, `lab/logsetup.py`, H5a).

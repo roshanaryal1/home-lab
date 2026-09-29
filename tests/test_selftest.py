@@ -245,3 +245,101 @@ def test_the_launchd_definitions_exist_and_match_the_generator() -> None:
     assert (root / "com.homelab.statuscheck.plist").read_bytes() == service.statuscheck_plist(
         user="lab", python=py, workdir=wd, db=db, alert_config=cfg)
     assert os.access(root, os.R_OK) and stat.S_ISDIR(root.stat().st_mode)
+
+
+# ---------------------------------------------------- review findings on #144
+
+
+def test_a_damaged_database_fails_the_checks_instead_of_crashing(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.db"
+    bad.write_bytes(b"this is not a sqlite database" * 100)
+    report = selftest.run(bad, run_safety_tests=False)
+    assert not report.ok
+    assert {c.name for c in report.failures()} >= {"audit_chain"}
+
+
+def test_a_pytest_that_cannot_launch_fails_the_check(db: Path, tmp_path: Path,
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess as sp
+    tests = tmp_path / "t"
+    tests.mkdir()
+
+    def boom(*a: object, **k: object) -> None:
+        raise OSError("exec format error")
+
+    monkeypatch.setattr(sp, "run", boom)
+    report = selftest.run(db, tests_dir=tests, run_safety_tests=True)
+    check = next(c for c in report.checks if c.name == "safety_tests")
+    assert not check.ok and "OSError" in check.detail
+
+
+def test_a_relative_tests_dir_is_resolved_once(db: Path, tmp_path: Path,
+                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    tests = tmp_path / "suite"
+    tests.mkdir()
+    (tests / "test_ok.py").write_text(
+        "import pytest\n@pytest.mark.safety\ndef test_ok():\n    assert True\n")
+    (tests / "pytest.ini").write_text("[pytest]\nmarkers = safety\n")
+    monkeypatch.chdir(tmp_path)
+    report = selftest.run(db, tests_dir=Path("suite"), run_safety_tests=True)
+    check = next(c for c in report.checks if c.name == "safety_tests")
+    assert check.ok and "1 passed" in check.detail
+
+
+@pytest.mark.safety
+def test_a_nul_byte_in_the_command_is_a_config_error(tmp_path: Path) -> None:
+    path = tmp_path / "alert.json"
+    path.write_text(json.dumps({"command": ["/bin/echo\u0000x"]}))
+    path.chmod(0o600)
+    with pytest.raises(alert.AlertConfigError):
+        alert.load(path)
+
+
+@pytest.mark.safety
+def test_a_symlinked_config_is_refused_even_if_the_target_is_safe(tmp_path: Path) -> None:
+    real = _config(tmp_path, [sys.executable])
+    link = tmp_path / "link.json"
+    link.symlink_to(real)
+    with pytest.raises(alert.AlertConfigError):
+        alert.load(link)
+
+
+@pytest.mark.safety
+def test_the_checked_file_is_the_file_that_is_read(tmp_path: Path,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mode and owner are read from the open descriptor, so swapping the
+    path between a check and a read cannot change which file was checked."""
+    path = _config(tmp_path, [sys.executable])
+    calls: list[str] = []
+    real_stat = Path.stat
+
+    def spy(self: Path, *a: object, **k: object) -> os.stat_result:
+        calls.append(str(self))
+        return real_stat(self, *a, **k)
+
+    monkeypatch.setattr(Path, "stat", spy)
+    alert.load(path)
+    assert str(path) not in calls, "the path must not be stat'ed separately from the open"
+
+
+def test_two_processes_racing_send_one_alert(tmp_path: Path) -> None:
+    import threading
+    script = tmp_path / "slow.py"
+    out = tmp_path / "runs"
+    script.write_text(
+        "import time\n"
+        f"open({str(out)!r}, 'a').write('x')\n"
+        "time.sleep(0.3)\n")
+    cfg = alert.load(_config(tmp_path, [sys.executable, str(script)], min_interval_seconds=3600))
+    state = tmp_path / "state"
+    results: list[bool] = []
+
+    def go() -> None:
+        results.append(alert.send(cfg, kind="unhealthy", message="m", state_file=state))
+
+    threads = [threading.Thread(target=go) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert results.count(True) == 1 and len(out.read_text()) == 1

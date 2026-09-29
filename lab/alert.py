@@ -15,15 +15,21 @@ The trust rules, each with a test:
   removed and the text is bounded, so it cannot become an argument, an
   option or a terminal escape. The only environment the hook sees is PATH
   and ``LAB_ALERT_KIND``, a fixed lowercase word.
+* The file is opened once, without following a symlink, and its owner and mode
+  are read from the open descriptor, so the file that was checked is the file
+  that is read.
 * A hook that hangs is killed with its whole process group; one that fails is
   reported to the caller, never raised into the health check.
 * The same kind of alert is not repeated inside ``min_interval_seconds``, so a
-  stuck lab does not send one every five minutes.
+  stuck lab does not send one every five minutes. The check, the run and the
+  timestamp happen under one lock on the state file, so two processes cannot
+  both decide an alert is due.
 """
 
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import json
 import os
 import re
@@ -55,23 +61,29 @@ class AlertConfig:
 def load(path: str | Path) -> AlertConfig:
     path = Path(path)
     try:
-        info = path.stat()
-        raw = path.read_text(encoding="utf-8")
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     except OSError as exc:
         raise AlertConfigError(f"cannot read alert configuration {path}: {exc.strerror}") from exc
-    if not stat.S_ISREG(info.st_mode):
-        raise AlertConfigError(f"{path} is not a regular file")
-    if info.st_uid != os.geteuid():
-        raise AlertConfigError(f"{path} is not owned by the user running the lab")
-    if info.st_mode & 0o022:
-        raise AlertConfigError(f"{path} is writable by group or others; chmod 600 it")
+    with os.fdopen(fd, encoding="utf-8") as stream:
+        info = os.fstat(stream.fileno())        # the descriptor, not the path
+        if not stat.S_ISREG(info.st_mode):
+            raise AlertConfigError(f"{path} is not a regular file")
+        if info.st_uid != os.geteuid():
+            raise AlertConfigError(f"{path} is not owned by the user running the lab")
+        if info.st_mode & 0o022:
+            raise AlertConfigError(f"{path} is writable by group or others; chmod 600 it")
+        try:
+            raw = stream.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            raise AlertConfigError(f"cannot read alert configuration {path}") from exc
     try:
         data: Any = json.loads(raw)
     except ValueError as exc:
         raise AlertConfigError(f"{path} is not valid JSON") from exc
     command = data.get("command") if isinstance(data, dict) else None
     if (not isinstance(command, list) or not command
-            or not all(isinstance(part, str) and part for part in command)):
+            or not all(isinstance(part, str) and part and "\x00" not in part
+                       for part in command)):
         raise AlertConfigError('"command" must be a non-empty list of non-empty strings')
     if not os.path.isabs(command[0]):
         raise AlertConfigError('"command"[0] must be an absolute path, not looked up in PATH')
@@ -114,20 +126,31 @@ def _remember(state_file: Path | None, kind: str, now: float) -> None:
             fh.write(json.dumps(state))
 
 
-def send(config: AlertConfig, *, kind: str, message: str,
-         state_file: Path | None = None) -> bool:
-    """Run the hook once. True if it ran and exited 0, False otherwise."""
-    if not KIND.match(kind):
-        raise ValueError("kind must be a short lowercase word")
-    now = time.time()
-    if not _due(state_file, kind, config.min_interval_seconds, now):
-        return False
+@contextlib.contextmanager
+def _locked(state_file: Path | None):  # type: ignore[no-untyped-def]
+    """An exclusive lock for the check, the run and the timestamp."""
+    if state_file is None:
+        yield
+        return
+    lock = state_file.with_name(state_file.name + ".lock")
+    fd = os.open(lock, os.O_WRONLY | os.O_CREAT, 0o600)
     try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _run_hook(config: AlertConfig, kind: str, message: str) -> bool:
+    try:
+        # The argv is the operator's own file (see the module docstring), a
+        # list run without a shell; the message is stdin only.
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         proc = subprocess.Popen(
             list(config.command), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, shell=False, start_new_session=True,
             env={"PATH": "/usr/bin:/bin", "LAB_ALERT_KIND": kind})
-    except OSError:
+    except (OSError, ValueError):
         return False
     try:
         proc.communicate(f"{kind}: {_sanitize(message)}\n", timeout=config.timeout_seconds)
@@ -136,7 +159,19 @@ def send(config: AlertConfig, *, kind: str, message: str,
             os.killpg(proc.pid, signal.SIGKILL)
         proc.communicate()
         return False
-    if proc.returncode != 0:
-        return False
-    _remember(state_file, kind, now)
-    return True
+    return proc.returncode == 0
+
+
+def send(config: AlertConfig, *, kind: str, message: str,
+         state_file: Path | None = None) -> bool:
+    """Run the hook once. True if it ran and exited 0, False otherwise."""
+    if not KIND.match(kind):
+        raise ValueError("kind must be a short lowercase word")
+    with _locked(state_file):
+        now = time.time()
+        if not _due(state_file, kind, config.min_interval_seconds, now):
+            return False
+        if not _run_hook(config, kind, message):
+            return False
+        _remember(state_file, kind, now)
+        return True

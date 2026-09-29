@@ -54,12 +54,19 @@ def _readonly(db: Path) -> sqlite3.Connection:
     return conn
 
 
+def _failed(name: str, exc: BaseException) -> Check:
+    return Check(name, False, f"{type(exc).__name__}: {exc}"[:300])
+
+
 def _check_chain(db: Path) -> Check:
-    conn = _readonly(db)
     try:
-        report = verify_chain(conn)
-    finally:
-        conn.close()
+        conn = _readonly(db)
+        try:
+            report = verify_chain(conn)
+        finally:
+            conn.close()
+    except (sqlite3.DatabaseError, OSError) as exc:
+        return _failed("audit_chain", exc)
     if report.ok:
         return Check("audit_chain", True, f"{report.events} events verify")
     return Check("audit_chain", False, f"{report.problem} at event {report.bad_id}")
@@ -81,19 +88,26 @@ def _check_backup(db: Path) -> Check:
 
 
 def _check_health(db: Path) -> Check:
-    conn = _readonly(db)
     try:
-        report = metrics.collect(conn)
-    finally:
-        conn.close()
+        conn = _readonly(db)
+        try:
+            report = metrics.collect(conn)
+        finally:
+            conn.close()
+    except (sqlite3.DatabaseError, OSError) as exc:
+        return _failed("health", exc)
     detail = report.health + (f" ({'; '.join(report.reasons)})" if report.reasons else "")
     return Check("health", report.health != "unhealthy", detail[:300])
 
 
 def _check_safety_tests(tests_dir: Path) -> Check:
+    tests_dir = tests_dir.resolve()      # used as both cwd and the path, so resolve it once
     if not tests_dir.is_dir():
         return Check("safety_tests", True, "skipped: no tests directory on this install")
     try:
+        # A fixed argv: this interpreter running pytest over a directory the
+        # operator named. No shell, and nothing here comes from the database.
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         proc = subprocess.run(
             [sys.executable, "-m", "pytest", str(tests_dir), "-q", "-m", "safety",
              "--no-header", "-p", "no:cacheprovider"],
@@ -101,6 +115,8 @@ def _check_safety_tests(tests_dir: Path) -> Check:
             check=False)
     except subprocess.TimeoutExpired:
         return Check("safety_tests", False, f"timed out after {SAFETY_TIMEOUT_SECONDS:g}s")
+    except (OSError, ValueError) as exc:
+        return _failed("safety_tests", exc)
     summary = next((ln for ln in reversed(proc.stdout.splitlines())
                     if re.search(r"\d+ (passed|failed|error)", ln)), proc.stdout[-200:])
     return Check("safety_tests", proc.returncode == 0, summary.strip("= ").strip()[:200])
