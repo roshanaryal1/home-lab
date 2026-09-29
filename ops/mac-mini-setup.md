@@ -162,11 +162,19 @@ ADR 0007, "Measured on the M6".
 Software is done and rehearsed in CI. These are the parts that count only
 on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
 
-- [ ] Choose a backup target on a different physical disk or machine.
+- [x] Choose a backup target on a different physical disk or machine.
+      2026-09-30: external 1 TB USB SSD, erased as APFS with FileVault
+      encryption, volume `labbackup`; backups go to
+      `/Volumes/labbackup/home-lab-backups` (mode 700). A backup of a
+      throwaway database wrote its manifest there and `restore-check`
+      verified it.
 - [ ] `uv run python -m lab.cli backup --to <target>` from a scheduled job;
-      confirm a new `*.manifest.json` appears.
+      confirm a new `*.manifest.json` appears. Scheduling waits for the
+      launchd work in section 16.
 - [ ] First full restore drill: `uv run python -m lab.cli drill restore`
       against the live database. Commit the record from `ops/drills/log/`.
+      Waits for a live database: the supervisor creates it, under the lab
+      account (sections 11 and 16).
 - [ ] Repeat monthly; log the date in `ops/drills/log/`.
 - [x] Crash drill on the mini: `uv run python -m lab.cli drill crash`.
       2026-09-29: PASS for both kinds; records in `ops/drills/log/`.
