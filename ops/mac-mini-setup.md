@@ -179,7 +179,9 @@ ADR 0007, "Measured on the M6".
 - [x] With the heavy model loaded and generating, start one container.
       Record memory pressure and swap before and during. Pass only if no
       swap growth. 2026-09-30: PASS, swap 1,247.8 MB before and 1,239.8 MB
-      after while the model generated 2,000 tokens (ADR 0001).
+      after while the model generated 2,000 tokens (ADR 0001). Repeated on
+      the DWQ build with `--network none`: 1,268.8 MB before, 1,260.8 MB
+      after (ADR 0007).
 - [x] Confirm from inside a container that the host's directory service
       is unreachable (`getent passwd` shows only the guest's accounts) and
       that only the mounted workspace is visible. Also found: networking

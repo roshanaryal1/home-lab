@@ -116,13 +116,19 @@ With the image's own Python (SQLite 3.46.1) the queue refuses to open, as
   ADR's "network off by default" is a requirement on our executor, not
   the tool's default.
 
-## What is not measured yet
+## A container beside the heavy model
 
-- Whether a container and the heavy model can be resident together on
-  32 GB without swap growth (ADR 0001 planning figures suggest the heavy
-  slot leaves little room; this is the reason containers are per task and
-  short-lived). Needs the real model from section 13 of
-  `ops/mac-mini-setup.md`.
+Measured on the M6, with the heavy model generating 2,000 tokens while one
+container started, ran and exited:
+
+| served build | swap before | swap after | free memory during |
+|---|---|---|---|
+| plain MLX 4-bit, 2026-09-29 | 1,247.8 MB | 1,239.8 MB | 38% |
+| DWQ 4-bit, 2026-09-30 (`--network none`) | 1,268.8 MB | 1,260.8 MB | 38 to 39% |
+
+No swap growth either time, so one short-lived container fits beside the
+heavy model on 32 GB. Two or more at once, or a long-running one, were not
+measured.
 
 Checklist for the mini is in `ops/mac-mini-setup.md`, section 9.
 
