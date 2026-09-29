@@ -446,7 +446,9 @@ expect a call either way between runs.
 - [ ] The same for routing labels. Deliberately not run (2026-09-29): the
       only model-produced routing labels are the shadow candidate's, which is
       what the pre-registered H1 measures, so an exploratory run would expose
-      H1's cases before their file is frozen. Run it inside H1 or after it.
+      H1's cases before their file is frozen. Run it only after a dated
+      pre-registration amendment has frozen H1's case file, as part of H1 or
+      after it, never before.
       Options considered,
       each a new runtime or dependency to decide on: llama.cpp's
       `llama-server` (checked in its source: a `json_schema` or `grammar`
