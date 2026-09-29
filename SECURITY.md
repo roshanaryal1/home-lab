@@ -444,6 +444,18 @@ Implemented and tested:
   private as the directory they are written to. Recovery drills
   (`lab drill`, `ops/drills/`) record every run and count as
   demonstrated only on the Mac mini; the monthly drill there is parked.
+- **Constrained decoding and shadow measurement** (`lab/grammar.py`,
+  `lab/shadow.py`, `lab/bench.py`). The tool-call JSON Schema is generated
+  from the broker table and fails closed for any argument type without a
+  fragment; it is sent as `response_format` only when configured, and the strict
+  parser stays the authority whatever the server does. A candidate routing
+  model is compared with the rubric in shadow: it cannot change a decision, its
+  case text is cleaned and bounded, anything but a bare route and confidence
+  counts as an abstention, and the adoption verdict counts abstentions as
+  misses and is advice only. `lab bench` reads timings and the inference
+  server's resident memory (`ps`, fixed argv, integer pid) and recommends a
+  tuning change only on a measured gain with no task lost
+  (`tests/test_grammar.py`, `tests/test_shadow.py`, `tests/test_bench.py`).
 - **Status dashboard** (`lab/dashboard.py`, `lab dashboard`, H7). A read-only
   page and JSON view over the same metrics as `lab status`. `make_server`
   refuses any bind address that is not loopback; only GET and HEAD are served

@@ -123,6 +123,12 @@ explaining.
 
 ---
 
+## Pre-registration
+
+The draft plan for the home-lab evaluation (hypotheses, metrics, failure
+categories, analysis plan) is `docs/PREREGISTRATION.md`. It is a draft until
+the owner submits it to OSF; link the registration here once it exists.
+
 ## Publicity constraints
 
 **Hard rule: nothing public about the serialisation-ceiling paper until it is
