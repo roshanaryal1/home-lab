@@ -59,25 +59,29 @@ class ApplyResult:
     detail: str = ""
 
 
-def build(user: str = "lab", *, operator_pubkey: str = "operator.pub",
+def default_pubkey() -> str:
+    """Where ``operator init --dir ~/.lab-operator`` puts the public key."""
+    return str(Path.home() / ".lab-operator" / "operator.pub")
+
+
+def build(user: str = "lab", *, operator_pubkey: str | None = None,
           launchd_dir: Path = LAUNCHD_SRC) -> list[Step]:
     if not USER.fullmatch(user):
         raise ValueError("the account name must be a short lowercase POSIX name")
+    operator_pubkey = operator_pubkey or default_pubkey()
+    if not operator_pubkey.startswith("/"):
+        raise ValueError("the operator public key path must be absolute")
     home = f"/Users/{user}"
     steps = [
         Step("Create the non-admin lab account (prompts for a password; never admin)",
              ("/usr/sbin/sysadminctl", "-addUser", user, "-fullName", "Home Lab",
               "-password", "-", "-home", home, "-shell", "/bin/zsh")),
-        Step("Private data directory, owned by the lab account",
-             ("/usr/sbin/chown", f"{user}:staff", DATA_DIR)),
-        Step("Data directory closed to everyone else",
-             ("/bin/chmod", "700", DATA_DIR)),
-        Step("Private log directory",
-             ("/usr/sbin/chown", f"{user}:staff", LOG_DIR)),
-        Step("Log directory closed to everyone else",
-             ("/bin/chmod", "700", LOG_DIR)),
-        Step("Configuration directory, root-owned and world-readable",
-             ("/usr/sbin/chown", "root:wheel", CONFIG_DIR)),
+        Step("Private data directory, created owned by the lab account and closed to others",
+             ("/usr/bin/install", "-d", "-o", user, "-g", "staff", "-m", "700", DATA_DIR)),
+        Step("Private log directory, created owned by the lab account and closed to others",
+             ("/usr/bin/install", "-d", "-o", user, "-g", "staff", "-m", "700", LOG_DIR)),
+        Step("Configuration directory, root-owned, world-readable and traversable",
+             ("/usr/bin/install", "-d", "-o", "root", "-g", "wheel", "-m", "755", CONFIG_DIR)),
         Step("Install only the operator PUBLIC key, root-owned, readable by lab, not writable",
              ("/usr/bin/install", "-o", "root", "-g", "wheel", "-m", "644",
               operator_pubkey, f"{CONFIG_DIR}/operator.pub")),
@@ -128,7 +132,11 @@ def apply(steps: list[Step], *, platform: str | None = None) -> ApplyResult:
             continue
         # A fixed absolute argv from build(), no shell, no input from outside.
         # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-        proc = subprocess.run(list(step.argv), capture_output=True, text=True, check=False)
+        try:
+            proc = subprocess.run(list(step.argv), capture_output=True, text=True, check=False)
+        except OSError as exc:
+            result.ok, result.failed, result.detail = False, step, str(exc)[:300]
+            break
         result.steps_run.append(step)
         if proc.returncode != 0:
             result.ok = False

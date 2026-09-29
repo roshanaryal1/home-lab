@@ -483,8 +483,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
-    sp.add_argument("--operator-pubkey", default="operator.pub",
-                    help="path to the operator's PUBLIC key to install")
+    sp.add_argument("--operator-pubkey", default=None,
+                    help="absolute path of the operator's PUBLIC key to install "
+                    "(default: ~/.lab-operator/operator.pub)")
     sp.add_argument("--apply", action="store_true",
                     help="run the mutating steps; needs root and macOS")
 

@@ -131,3 +131,33 @@ def test_cli_apply_is_refused_when_not_root(capsys: pytest.CaptureFixture[str],
     monkeypatch.setattr(accountplan.os, "geteuid", lambda: 1000)
     assert main(["--db", str(tmp_path / "x.db"), "setup-plan", "--apply"]) == 1
     assert "root" in capsys.readouterr().err
+
+
+def test_the_directories_are_created_with_owner_and_mode_in_one_step() -> None:
+    plan = accountplan.build()
+    made = {s.argv[-1]: s for s in plan if s.argv[:2] == ("/usr/bin/install", "-d")}
+    assert set(made) == {"/var/homelab", "/var/log/homelab", "/etc/homelab"}
+    assert {"lab", "staff", "700"} <= set(made["/var/homelab"].argv)
+    assert {"lab", "staff", "700"} <= set(made["/var/log/homelab"].argv)
+    assert {"root", "wheel", "755"} <= set(made["/etc/homelab"].argv)
+    first_use = min(i for i, s in enumerate(plan) if "/etc/homelab/operator.pub" in s.command)
+    assert plan.index(made["/etc/homelab"]) < first_use
+
+
+def test_the_public_key_source_is_an_absolute_path_by_default_and_by_check() -> None:
+    plan = accountplan.build()
+    install = next(s for s in plan if s.argv[-1] == "/etc/homelab/operator.pub")
+    assert install.argv[-2].startswith("/") and install.argv[-2].endswith("operator.pub")
+    with pytest.raises(ValueError, match="absolute"):
+        accountplan.build(operator_pubkey="operator.pub")
+
+
+def test_a_missing_executable_stops_the_apply_instead_of_crashing(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing(*a: object, **k: object) -> None:
+        raise FileNotFoundError("no such file")
+
+    monkeypatch.setattr(accountplan.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(subprocess, "run", missing)
+    result = accountplan.apply(accountplan.build(), platform="darwin")
+    assert not result.ok and result.failed is not None and "no such file" in result.detail
