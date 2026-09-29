@@ -40,7 +40,7 @@ from lab.artifacts import ArtifactStore
 from lab.broker import PermanentFailure, ToolSession
 from lab.ledger import Ledger, LedgerError
 from lab.model import BoundedModel, ModelError, ModelSpec, OpenAICompatibleAdapter
-from lab.observe import ObservationError, observe_and_propose
+from lab.observe import ObservationError, Signal, fetch_signals, observe_and_propose
 from lab.queue import Task, TaskQueue
 from lab.rubric import route_research_task
 from lab.supervisor import AlreadyRunning, Supervisor, SupervisorConfig
@@ -97,6 +97,13 @@ def source_text(payload: dict[str, Any]) -> str:
     """What a proposal is about, as plain text, from its payload."""
     if "source_title" in payload:
         return f"{payload['source_title']}\n\n{payload.get('source_body', '')}"
+    if payload.get("rule") == "similar_closed_issues":
+        return (f"{payload.get('count', '?')} closed issues may share a root cause. Titles: "
+                + "; ".join(str(t) for t in payload.get("titles", [])))
+    if payload.get("rule") == "unpublished_measurement":
+        return (f"Measurement {payload.get('name', '')} (record "
+                f"{str(payload.get('record_sha256', ''))[:12]}) was recorded and no artifact "
+                "cites it.")
     return (f"{payload.get('count', '?')} tasks of kind {payload.get('agent_kind', '?')!r} "
             f"failed with: {payload.get('signature', '?')}")
 
@@ -200,12 +207,15 @@ async def tick(db: str | Path, model: BoundedModel, *, repo: str | None = None,
     try:
         queue = sup.queue
         proposed = 0
+        signals: list[Signal] = []
         if repo:
             try:
-                proposed += len(observe_and_propose(queue, repo))
+                signals = fetch_signals(repo)
+                proposed += len(observe_and_propose(queue, repo, signals))
             except ObservationError as exc:
                 log.warning("observation skipped: %s", exc)
-        proposed += len(emitter.emit_proposals(queue, min_failures=min_failures))
+        proposed += len(emitter.emit_proposals(queue, min_failures=min_failures,
+                                               signals=signals))
         register(sup, model)
         waiting = _count(queue, "queued")
         done_before = _count(queue, "succeeded")

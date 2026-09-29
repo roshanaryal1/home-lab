@@ -887,7 +887,12 @@ def cmd_emit(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -
 
 def cmd_chain(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     links = emitter.chain_for(queue, args.task_id)
-    if not links:
+    urls = emitter.sources_for(queue, args.task_id)
+    if urls:
+        print(f"{len(urls)} issue(s) produced this proposal:")
+        for url in urls:
+            print(f"  {_escape(url)}")
+    if not links and not urls:
         print(f"chain: {args.task_id} was not emitted from the event log", file=sys.stderr)
         return 1
     print(f"{len(links)} event(s) produced this proposal:")

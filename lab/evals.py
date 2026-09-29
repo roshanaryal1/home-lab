@@ -294,6 +294,15 @@ def render(record: RunRecord) -> str:
     return "\n".join(lines)
 
 
+def record_measurement(db: Path, record_sha256: str, path: str) -> None:
+    """Note a saved run in the event log, so the emitter can notice if nothing cites it."""
+    from lab.queue import TaskQueue
+    with TaskQueue(db, owner="eval") as queue:
+        queue.record_event(None, "measurement", {"name": "eval-run",
+                                                 "record_sha256": record_sha256,
+                                                 "path": Path(path).name})
+
+
 def main(argv: list[str]) -> int:
     import argparse
     parser = argparse.ArgumentParser(prog="lab eval")
@@ -308,9 +317,12 @@ def main(argv: list[str]) -> int:
     run.add_argument("--weights-mb", type=int, required=True)
     run.add_argument("--seed", type=int, default=0)
     run.add_argument("--out", type=Path, default=Path("evals/runs"))
+    run.add_argument("--db", type=Path, default=None,
+                     help="also record the run as a measurement event in this lab database")
     again = sub.add_parser("rerun")
     again.add_argument("record", type=Path)
     again.add_argument("--out", type=Path, default=Path("evals/runs"))
+    again.add_argument("--db", type=Path, default=None)
     again.add_argument("--allow-different-commit", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -323,7 +335,10 @@ def main(argv: list[str]) -> int:
                                        allow_different_commit=args.allow_different_commit)
             print(json.dumps(comparison, indent=2))
         print(render(record))
-        print(f"wrote {save(record, args.out)}")
+        saved = save(record, args.out)
+        print(f"wrote {saved}")
+        if args.db is not None:
+            record_measurement(args.db, record.record_sha256, str(saved))
     except (EvalError, ValueError) as exc:
         print(f"eval: {exc}", file=sys.stderr)
         return 1

@@ -295,11 +295,15 @@ Implemented and tested:
   summary is a model's paraphrase of the source, so it is stored as an
   unverified claim's text with the source excerpt beside it, not as a fact.
 - **Event-log emitter** (`lab/emitter.py`, `lab emit`, `lab chain`, #32).
-  Proposals come from patterns in the append-only log (today: three or
-  more tasks of one kind failing for the same normalized reason). A
+  Proposals come from three rules: three or more tasks of one kind failing
+  for the same normalized reason; three or more closed GitHub issues whose
+  titles share most of their words (a cheap stand-in for a shared root
+  cause that errs toward grouping, which is safe because the output is a
+  proposal); and an eval run recorded as a `measurement` event that no
+  artifact cites in its lineage after 24 hours. A
   proposal is an ordinary `notify`-tier task with an `event` origin, so it
   is tainted, cannot carry a grant, destination or policy, and passes the
-  same gate as any task. The producing event ids are stored in the payload
+  same gate as any task. The producing event ids (or issue URLs) are stored in the payload
   and in a hash-chained `proposal_emitted` event; failure text is
   untrusted and is shown escaped. Proposals never count as input to the
   rule, so the emitter cannot feed on itself. Nothing schedules `lab emit`
