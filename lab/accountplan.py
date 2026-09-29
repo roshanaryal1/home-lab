@@ -130,9 +130,9 @@ def apply(steps: list[Step], *, platform: str | None = None) -> ApplyResult:
     for step in steps:
         if not step.mutates:
             continue
-        # A fixed absolute argv from build(), no shell, no input from outside.
-        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         try:
+            # A fixed absolute argv from build(), no shell, no input from outside.
+            # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             proc = subprocess.run(list(step.argv), capture_output=True, text=True, check=False)
         except OSError as exc:
             result.ok, result.failed, result.detail = False, step, str(exc)[:300]
