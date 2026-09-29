@@ -68,7 +68,9 @@ class ShadowReport:
     candidate_changed_a_decision: bool = False
     n: int = 0
     abstained: int = 0
-    candidate_accuracy: float = 0.0
+    candidate_accuracy: float = 0.0            # of the cases it answered
+    candidate_accuracy_overall: float = 0.0    # every case, an abstention counts as a miss
+    coverage: float = 0.0                      # share of cases the candidate answered
     baseline_accuracy: float = 0.0
     false_promotions: int = 0
     confusion: dict[str, dict[str, int]] = field(default_factory=dict)
@@ -185,6 +187,10 @@ def run(cases: list[Case], *, candidate: Callable[[Case], Proposal | None] | Non
         if RANK[r.candidate] > RANK[r.expected]:
             report.false_promotions += 1
     report.confusion = confusion
+    if candidate is not None and rows:
+        report.coverage = len(answered) / len(rows)
+        report.candidate_accuracy_overall = sum(
+            r.candidate == r.expected for r in answered) / len(rows)
     if answered:
         report.candidate_accuracy = sum(c for _, c in pairs) / len(pairs)
         report.brier = sum((p - c) ** 2 for p, c in pairs) / len(pairs)
@@ -260,16 +266,20 @@ class Verdict:
 
 
 def adoption_verdict(report: ShadowReport, *, min_cases: int = 30,
-                     min_accuracy_gain: float = 0.05) -> Verdict:
+                     min_accuracy_gain: float = 0.05, min_coverage: float = 0.8) -> Verdict:
     reasons: list[str] = []
     if report.n < min_cases:
         reasons.append(f"only {report.n} cases, at least {min_cases} needed")
     if report.false_promotions:
         reasons.append(f"{report.false_promotions} false promotion(s): the candidate routed "
                        "above what the evidence supports")
-    gain = report.candidate_accuracy - report.baseline_accuracy
+    if report.coverage < min_coverage:
+        reasons.append(f"coverage {report.coverage:.2f} is below the required {min_coverage:.2f}: "
+                       "the candidate abstains too often")
+    gain = report.candidate_accuracy_overall - report.baseline_accuracy
     if gain < min_accuracy_gain:
-        reasons.append(f"accuracy gain {gain:+.3f} is below the required {min_accuracy_gain:.3f}")
+        reasons.append(f"accuracy gain {gain:+.3f} over all cases (an abstention counts as a "
+                       f"miss) is below the required {min_accuracy_gain:.3f}")
     recommend = not reasons
     reasons.append("this is advice only: a person decides, and the rubric stays the decision")
     return Verdict(recommend, reasons)
@@ -280,6 +290,7 @@ def format_report(report: ShadowReport) -> str:
     if any(r.candidate is not None or r.error for r in report.rows) or report.abstained:
         lines += [
             f"candidate: accuracy {report.candidate_accuracy:.3f} of answered, "
+            f"{report.candidate_accuracy_overall:.3f} overall, coverage {report.coverage:.2f}, "
             f"abstained {report.abstained}, false promotions {report.false_promotions}",
             f"  ECE {report.expected_calibration_error:.3f}  Brier {report.brier:.3f}  "
             f"p95 latency {report.latency_p95:.3f}s  peak RSS {report.peak_rss_mb:.0f} MB"]

@@ -48,3 +48,18 @@ def test_every_blocked_hardware_issue_has_a_checklist_section() -> None:
     parked = [67, 70, 71, 72, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 86, 88, 91, 16]
     missing = [n for n in parked if f"#{n}" not in text]
     assert not missing, f"no checklist mentions issues: {missing}"
+
+
+def test_the_preregistration_draft_matches_what_the_code_measures() -> None:
+    from lab import shadow
+
+    text = " ".join((ROOT / "docs" / "PREREGISTRATION.md").read_text(encoding="utf-8").split())
+    assert "DRAFT" in text[:300]
+    for metric in ("false promotion", "abstention", "expected calibration error", "Brier",
+                   "first token", "tokens per second", "pass rate"):
+        assert metric in text, f"the plan does not name the metric {metric!r}"
+    assert f"at least {30} labeled cases" in text
+    assert f"{shadow.adoption_verdict.__kwdefaults__['min_accuracy_gain']:.2f}" in text
+    assert "refused_call_rate" in text and "coverage" in text and "counts as a miss" in text
+    assert "falsif" in text and "deviation" in text.lower()
+    assert "—" not in text
