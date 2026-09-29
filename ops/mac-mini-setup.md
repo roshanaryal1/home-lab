@@ -83,11 +83,12 @@ matters needs a third destination as well.
 - [ ] `launchd` job with `RunAtLoad` and `KeepAlive` for the supervisor.
 - [ ] A separate watchdog or heartbeat process. `KeepAlive` restarts a
       dead process; it does not notice a wedged one.
-- [ ] Structured rotating logs, on the external SSD for the long-term
-      set.
-- [ ] Queue-aware sleep prevention: `caffeinate` while work is pending,
-      normal sleep once the queue has been empty for a configured
-      period. Do not hold the machine awake unconditionally.
+- [ ] Structured rotating logs (built: `lab/logsetup.py`): set `LAB_LOG_DIR`
+      in the supervisor's plist, on the external SSD for the long-term set.
+- [ ] Queue-aware sleep prevention (built: `lab keepawake`): install
+      `com.homelab.keepawake.plist`, queue a task, and confirm with
+      `pmset -g assertions` that `caffeinate` holds the machine while work is
+      pending and releases it after the grace period.
 - [ ] Confirm startup recovery works: kill the supervisor mid-task,
       restart it, and check that an idempotent task requeues while a
       non-idempotent one is held for review. The test suite covers this

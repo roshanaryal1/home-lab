@@ -32,6 +32,7 @@ DEFAULT_MAX_AGE = 90.0
 WATCHDOG_INTERVAL_SECONDS = 30
 TICK_LABEL = "com.homelab.tick"
 TICK_INTERVAL_SECONDS = 300
+KEEPAWAKE_LABEL = "com.homelab.keepawake"
 
 
 def heartbeat_path(db: str | Path) -> Path:
@@ -118,7 +119,8 @@ def _plist(label: str, args: list[str], workdir: str, **extra: object) -> bytes:
     })
 
 
-def supervisor_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
+def supervisor_plist(*, user: str, python: str, workdir: str, db: str,
+                     log_dir: str = "/var/log/homelab") -> bytes:
     """The supervisor as a LaunchDaemon: starts at boot, restarts on exit.
 
     ``ThrottleInterval`` is launchd's own bounded backoff: a crash loop
@@ -127,7 +129,8 @@ def supervisor_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
     """
     return _plist(SUPERVISOR_LABEL, [python, "-m", "lab.supervisor", "--db", db], workdir,
                   UserName=user, RunAtLoad=True, KeepAlive=True,
-                  ThrottleInterval=30, ExitTimeOut=30)
+                  ThrottleInterval=30, ExitTimeOut=30,
+                  EnvironmentVariables={"LAB_LOG_DIR": log_dir})
 
 
 def watchdog_plist(*, python: str, workdir: str, db: str) -> bytes:
@@ -142,3 +145,10 @@ def tick_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
     job's environment; without them the job exits 1 and does nothing."""
     return _plist(TICK_LABEL, [python, "-m", "lab.cli", "--db", db, "tick"], workdir,
                   UserName=user, RunAtLoad=False, StartInterval=TICK_INTERVAL_SECONDS)
+
+
+def keepawake_plist(*, python: str, workdir: str, db: str) -> bytes:
+    """``lab keepawake`` as a daemon: read-only on the database, holds
+    ``caffeinate`` only while work is pending."""
+    return _plist(KEEPAWAKE_LABEL, [python, "-m", "lab.cli", "--db", db, "keepawake"], workdir,
+                  RunAtLoad=True, KeepAlive=True, ThrottleInterval=30)

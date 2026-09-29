@@ -53,6 +53,8 @@ def test_ops_copies_of_the_plists_are_current(tmp_path: Path) -> None:
         user="lab", python=py, workdir=wd, db=db)
     assert (root / "com.homelab.watchdog.plist").read_bytes() == service.watchdog_plist(
         python=py, workdir=wd, db=db)
+    assert (root / "com.homelab.keepawake.plist").read_bytes() == service.keepawake_plist(
+        python=py, workdir=wd, db=db)
     assert (root / "com.homelab.tick.plist").read_bytes() == service.tick_plist(
         user="lab", python=py, workdir=wd, db=db)
 

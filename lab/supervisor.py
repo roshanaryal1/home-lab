@@ -682,8 +682,17 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(prog="lab.supervisor")
     parser.add_argument("--db", required=True, type=Path)
+    parser.add_argument("--log-dir", type=Path, default=None,
+                        help="rotating JSON logs here (or LAB_LOG_DIR); default is stderr")
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    log_dir = args.log_dir or os.environ.get("LAB_LOG_DIR")
+    if log_dir:
+        from lab import logsetup
+        logsetup.configure(log_dir, name="supervisor")
+        logging.getLogger("lab").addHandler(logging.StreamHandler())
+    else:
+        logging.basicConfig(level=logging.INFO,
+                            format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
     async def run() -> None:
         sup = Supervisor(SupervisorConfig(db_path=args.db))
