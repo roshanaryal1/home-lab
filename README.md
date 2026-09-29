@@ -60,9 +60,9 @@ agent may hold, and the staged rollout, are in ADR 0006.
 ## Running on the Mac mini
 
 Since 2026-09-30 the lab's heavy model runs on the M6 itself:
-`Qwen3-Coder-30B-A3B-Instruct` at 4-bit, served by `mlx-lm` on loopback
-only and kept up by a user LaunchAgent (after a `kill -9` it was back in
-19 seconds). The supervisor, the lab account and the lab's own launchd
+`Qwen3-Coder-30B-A3B-Instruct`, the 4-bit DWQ build (the plain 4-bit build
+corrupts copied text, ADR 0001), served by `mlx-lm` on loopback only and kept
+up by a user LaunchAgent (after a `kill -9` it was back in 16 seconds). The supervisor, the lab account and the lab's own launchd
 daemons are not installed yet (setup sections 11 and 16). Until the lab
 account exists, reviewed handlers run in a worker process as the same
 macOS user (`lab/worker.py`), so the process is the boundary; only the
