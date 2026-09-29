@@ -133,3 +133,135 @@ def drill_restore(db_path: Path, artifacts_dir: Path | None = None,
                            f"BackupError: {exc}", False, "investigate before trusting backups")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _closed_port() -> int:
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def _stub_server(answer_as: str):  # type: ignore[no-untyped-def]
+    """A loopback chat-completions server that answers as ``answer_as``."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            body = json.dumps({"model": answer_as, "usage": {"completion_tokens": 1},
+                               "choices": [{"message": {"content": "ok"}}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd, f"http://127.0.0.1:{httpd.server_address[1]}/v1"
+
+
+def drill_model_load(endpoint: str | None = None) -> list[DrillResult]:
+    """Three ways a model can fail to load or answer, each of which must be
+    refused with a typed error, quickly, leaving the heavy slot free.
+
+    ``endpoint`` is a live loopback server for the wrong-model case; without
+    it a stub stands in, so the drill also runs off the target."""
+    import time
+
+    from lab.model import (
+        AdmissionController,
+        AdmissionRefused,
+        BoundedModel,
+        ModelError,
+        ModelMismatch,
+        ModelSpec,
+        OpenAICompatibleAdapter,
+    )
+
+    rev = "0" * 40
+    msgs = [{"role": "user", "content": "Say ok."}]
+
+    def slot_free(ctrl: AdmissionController, spec: ModelSpec) -> bool:
+        try:
+            with ctrl.admit(spec, msgs, 4):
+                return True
+        except AdmissionRefused:
+            return False
+
+    results = []
+
+    ctrl = AdmissionController()
+    spec = ModelSpec("drill-model", rev, rev, 8192, 16, 1000)
+    url = f"http://127.0.0.1:{_closed_port()}/v1"
+    began, err = time.monotonic(), None
+    try:
+        BoundedModel(spec, OpenAICompatibleAdapter(url), ctrl).generate(
+            msgs, max_tokens=4, timeout_seconds=10)
+    except ModelError as exc:
+        err = exc
+    took = time.monotonic() - began
+    free = slot_free(ctrl, spec)
+    results.append(DrillResult(
+        "model-load-server-down", "the inference server is not listening",
+        "a ModelError within 10 s, and the heavy slot is free afterwards",
+        f"{type(err).__name__ if err else 'no error'} after {took:.2f} s: {err}; slot free={free}",
+        isinstance(err, ModelError) and not isinstance(err, ModelMismatch)
+        and took < 10 and free))
+
+    stub = None
+    if endpoint is None:
+        stub, endpoint = _stub_server("some-other-model")
+    ctrl = AdmissionController()
+    spec = ModelSpec("drill-expected-model", rev, rev, 8192, 16, 1000)
+    err = None
+    try:
+        BoundedModel(spec, OpenAICompatibleAdapter(endpoint), ctrl).generate(
+            msgs, max_tokens=4, timeout_seconds=60)
+    except ModelError as exc:
+        err = exc
+    finally:
+        if stub is not None:
+            stub.shutdown()
+            stub.server_close()
+    free = slot_free(ctrl, spec)
+    # Two safe outcomes: a server that answers anyway is caught by the lab
+    # (ModelMismatch); mlx_lm.server instead rejects an unknown model name
+    # itself with HTTP 404 (first seen in the 2026-09-29 drill on the M6).
+    # Only 404 counts: a 400, 408 or 429 says nothing about the model.
+    refused = isinstance(err, ModelMismatch) or (
+        isinstance(err, ModelError) and str(err) == "inference server returned 404")
+    results.append(DrillResult(
+        "model-load-wrong-model",
+        f"the server at {endpoint} is asked for a model it does not serve",
+        "refused, never answered: ModelMismatch if the server answers as another model, "
+        "or the server's own 404 for an unknown model; the heavy slot is free afterwards",
+        f"{type(err).__name__ if err else 'no error'}: {err}; slot free={free}",
+        refused and free))
+
+    calls: list[object] = []
+
+    class Counting(OpenAICompatibleAdapter):
+        def complete(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(args)
+            return super().complete(*args, **kwargs)
+
+    ctrl = AdmissionController()
+    spec = ModelSpec("drill-too-big", rev, rev, 8192, 16, ctrl.budget_mb + 1)
+    err = None
+    try:
+        BoundedModel(spec, Counting(f"http://127.0.0.1:{_closed_port()}/v1"), ctrl).generate(
+            msgs, max_tokens=4)
+    except ModelError as exc:
+        err = exc
+    results.append(DrillResult(
+        "model-load-too-big", "a model larger than the memory budget",
+        "AdmissionRefused before the server is called",
+        f"{type(err).__name__ if err else 'no error'}: {err}; server calls={len(calls)}",
+        isinstance(err, AdmissionRefused) and not calls))
+    return results
