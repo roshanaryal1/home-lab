@@ -38,7 +38,8 @@ current build target.
 
 This was the most consequential find, and it is not an agent framework at all.
 
-**Jev** is a closed commercial API from TypeSafe AI, released **2026-09-15**. It
+**Jev** is a closed commercial API from TypeSafe AI, released in early access on
+**2026-09-15** (TypeSafe's announcement, checked 2026-09-29 UTC). It
 is a *decision model*, not a text generator: you give it application state plus
 a predefined question, and it returns a **typed answer with probabilities** that
 code can consume directly. Priced at USD 0.042 per million input tokens, output
@@ -111,7 +112,9 @@ it is much lower than the marketing suggests.
 - **LangGraph**: the production choice where work must be auditable and
   resumable, because of explicit state graphs, checkpointing and interrupt
   primitives. Closest in spirit to what we already built by hand.
-- **CrewAI**: 5.2M monthly downloads, role-playing paradigm, fast to stand up.
+- **CrewAI**: about 2.4M PyPI downloads in the month to 2026-09-29 (pypistats;
+  an earlier 5.2M figure here could not be matched), role-playing paradigm,
+  fast to stand up.
 - **AutoGen**: **in maintenance mode as of mid-2026.** Successors are Microsoft
   Agent Framework 1.0 (GA April 2026) and the community fork AG2. Do not build
   on AutoGen.
@@ -158,7 +161,8 @@ way tool calls are.** That is not caution for its own sake, it is a measured
 ### 1.5 Benchmarking: crowded, with specific gaps
 
 I checked whether "benchmark local agent platforms" is novel. It largely is not:
-**ReliabilityBench** covers consistency, perturbation robustness and
+**ReliabilityBench** ([arXiv 2601.06112](https://arxiv.org/abs/2601.06112), a
+preprint) covers consistency, perturbation robustness and
 chaos-engineering-style fault injection; there is a public environment,
 AgentDojo, with **97 tasks and 629 security tests** for prompt injection on
 tool-using agents (as stated in its paper, published at NeurIPS 2024,
