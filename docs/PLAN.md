@@ -47,7 +47,8 @@ unmetered.
 
 The open reimplementations appeared within about 24 hours. The leading one is
 **Laya** (Convai Innovations, Apache-2.0, released 2026-09-18): 421M parameters
-on ModernBERT-large, about 33 to 39.5 ms per question per its model card.
+on ModernBERT-large, 39.5 ms per question on a T4 GPU per its model card (32.8 ms
+is the separate multilingual checkpoint; neither was measured on the M6).
 **Kev-9B** is a LoRA adapter on the 9B `Qwen3.5-9B-Base`, also Apache-2.0.
 On the same out-of-domain development items it scores 0.822 against Jev's
 0.857, a gap of 3.5 points. Its 0.852 is on a locked test Jev was not scored

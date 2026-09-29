@@ -42,6 +42,6 @@ when citing them.
 | Jev: closed API from TypeSafe AI, released 2026-09-15 (PLAN 1.1) | **Verified**: announced 2026-09-15, "available today in early access", no open weights | TypeSafe AI's announcement post |
 | OpenClaw repository dates and size, Hermes Agent dates | See PLAN and SUBSYSTEMS: creation dates verified, launch dates and line counts marked [UNVERIFIED] | GitHub records |
 
-Not rechecked here: the Jev and Laya benchmark scores quoted in PLAN 1.1,
-which PLAN attributes to the Kev-9B and Laya model cards.
+| Kev-9B: LoRA on `Qwen3.5-9B-Base`, Apache-2.0; 0.822 dev and 0.852 locked test, Jev 0.857 dev (PLAN 1.1) | **Verified** in `jaredpalmer/kev-9b`'s model card. Jev's 0.857 is Kev's authors' figure, not TypeSafe's. | Hugging Face model card |
+| Laya: about 33 to 39.5 ms per question (PLAN 1.1) | **Imprecise, corrected**: 39.5 ms is this English checkpoint and 32.8 ms the multilingual one, both on a T4 GPU | `convaiinnovations/laya` model card |
 
