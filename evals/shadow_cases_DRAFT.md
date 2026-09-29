@@ -1,8 +1,9 @@
 # H1 shadow cases: DRAFTS, not for use
 
 **Status: drafts for the owner to review. Not frozen, not registered, not
-used by any run.** `lab shadow` reads `evals/shadow_cases.jsonl`, never this
-file.
+used by any run.** `lab shadow` has no default case file (`--cases` is
+required), so nothing reads this file unless someone names it; do not pass it
+to `lab shadow` before the review below.
 
 H1 (`docs/PREREGISTRATION.md`) needs at least 30 labeled cases; 12 exist.
 These 18 would make 30. They were drafted on 2026-09-29 UTC by the same
