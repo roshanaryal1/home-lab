@@ -102,9 +102,11 @@ Roshan: *"there are hundreds of agents working on one project."*
 **Hundreds of concurrent agents is not achievable on this machine, and
 the framing needs adjusting before it drives a design.**
 
-ADR 0001 measured it: 32 GB unified memory, 11.5 GB reserved for OS,
-browser, workers and indexes, leaving **20.5 GB for weights**. The chosen
-model is ~16.7 GB. That is **one** heavy inference slot. Not two.
+ADR 0001 sets the budget: 32 GB unified memory, 11.5 GB reserved for OS,
+browser, workers and indexes, leaving **20.5 GB for weights and cache**.
+Measured on the M6 (2026-09-30), the chosen model holds 17,180 MB with its
+weights loaded, leaving about 3.3 GB, roughly 16K tokens, of context. That
+is **one** heavy inference slot. Not two.
 
 So the real ceiling:
 
@@ -169,6 +171,8 @@ Order, and why:
 
 ## Still open, not decided by this ADR
 
-- ADR 0001 is unbenchmarked. The 16.7 GB figure is reported, not measured.
+- ADR 0001 is now measured for memory, speed and tool calls on the M6
+  (2026-09-30); the 50-call comparison against a second candidate model is
+  still open.
 - Issues #14, #16, #27 are open and are all controls this design leans on.
 - The mini has no dedicated non-admin account yet.

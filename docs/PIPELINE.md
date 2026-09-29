@@ -87,6 +87,14 @@ Add anything here. No commitment implied. Promote only after checking the gate.
 - Advertised model parameters vs measured resident memory on Apple Silicon.
   Small, fast, and P3 collects the data anyway. Possibly a section of P3 rather
   than its own paper: check gate 1 before promoting.
+  **First data, 2026-09-30** (ADR 0001, "Measured on the M6"): the model
+  matched its advertised size (17.2 GB) but not its advertised speed (about
+  67 tok/s against "~100+"); cache costs about 200 KB per token, invisible
+  to RSS because it sits in Metal allocations; Metal's 24.96 GiB ceiling,
+  not total RAM, caps context (37K tokens fit, 75K failed); `mlx_lm.server` keeps old
+  caches by default and ran out of memory on a request that fits alone.
+  One machine, one model, one day: a build-log entry now, a finding only
+  after the second candidate and repeat runs.
 - Vendor documentation as an unreliable narrator: the M6 bandwidth claim
   (170 GB/s real vs a surveyed system's "300+ GB/s") is one data point;
   P2's cutoff-documentation findings are another. May be a thread, may be thin.
