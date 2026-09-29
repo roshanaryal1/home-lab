@@ -273,7 +273,10 @@ large app first; a single Safari tab held 16 GB before the first load.
 - [x] Start the chosen inference server on loopback only; point
       `OpenAICompatibleAdapter` at it. Listens on 127.0.0.1:8080 only.
 - [x] Record the exact weight and tokenizer commit hashes in a `ModelSpec`
-      (never a branch name) and in ADR 0001. `6e302ea604ad...` for both.
+      (never a branch name) and in ADR 0001. Served now (DWQ build):
+      `cfcade7221ccd128681961446e5f7906c08cae55` for both. The measurements in
+      this section used the plain 4-bit build, `6e302ea604ad...`, which is
+      historical only.
 - [x] Measure resident memory with the model loaded and at three context
       lengths; replace `weights_mb`, `kv_bytes_per_token` and
       `DEFAULT_BUDGET_MB` with measured values. 17,180 MB loaded; about

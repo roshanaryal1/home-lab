@@ -107,7 +107,8 @@ name after download.
 These are the values a `ModelSpec` for this model uses:
 
 ```python
-REV = "6e302ea604ad9ab206367e2c501d1571023e7b6d"   # weights and tokenizer share one commit
+REV = "6e302ea604ad9ab206367e2c501d1571023e7b6d"   # the plain build measured here; see point 5
+# Served since 2026-09-30: the DWQ build, REV = "cfcade7221ccd128681961446e5f7906c08cae55"
 ModelSpec(name="<snapshot path the server reports>",
           revision=REV, tokenizer_revision=REV,
           context_tokens=16_384, max_output_tokens=1024,
