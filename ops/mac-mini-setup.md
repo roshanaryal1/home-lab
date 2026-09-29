@@ -76,7 +76,12 @@ External 1 TB, mounted at a stable path:
       shared store, and a plain `rsync -a` copied those as dangling links.
       The internal copies are still there (about 32 GB) and can be removed.
 - [ ] Research corpus, PDFs, datasets.
-- [ ] Archived repositories, experiment artifacts, long-term logs.
+- [x] Archived repositories, experiment artifacts, long-term logs.
+      2026-09-30: the raw outputs of the 2026-09-29 runs (AgentDojo case
+      logs, confirmatory, H3 and DWQ run folders, the model server log) are on
+      `labbackup` under `archive/experiments-2026-09-29/`, 1,108 files with a
+      `MANIFEST.sha256` that verifies. Sealed records stay in the repo's
+      `evals/`. No archived repositories yet.
 - [x] Backup sets. The encrypted `labbackup` volume (section 10); only a
       test backup so far.
 
