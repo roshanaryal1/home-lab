@@ -24,8 +24,8 @@ flowchart TB
         queue --> supervisor --> gate --> sandbox
     end
 
-    subgraph model["Model layer: ADR 0001, unbenchmarked"]
-        heavy["Qwen3-Coder-30B-A3B, MLX 4-bit<br/>~16.7 GB, ONE heavy inference slot"]
+    subgraph model["Model layer: ADR 0001, measured on the M6"]
+        heavy["Qwen3-Coder-30B-A3B, MLX 4-bit<br/>17.2 GB measured, ONE heavy inference slot"]
     end
 
     subgraph memory["Memory: ADR 0003, FTS5 baseline built"]
@@ -76,8 +76,8 @@ re-losing.
 | Supervisor | `lab/supervisor.py` | Built, tested | n/a |
 | Capability gate | `lab/policy.py`, `lab/broker.py` | Rule of Two enforced before the gate, `lab/authority.py` (item 4.1). Approvals are operator-signed (Ed25519) and verified by the supervisor, `lab/operator.py` (item 4.5). Every task carries a derived origin and taint through lineage, `lab/origin.py`, `lab/untrusted.py` (item 4.2). Task-level and per-tool-call: built, tested (item 1.1). Handlers call through a session bound to their task and lease (1.2); reviewed handlers run in a worker process (`lab/worker.py`); separate OS account pending, [#70](https://github.com/roshanaryal1/home-lab/issues/70) | n/a |
 | Sandbox | `lab/sandbox.py` | Built, tested on macOS 26.5.1 and 27 | n/a |
-| Model adapter | `lab/model.py` | Built against a mock and a stub loopback server: pinned revisions, admission control (tokens, time, residency, one heavy slot), strict tool-call parsing. Real model and measured budget wait for the M6 | [#74](https://github.com/roshanaryal1/home-lab/issues/74) |
-| Heavy model | Qwen3-Coder-30B-A3B, MLX 4-bit | Chosen, **unbenchmarked** on the M6 | [ADR 0001](decisions/0001-heavy-model.md) |
+| Model adapter | `lab/model.py` | Built against a mock and a stub loopback server: pinned revisions, admission control (tokens, time, residency, one heavy slot), strict tool-call parsing. Run against the real model on the M6 (2026-09-30): pinned revision, admission refusal and measured budget verified; `kv_bytes_per_token` defaults to the measured 200,000 | [#74](https://github.com/roshanaryal1/home-lab/issues/74) |
+| Heavy model | Qwen3-Coder-30B-A3B, MLX 4-bit | Chosen; memory, speed and tool calls **measured** on the M6, second candidate not yet compared | [ADR 0001](decisions/0001-heavy-model.md) |
 | Python runtime | uv-managed | Chosen; mini needs patch-version pin | [ADR 0002](decisions/0002-python-runtime.md) |
 | Memory | `lab/memory.py` (SQLite FTS5) | FTS5 baseline built: provenance, trust, expiry, inspect, correct, revoke (reaches the ledger), delete. `sqlite-vec` embeddings not built and must beat this baseline first | [ADR 0003](decisions/0003-memory.md) |
 | Observation plane | `lab/observe.py`, `lab/slice.py` | GitHub slice (#39, #46): closed issues and merged PRs become queued proposals. Event-log emitter (`lab/emitter.py`, `lab emit`, #32): three rules (`repeated_failure`, `similar_closed_issues`, `unpublished_measurement`) queue `notify`-tier, event-origin proposals naming the events or issue URLs behind them (`lab chain`). A merged fix with a reproduction is not built | [#32](https://github.com/roshanaryal1/home-lab/issues/32) |

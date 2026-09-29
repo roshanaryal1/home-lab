@@ -47,9 +47,11 @@ MAX_TOOL_CALL_DEPTH = 6
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 
-# Planning figures from ADR 0001, not measurements: 32 GB less 11.5 GB
-# reserved leaves 20.5 GB for weights and cache. 5.2 replaces them with
-# measured values on the M6.
+# Policy from ADR 0001: 32 GB less 11.5 GB reserved for the OS and the
+# lab's own services leaves 20.5 GB for weights and cache. Measured on the
+# M6 (ADR 0001, "Measured on the M6"): the heavy model holds 17,180 MB with
+# its weights loaded, and Metal's hard ceiling is 24.96 GiB, so this budget
+# is the binding limit and leaves about 16K tokens of context.
 DEFAULT_BUDGET_MB = 20_500
 
 
@@ -77,7 +79,7 @@ class ModelSpec:
     context_tokens: int
     max_output_tokens: int
     weights_mb: int
-    kv_bytes_per_token: int = 100_000
+    kv_bytes_per_token: int = 200_000      # measured on the M6 for the heavy model, ADR 0001
     heavy: bool = True
 
     def __post_init__(self) -> None:
