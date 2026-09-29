@@ -159,7 +159,8 @@ Order: supervisor, watchdog, keep-awake, status check, self-test, tick.
 
 ```sh
 for s in supervisor watchdog keepawake statuscheck selftest tick; do
-  sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.$s.plist
+  sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.$s.plist \
+    || { echo "STOP: $s did not load; fix it before starting the rest"; break; }
   sleep 5; sudo launchctl print system/com.homelab.$s | grep -E "state|last exit"
 done
 ```
