@@ -178,6 +178,9 @@ lab/control.py       the operator mode switch: pause, drain, stop
 lab/service.py       heartbeat, watchdog and the launchd definitions (`ops/launchd/`)
 lab/selftest.py, alert.py   nightly self-test; the operator-configured alert hook
 lab/accountplan.py   the lab-account setup written as a plan, dry-run by default
+lab/shadow.py        candidate routing model measured against the rubric on labeled cases; advice only
+lab/grammar.py       tool-call JSON Schema generated from the broker table, for constrained decoding
+lab/dashboard.py     read-only status page on loopback
 lab/keepawake.py, logsetup.py   queue-aware sleep prevention; rotating private JSON logs
 lab/loop.py          the loop: summarizer handler, ledger claim, rubric route, `lab tick`
 lab/emitter.py       proposals emitted from the event log, each with its event chain
@@ -189,6 +192,8 @@ lab/bench.py         benchmark of one endpoint and the tuning gate
 lab/evals.py         fixed task set run against any endpoint, sealed provenance records
 lab/attacks.py       injection harness
 evals/tasks.jsonl    the 24 tasks (arithmetic, extraction, format, code, tool calls, injection)
+evals/shadow_cases.jsonl   12 labeled research cases for the shadow experiment
+docs/PREREGISTRATION.md    draft plan to register before the first real-model run
 lab/skills.py        read-only skill validator and inventory
 lab/skillstore.py    skills as versioned artifacts: candidate, promote, known good, rollback
 THREATS.md           OWASP agentic top 10 mapped to controls and tests
