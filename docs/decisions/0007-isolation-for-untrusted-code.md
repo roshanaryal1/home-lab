@@ -1,7 +1,8 @@
 # ADR 0007: isolation for untrusted code, and what to do about `mach-lookup`
 
-**Status:** accepted for the software side; the measurements are parked
-until the Mac mini M6 is on the desk. **Date:** 2026-09-29. Item 4.6
+**Status:** accepted for the software side; start-up, memory and
+isolation measured on the M6, coexistence with the heavy model still
+open. **Date:** 2026-09-29. Item 4.6
 (#71). Settles #27.
 
 ## Context
@@ -59,15 +60,69 @@ Reasons:
 deliberate non-fix. Reopen if untrusted code ever has to run under
 Seatbelt, or if the mini becomes multi-user.
 
+## Measured on the M6 (2026-09-29)
+
+Machine: Mac mini, Apple M6, 32 GB, macOS 27.0 (26A428). Tool: Apple
+`container` 1.5.0 (release, commit `d265d66`), installed from the signed,
+notarized `container-1.5.0-installer-signed.pkg`; default kernel installed
+by `container system start --enable-kernel-install`. Containers ran with
+the defaults: 4 CPUs, 1024 MB.
+
+**Start-up.** 20 runs of `container run --rm alpine:3.22 true`, wall clock
+from the CLI, image already pulled, 0 failures:
+
+| | seconds |
+|---|---|
+| median | 0.637 |
+| worst | 17.377 (run 1, the first container ever started after install) |
+| worst of runs 2 to 20 | 0.706 |
+| best | 0.594 |
+
+**Memory.** Resident memory of the host's
+`com.apple.Virtualization.VirtualMachine` process for the container:
+
+| state | RSS (MiB) |
+|---|---|
+| alpine, idle (`sleep`), 10 samples over 30 s | 381 |
+| python:3.13-slim, idle, fresh | 379 |
+| after installing the lab's dependencies in the guest | 1187 |
+| during the lab's test suite, mean / peak (66 samples, 1 s) | 1716 / 1980 |
+| 20 s after the suite finished | 1989 |
+| after `container stop` and `rm` | process gone |
+
+The host process grew to nearly twice the 1024 MB guest size (guest
+`MemTotal` 1101 MiB) and did not shrink while the container lived. Budget
+roughly 2 GiB of host memory per busy container, not the configured guest
+size. Stopping the container returns it. Host swap stayed at 0 throughout.
+
+The suite inside the guest: 1009 passed, 10 failed, 26 skipped. The 10
+failures need `ps`/process groups or a git checkout, which the slim image
+and the exported workspace do not have; they are not isolation faults.
+With the image's own Python (SQLite 3.46.1) the queue refuses to open, as
+`lab/queue.py` intends; the run above used uv's managed Python (SQLite
+3.53.1).
+
+**Isolation.** From inside a container:
+
+- `getent passwd` lists only the image's own accounts; the host operator
+  account is not present. The host directory service is not reachable.
+- With `-v <workspace>:/work`, the only host-backed mount is `/work`
+  (virtiofs); the root is the guest's own ext4 disk and `/Users` does not
+  exist.
+- **The default is network on**: the guest gets an address on
+  `192.168.64.0/24` and can reach the internet. `--network none` leaves
+  only loopback, and an outbound connection fails with "Network
+  unreachable". The executor must pass `--network none` explicitly; this
+  ADR's "network off by default" is a requirement on our executor, not
+  the tool's default.
+
 ## What is not measured yet
 
-Recorded so nobody quotes a number that does not exist:
-
-- Memory overhead and start-up time of one Apple container on the M6.
 - Whether a container and the heavy model can be resident together on
-  32 GB (ADR 0001 planning figures suggest the heavy slot leaves little
-  room; this is the reason containers are per task and short-lived).
-- Behaviour of `container` on macOS 27, which the mini runs.
+  32 GB without swap growth (ADR 0001 planning figures suggest the heavy
+  slot leaves little room; this is the reason containers are per task and
+  short-lived). Needs the real model from section 13 of
+  `ops/mac-mini-setup.md`.
 
 Checklist for the mini is in `ops/mac-mini-setup.md`, section 9.
 
