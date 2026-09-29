@@ -130,8 +130,8 @@ Personal site canonical, LinkedIn and X for distribution.
 | S1 | Eleven LLMs designed the same system. Here is what they agreed on. | P1 consensus matrix | ready |
 | S2 | An LLM flagged 14 real tools as hallucinations. Zero were fake. | P2 seed finding | ready |
 | S3 | I tested my own task queue. It leases 19 jobs when it can run 1. | defect confirmation, 2026-09-25 | ready |
-| S4 | The heavyweight agent uses 19x the memory for no completion advantage. | arXiv 2608.27886 | ready |
-| S5 | Every self-improving skill variant measured produced unsafe artifacts. | arXiv 2608.12851 | ready |
+| S4 | The heavyweight agent uses 19x the memory for no completion advantage. | arXiv 2608.27886 (preprint) | ready |
+| S5 | Every self-improving skill variant measured produced unsafe artifacts. | arXiv 2608.12851 (preprint) | ready |
 | S6 | Why the model must not be the system administrator. | the architecture's central rule | ready |
 
 ### Build log, weekly once Phase 0 lands

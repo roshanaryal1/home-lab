@@ -38,7 +38,8 @@ current build target.
 
 This was the most consequential find, and it is not an agent framework at all.
 
-**Jev** is a closed commercial API from TypeSafe AI, released **2026-09-15**. It
+**Jev** is a closed commercial API from TypeSafe AI, released in early access on
+**2026-09-15** (TypeSafe's announcement, checked 2026-09-29 UTC). It
 is a *decision model*, not a text generator: you give it application state plus
 a predefined question, and it returns a **typed answer with probabilities** that
 code can consume directly. Priced at USD 0.042 per million input tokens, output
@@ -46,7 +47,8 @@ unmetered.
 
 The open reimplementations appeared within about 24 hours. The leading one is
 **Laya** (Convai Innovations, Apache-2.0, released 2026-09-18): 421M parameters
-on ModernBERT-large, about 33 to 39.5 ms per question per its model card.
+on ModernBERT-large, 39.5 ms per question on a T4 GPU per its model card (32.8 ms
+is the separate multilingual checkpoint; neither was measured on the M6).
 **Kev-9B** is a LoRA adapter on the 9B `Qwen3.5-9B-Base`, also Apache-2.0.
 On the same out-of-domain development items it scores 0.822 against Jev's
 0.857, a gap of 3.5 points. Its 0.852 is on a locked test Jev was not scored
@@ -86,7 +88,7 @@ constraints:
 | PicoClaw | targets ~USD 10 hardware, air-gapped capable |
 
 **The number that matters most**, from *Resource Constraints and Performance in
-Agentic AI Systems* ([arXiv 2608.27886](https://arxiv.org/abs/2608.27886)),
+Agentic AI Systems* ([arXiv 2608.27886](https://arxiv.org/abs/2608.27886), a preprint),
 which compared OpenClaw and NanoBot head to head:
 
 > In the primary benchmark, the rate of full task completion was **31% for
@@ -111,7 +113,9 @@ it is much lower than the marketing suggests.
 - **LangGraph**: the production choice where work must be auditable and
   resumable, because of explicit state graphs, checkpointing and interrupt
   primitives. Closest in spirit to what we already built by hand.
-- **CrewAI**: 5.2M monthly downloads, role-playing paradigm, fast to stand up.
+- **CrewAI**: about 2.4M PyPI downloads in the month to 2026-09-29 (pypistats;
+  an earlier 5.2M figure here could not be matched), role-playing paradigm,
+  fast to stand up.
 - **AutoGen**: **in maintenance mode as of mid-2026.** Successors are Microsoft
   Agent Framework 1.0 (GA April 2026) and the community fork AG2. Do not build
   on AutoGen.
@@ -133,7 +137,7 @@ that is measurably unsafe by default, and I would rather tell you now than after
 it is built.
 
 From *Practice Makes Unsafe: Skill Misevolution in Self-Improving LLM Agents*
-([arXiv 2608.12851](https://arxiv.org/abs/2608.12851)):
+([arXiv 2608.12851](https://arxiv.org/abs/2608.12851), a preprint):
 
 > Across 25 agent-method configurations, **all 21 evolved skill variants
 > produced unsafe artifacts**, and 15 caused harm in fresh sessions. Malicious
@@ -158,14 +162,16 @@ way tool calls are.** That is not caution for its own sake, it is a measured
 ### 1.5 Benchmarking: crowded, with specific gaps
 
 I checked whether "benchmark local agent platforms" is novel. It largely is not:
-**ReliabilityBench** covers consistency, perturbation robustness and
+**ReliabilityBench** ([arXiv 2601.06112](https://arxiv.org/abs/2601.06112), a
+preprint) covers consistency, perturbation robustness and
 chaos-engineering-style fault injection; there is a public environment,
 AgentDojo, with **97 tasks and 629 security tests** for prompt injection on
-tool-using agents (as stated in its paper, arXiv 2406.13352; checked
+tool-using agents (as stated in its paper, published at NeurIPS 2024,
+[doi:10.52202/079017-2636](https://doi.org/10.52202/079017-2636), preprint arXiv 2406.13352; checked
 2026-09-29 UTC. Separately, this lab's own local AgentDojo v1.2 run on
 2026-09-29 had 949 attack cases);
-*Engineering Reliable Coding Agents* ([arXiv 2608.13867](https://arxiv.org/abs/2608.13867))
-and *Where Reliability Lives* ([arXiv 2609.03192](https://arxiv.org/abs/2609.03192))
+*Engineering Reliable Coding Agents* ([arXiv 2608.13867](https://arxiv.org/abs/2608.13867), preprint)
+and *Where Reliability Lives* ([arXiv 2609.03192](https://arxiv.org/abs/2609.03192), preprint)
 both exist.
 
 **The gap that remains open** is duration. Everything above measures behaviour
@@ -385,8 +391,8 @@ emailed far more reliably than a workshop paper does.
 | Eleven LLMs designed the same system. Here is what they agreed on. | P1 consensus matrix | now |
 | An LLM flagged 14 real tools as hallucinations. Zero were fake. | P2 seed finding | now |
 | I tested my own task queue and found it leases 19 jobs when it can run 1. | the defect confirmation above | now |
-| OpenClaw uses 19x the memory of NanoBot for no completion advantage. | arXiv 2608.27886 | now |
-| Every self-improving skill variant we have measured produced unsafe artifacts. | arXiv 2608.12851 | now |
+| OpenClaw uses 19x the memory of NanoBot for no completion advantage. | arXiv 2608.27886 (preprint) | now |
+| Every self-improving skill variant we have measured produced unsafe artifacts. | arXiv 2608.12851 (preprint) | now |
 | Build log, weekly | P3 in progress | from Phase 0 |
 
 The build-log series is the highest-value one, because **it doubles as P3's raw

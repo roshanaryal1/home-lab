@@ -235,7 +235,8 @@ lab/evals.py         fixed task set run against any endpoint, sealed provenance 
 lab/attacks.py       injection harness
 evals/tasks.jsonl    the 24 tasks (arithmetic, extraction, format, code, tool calls, injection)
 evals/shadow_cases.jsonl   12 labeled research cases for the shadow experiment
-docs/PREREGISTRATION.md    draft plan to register before the first real-model run
+docs/PREREGISTRATION.md    evaluation plan, registered at osf.io/jfp74, with results
+docs/REFERENCES.md         every cited paper: published or preprint, and how checked
 lab/skills.py        read-only skill validator and inventory
 lab/skillstore.py    skills as versioned artifacts: candidate, promote, known good, rollback
 THREATS.md           OWASP agentic top 10 mapped to controls and tests
