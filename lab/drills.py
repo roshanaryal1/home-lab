@@ -105,7 +105,9 @@ def drill_crash(workdir: Path | None = None) -> list[DrillResult]:
                 want = states == {"interrupted": 1} and counts["held_for_review"] == 1
                 expected = "the task is held for a person; it is never replayed blindly"
             results.append(DrillResult(
-                f"crash-{kind}", f"SIGKILL of the process while a {kind} task was running",
+                f"crash-{kind}",
+                f"SIGKILL of the process while {'an' if kind == 'idempotent' else 'a'} "
+                f"{kind} task was running",
                 expected, f"process killed={killed}; recovery {counts}; states {states}",
                 killed and want))
         finally:
