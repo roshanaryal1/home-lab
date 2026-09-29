@@ -218,3 +218,17 @@ def test_cli_drill_restore_writes_a_record(tmp_path: Path, live, capsys) -> None
     assert main(["--db", str(db), "drill", "restore", "--log", str(tmp_path / "log")]) == 0
     (record,) = (tmp_path / "log").glob("*-restore.md")
     assert "result: PASS" in record.read_text()
+
+
+def test_the_model_load_drill_refuses_each_failure_quickly(monkeypatch) -> None:
+    monkeypatch.delenv("LAB_TARGET", raising=False)
+    results = drills.drill_model_load()
+    assert [r.name for r in results] == ["model-load-server-down", "model-load-wrong-model",
+                                         "model-load-too-big"]
+    assert all(r.passed for r in results), [r.actual for r in results]
+
+
+def test_cli_drill_model_load_writes_three_records(tmp_path: Path, capsys) -> None:
+    assert main(["--db", str(tmp_path / "unused.db"), "drill", "model-load",
+                 "--log", str(tmp_path / "log")]) == 0
+    assert len(list((tmp_path / "log").glob("*-model-load-*.md"))) == 3
