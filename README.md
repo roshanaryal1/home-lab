@@ -37,7 +37,7 @@ than quietly resolved.
 | 9. launchd + watchdog + queue-aware caffeinate | heartbeat, watchdog and plists built and tested; install and freeze test are on the M6 checklist, [#78](https://github.com/roshanaryal1/home-lab/issues/78) |
 | 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status`, `lab control` (pause, drain, stop), `lab cancel` and a read-only `lab dashboard` on loopback exist; alerts and the dead-man switch are parked, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
 | 11. sqlite-vec / FTS retrieval | FTS5 baseline built with inspect, correct, revoke and delete ([#85](https://github.com/roshanaryal1/home-lab/issues/85)); embeddings must beat it on a measured task first |
-| 12. Benchmark and tune before adding anything else | benchmarked on the M6 (`evals/bench/`, setup section 14); tuning by measured gain (`lab bench tune`, pre-registered H3) not started |
+| 12. Benchmark and tune before adding anything else | benchmarked on the M6 (`evals/bench/`, setup section 14); first tuning test run as pre-registered H3 (prompt cache 1 against 4: no gain, not adopted, `docs/PREREGISTRATION.md`) |
 
 Steps 1, 2 and 4 are machine-independent and run anywhere. Everything
 touching model residency needs the 32 GB machine to mean anything, and
