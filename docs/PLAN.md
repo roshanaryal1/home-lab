@@ -72,9 +72,9 @@ settled fact. See paper P5 below.
 
 **OpenClaw** is the reference point: a TypeScript project whose GitHub
 repository (`openclaw/openclaw`) was created 2025-11-24 and had 390,782 stars
-on 2026-09-30. The figures of ~430,000 lines and roughly 1 GB of memory, and
-a 2026-01-30 launch date, are [UNVERIFIED]: the repository record does not
-show them (checked 2026-09-30). The ecosystem forked along different
+when checked on 2026-09-29 UTC. The figures of ~430,000 lines and roughly
+1 GB of memory, and a 2026-01-30 launch date, are [UNVERIFIED]: the
+repository record does not show them. The ecosystem forked along different
 constraints:
 
 | Project | Approach |
@@ -98,7 +98,7 @@ which compared OpenClaw and NanoBot head to head:
 > wall time and 19.44 for peak memory**.
 
 (Verbatim from the abstract of arXiv 2608.27886, Salman, Halgamuge and
-Susnjak, submitted 2026-08-28; checked 2026-09-30. An earlier version of
+Susnjak, submitted 2026-08-28; checked 2026-09-29 UTC. An earlier version of
 this file paraphrased it inside quotation marks.)
 
 Read that carefully. The heavyweight uses roughly **nineteen times the memory
@@ -159,10 +159,11 @@ way tool calls are.** That is not caution for its own sake, it is a measured
 
 I checked whether "benchmark local agent platforms" is novel. It largely is not:
 **ReliabilityBench** covers consistency, perturbation robustness and
-chaos-engineering-style fault injection; there is a public environment with
-**97 tasks and 629 security tests** for prompt injection on tool-using agents
-(as stated in the paper, arXiv 2406.13352; benchmark v1.2, run here on
-2026-09-29, has 949 attack cases);
+chaos-engineering-style fault injection; there is a public environment,
+AgentDojo, with **97 tasks and 629 security tests** for prompt injection on
+tool-using agents (as stated in its paper, arXiv 2406.13352; checked
+2026-09-29 UTC. Separately, this lab's own local AgentDojo v1.2 run on
+2026-09-29 had 949 attack cases);
 *Engineering Reliable Coding Agents* ([arXiv 2608.13867](https://arxiv.org/abs/2608.13867))
 and *Where Reliability Lives* ([arXiv 2609.03192](https://arxiv.org/abs/2609.03192))
 both exist.

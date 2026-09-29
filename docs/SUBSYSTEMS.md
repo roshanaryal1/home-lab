@@ -184,7 +184,8 @@ repository created 2025-07-22; the 2026-02-25 release date written here
 earlier is [UNVERIFIED]) is the closest existing thing to what you asked for:
 self-hosted persistent daemon, memory across sessions, scheduled tasks, 90+
 skills, MCP support in both directions, runs local models, **and it writes its
-own reusable skills from experience.** 250,012 stars on 2026-09-30.
+own reusable skills from experience.** 250,012 stars when checked on
+2026-09-29 UTC.
 
 It also chose SQLite with FTS5 for memory, independently arriving at the same
 answer this study's consensus did. That is corroboration worth noting.

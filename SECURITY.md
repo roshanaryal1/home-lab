@@ -434,7 +434,7 @@ Implemented and tested:
   Read the low attack rate with the low utility: the model often failed
   to use AgentDojo's tools at all, which also stops it carrying out an
   injected goal. For scale, AgentDojo's published results page (checked
-  2026-09-30; it has no benchmark-version column, so these may not be
+  2026-09-29 UTC; it has no benchmark-version column, so these may not be
   v1.2) lists, for the same attack and no defense, Llama-3-70B with
   prompted tools at 34.02% utility and 25.60% targeted attack success,
   Gemini 1.5 Flash at 38.14% and 3.50%, and Claude 3.5 Sonnet (Oct 2024)
