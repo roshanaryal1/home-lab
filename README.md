@@ -30,17 +30,18 @@ than quietly resolved.
 | 2. Supervisor event loop and durable recovery | done, with known gaps listed in `SECURITY.md` |
 | 3. Model adapter, one heavy + one light model | adapter built and tested against a mock, then run against the real heavy model on the M6 with measured memory ([#74](https://github.com/roshanaryal1/home-lab/issues/74), ADR 0001); the light model is not chosen yet |
 | 4. Concurrency semaphores (heavy=1, light=2-3) | done, in the supervisor |
-| 5. Model swap manager with RAM/headroom policy | needs the M6 |
+| 5. Model swap manager with RAM/headroom policy | not built; the budget it needs is now measured on the M6 (ADR 0001) |
 | 6. Aider/OpenHands executor adapters | not started |
 | 7. Research evidence ledger and verification pipeline | ledger built: claim status is separate from task status, every claim opens its exact source ([#90](https://github.com/roshanaryal1/home-lab/issues/90)); the automated verification pipeline is not |
 | 8. Dedicated-user permissions and task workspaces | code done (operator-signed approvals); account setup is a checklist for the mini, [#70](https://github.com/roshanaryal1/home-lab/issues/70) |
 | 9. launchd + watchdog + queue-aware caffeinate | heartbeat, watchdog and plists built and tested; install and freeze test are on the M6 checklist, [#78](https://github.com/roshanaryal1/home-lab/issues/78) |
-| 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status`, `lab control` (pause, drain, stop) and `lab cancel` exist; dashboard, alerts and the dead-man switch are parked, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
+| 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status`, `lab control` (pause, drain, stop), `lab cancel` and a read-only `lab dashboard` on loopback exist; alerts and the dead-man switch are parked, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
 | 11. sqlite-vec / FTS retrieval | FTS5 baseline built with inspect, correct, revoke and delete ([#85](https://github.com/roshanaryal1/home-lab/issues/85)); embeddings must beat it on a measured task first |
-| 12. Benchmark and tune before adding anything else | not started, needs the M6 |
+| 12. Benchmark and tune before adding anything else | benchmarked on the M6 (`evals/bench/`, setup section 14); tuning by measured gain (`lab bench tune`, pre-registered H3) not started |
 
 Steps 1, 2 and 4 are machine-independent and run anywhere. Everything
-touching model residency needs the 32 GB machine to mean anything.
+touching model residency needs the 32 GB machine to mean anything, and
+that machine is now running (below).
 
 The table above is the execution substrate: safe to leave running
 unattended, but it has no opinion about what work should exist. Three
@@ -55,6 +56,47 @@ a task runner:
 
 Build order and reasoning are in ADR 0004; the rules that limit what an
 agent may hold, and the staged rollout, are in ADR 0006.
+
+## Running on the Mac mini
+
+Since 2026-09-30 the lab's heavy model runs on the M6 itself:
+`Qwen3-Coder-30B-A3B-Instruct` at 4-bit, served by `mlx-lm` on loopback
+only and kept up by a user LaunchAgent (after a `kill -9` it was back in
+19 seconds). The supervisor, the lab account and the lab's own launchd
+daemons are not installed yet (setup sections 11 and 16). Until the lab
+account exists, reviewed handlers run in a worker process as the same
+macOS user (`lab/worker.py`), so the process is the boundary; only the
+broker's `shell.run` is sandboxed (`lab/sandbox.py`).
+
+**Reaching it.** The Mac mini and the owner's devices share a private
+Tailscale network. Nothing listens on the internet and no router port is
+forwarded. SSH works over the tailnet; the model and the dashboard stay on
+the Mac mini's loopback and are reached through an SSH tunnel, never by
+widening what they bind to:
+
+```sh
+ssh -N -L 8080:127.0.0.1:8080 <user>@<mac-mini>   # the model, at http://127.0.0.1:8080/v1
+ssh -N -L 8765:127.0.0.1:8765 <user>@<mac-mini>   # lab dashboard, once the lab runs
+```
+
+**What has been measured there so far**, each with its record:
+
+| What | Result | Where |
+|---|---|---|
+| Apple `container`, measured for the planned untrusted-code tier (not used by the lab yet) | 0.64 s median start; inside a container the host's accounts and files were not visible; network is on by default, so that executor must turn it off | ADR 0007 |
+| Heavy model memory and speed | 17.2 GB loaded, about 200 KB per token of context, about 16K tokens under the 20.5 GB budget, about 67 tok/s | ADR 0001 |
+| Utility evaluation, 24 tasks | heavy 19, 4B baseline 20; reruns identical | setup section 14, `evals/runs/` |
+| Prompt injection with the real model driving | 0 of 9 attacks succeeded; the model tried 2, the broker stopped both | `SECURITY.md` |
+| Backup and recovery | encrypted external backup disk; crash drill passed | setup section 10, `ops/drills/log/` |
+
+**Pre-registered tests.** The evaluation plan is registered on OSF
+([osf.io/jfp74](https://osf.io/jfp74), 2026-09-29 14:45 UTC) at commit
+`d8726b43`. Runs made before that are listed in its Amendment 1 as
+exploratory; the confirmatory runs come after it.
+
+**One caveat for always-on.** FileVault is on, so after a power cut the
+Mac restarts and waits at the login screen; nothing, the model included,
+runs until someone logs in.
 
 ## The two rules that shape the code
 
@@ -77,8 +119,8 @@ history is scanned for secrets in CI. See [SECURITY.md](SECURITY.md) for the
 repository controls and how to report a vulnerability privately.
 
 Run the lab only with dummy data, review every draft by hand and connect
-no real credentials until three things are true, because none of them can
-be finished without the Mac mini: a separate non-admin lab account that
+no real credentials until three things are true. All three are work on the
+Mac mini, which is now running, and none is done yet: a separate non-admin lab account that
 cannot read the operator's approval key ([#70](https://github.com/roshanaryal1/home-lab/issues/70)),
 per-task memory and CPU ceilings sized on the mini (the mechanism exists, [#16](https://github.com/roshanaryal1/home-lab/issues/16)),
 and the Keychain path exercised on the mini. The egress gateway and the

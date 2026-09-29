@@ -54,7 +54,8 @@ def test_the_preregistration_draft_matches_what_the_code_measures() -> None:
     from lab import shadow
 
     text = " ".join((ROOT / "docs" / "PREREGISTRATION.md").read_text(encoding="utf-8").split())
-    assert "DRAFT" in text[:300]
+    # Registered 2026-09-29; the header must say where and at which commit.
+    assert "osf.io/jfp74" in text[:300] and "d8726b43" in text[:500]
     for metric in ("false promotion", "abstention", "expected calibration error", "Brier",
                    "first token", "tokens per second", "pass rate"):
         assert metric in text, f"the plan does not name the metric {metric!r}"
