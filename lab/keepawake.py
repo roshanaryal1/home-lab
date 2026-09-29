@@ -60,7 +60,11 @@ def decide(conn: sqlite3.Connection, grace_seconds: float = DEFAULT_GRACE_SECOND
     ).fetchone()[0])
     if pending:
         return Decision(True, f"{pending} task(s) queued or running")
-    last = _parse(conn.execute("SELECT MAX(created_at) FROM events").fetchone()[0])
+    # Activity that only concerns a task waiting on a person (its approval
+    # request, for one) must not extend the hold.
+    last = _parse(conn.execute(
+        "SELECT MAX(created_at) FROM events WHERE task_id IS NULL OR task_id NOT IN "
+        "(SELECT id FROM tasks WHERE state = 'awaiting_approval')").fetchone()[0])
     if last is not None and (now - last).total_seconds() <= grace_seconds:
         return Decision(True, f"activity within the last {grace_seconds:g}s")
     return Decision(False, f"idle for more than {grace_seconds:g}s")

@@ -39,6 +39,7 @@ class PrivateRotatingFileHandler(RotatingFileHandler):
 
     def _open(self) -> io.TextIOWrapper:
         fd = os.open(self.baseFilename, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        os.fchmod(fd, 0o600)          # also tightens a file that already existed
         return os.fdopen(fd, "a", encoding=self.encoding)
 
 
@@ -47,6 +48,10 @@ def configure(log_dir: str | Path, *, name: str = "lab", level: int = logging.IN
               backups: int = DEFAULT_BACKUPS) -> logging.Handler:
     directory = Path(log_dir)
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    directory.chmod(0o700)            # an existing directory may be looser
+    for old in directory.glob(f"{name}.log*"):
+        if old.is_file() and not old.is_symlink():
+            old.chmod(0o600)          # so may the current file and its rotated backups
     handler = PrivateRotatingFileHandler(directory / f"{name}.log", maxBytes=max_bytes,
                                          backupCount=backups, encoding="utf-8")
     handler.setFormatter(JsonFormatter())

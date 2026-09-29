@@ -158,3 +158,50 @@ def test_log_files_are_private(tmp_path: Path) -> None:
     mode = stat.S_IMODE((tmp_path / "logs" / "t4.log").stat().st_mode)
     assert mode & 0o077 == 0
     logsetup.teardown(handler)
+
+
+# ------------------------------------------- review findings on #142
+
+
+def test_the_approval_request_itself_does_not_hold_the_machine_awake(q: TaskQueue) -> None:
+    """The request writes a fresh event; the grace period must not count it."""
+    from lab.policy import PolicyEngine
+    task = q.get(q.add_task("send", capability_tier="approve"))
+    PolicyEngine(q._conn).request_approval(task, "needs a person")
+    q._conn.execute("UPDATE tasks SET state = 'awaiting_approval'")
+    assert not keepawake.decide(q._conn, 600, datetime.now(UTC)).hold
+
+
+def test_real_activity_still_holds_even_while_an_approval_waits(q: TaskQueue) -> None:
+    from lab.policy import PolicyEngine
+    waiting = q.get(q.add_task("send", capability_tier="approve"))
+    PolicyEngine(q._conn).request_approval(waiting, "needs a person")
+    q._conn.execute("UPDATE tasks SET state = 'awaiting_approval' WHERE id = ?", (waiting.id,))
+    q.record_event(None, "tick")
+    assert keepawake.decide(q._conn, 600, datetime.now(UTC)).hold
+
+
+@pytest.mark.safety
+def test_an_existing_loose_directory_and_log_are_tightened(tmp_path: Path) -> None:
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir(mode=0o755)
+    log_dir.chmod(0o755)
+    for name in ("t9.log", "t9.log.1"):
+        (log_dir / name).write_text("old\n")
+        (log_dir / name).chmod(0o644)
+    handler = logsetup.configure(log_dir, name="t9")
+    logging.getLogger("lab.test9").warning("x")
+    handler.flush()
+    assert stat.S_IMODE(log_dir.stat().st_mode) == 0o700
+    for name in ("t9.log", "t9.log.1"):
+        assert stat.S_IMODE((log_dir / name).stat().st_mode) == 0o600
+    logsetup.teardown(handler)
+
+
+def test_the_supervisor_plist_turns_on_the_rotating_logs() -> None:
+    import plistlib
+
+    from lab import service
+    data = plistlib.loads(service.supervisor_plist(
+        user="lab", python="/p", workdir="/w", db="/d.db", log_dir="/Volumes/ssd/homelab-logs"))
+    assert data["EnvironmentVariables"]["LAB_LOG_DIR"] == "/Volumes/ssd/homelab-logs"

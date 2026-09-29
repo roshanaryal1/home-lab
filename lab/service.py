@@ -119,7 +119,8 @@ def _plist(label: str, args: list[str], workdir: str, **extra: object) -> bytes:
     })
 
 
-def supervisor_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
+def supervisor_plist(*, user: str, python: str, workdir: str, db: str,
+                     log_dir: str = "/var/log/homelab") -> bytes:
     """The supervisor as a LaunchDaemon: starts at boot, restarts on exit.
 
     ``ThrottleInterval`` is launchd's own bounded backoff: a crash loop
@@ -128,7 +129,8 @@ def supervisor_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
     """
     return _plist(SUPERVISOR_LABEL, [python, "-m", "lab.supervisor", "--db", db], workdir,
                   UserName=user, RunAtLoad=True, KeepAlive=True,
-                  ThrottleInterval=30, ExitTimeOut=30)
+                  ThrottleInterval=30, ExitTimeOut=30,
+                  EnvironmentVariables={"LAB_LOG_DIR": log_dir})
 
 
 def watchdog_plist(*, python: str, workdir: str, db: str) -> bytes:
