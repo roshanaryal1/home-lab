@@ -332,6 +332,8 @@ the paths, then:
 ## 21. Pre-registration (item 8.1, #82)
 
 - [ ] Create the OSF account (owner).
+- [ ] Review and edit the draft plan in `docs/PREREGISTRATION.md`, then submit
+      it to OSF. It is a draft until you do.
 - [ ] Register hypotheses, metrics, failure categories and the analysis plan
       before the first real eval run, and link the registration from
       `docs/PIPELINE.md`. The registration timestamp must precede the first
