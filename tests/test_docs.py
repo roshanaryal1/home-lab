@@ -60,5 +60,6 @@ def test_the_preregistration_draft_matches_what_the_code_measures() -> None:
         assert metric in text, f"the plan does not name the metric {metric!r}"
     assert f"at least {30} labeled cases" in text
     assert f"{shadow.adoption_verdict.__kwdefaults__['min_accuracy_gain']:.2f}" in text
+    assert "refused_call_rate" in text and "coverage" in text and "counts as a miss" in text
     assert "falsif" in text and "deviation" in text.lower()
     assert "—" not in text

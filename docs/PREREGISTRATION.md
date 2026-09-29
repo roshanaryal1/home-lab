@@ -25,15 +25,19 @@ Each names the outcome that would falsify it.
 
 **H1. A candidate typed routing model can beat the deterministic rubric without
 promoting thin evidence.** Measured by `lab shadow`. Supported only if, on at
-least 30 labeled cases, the candidate's accuracy over the cases it answers
-exceeds the rubric's by at least 0.05 and it makes zero false promotions.
-Falsified by a single false promotion or a gain below 0.05.
+least 30 labeled cases, the candidate answers at least 80 percent of them
+(coverage), its accuracy over all cases exceeds the rubric's by at least 0.05
+(an abstention counts as a miss, so skipping hard cases cannot create a gain),
+and it makes zero false promotions. Falsified by a single false promotion, a
+coverage below 0.80, or a gain below 0.05.
 
 **H2. Grammar-constrained tool calls lower the rate of calls the strict parser
 refuses.** Measured by running the evaluation task file with and without
-`response_format` from `lab.grammar`, everything else equal. Supported if the
-refused-call rate is lower and the pass rate is not lower. Falsified if the
-refused-call rate is not lower, or the pass rate falls.
+`response_format` from `lab.grammar`, everything else equal. The refused-call
+rate is `refused_call_rate` in the evaluation summary: the share of the
+task file's tool-call tasks (three today) whose answer `parse_tool_call`
+refuses. Supported if that rate is lower and the pass rate is not lower.
+Falsified if the rate is not lower, or the pass rate falls.
 
 **H3. A tuning change is adopted only on a measured gain.** Measured by
 `lab bench tune` on two runs of the same task file. Supported for a setting if
@@ -76,6 +80,9 @@ server answered as another model), resource ceiling, and injection success.
 
 ## Threats to validity we state now
 
+- Three tool-call tasks: the refused-call rate moves in steps of 0.33, so H2
+  can only show a large effect; more tool-call tasks would be added and dated
+  before registration if the owner wants a finer test.
 - Small labeled sets: 12 shadow cases ship today and 30 are required for a
   recommendation; the cases were written by the same person who wrote the
   rubric, so they favor it.

@@ -275,3 +275,16 @@ def test_cli_eval_refuses_a_moving_revision(endpoint, tmp_path: Path, capsys) ->
             "--tokenizer-revision", "b" * 64, "--weights-mb", "1000", "--out", str(tmp_path)]
     assert main(["--db", str(tmp_path / "x.db"), *argv]) == 1
     assert "hex-digit hash" in capsys.readouterr().err
+
+
+def test_the_summary_counts_tool_calls_the_strict_parser_refused() -> None:
+    def fenced(messages: list[dict[str, str]]) -> str:
+        answer = ORACLE[messages[-1]["content"]]
+        return f"```json\n{answer}\n```" if answer.startswith("{") else answer
+
+    clean = run_suite(config(), MockAdapter(lambda m: ORACLE[m[-1]["content"]]))
+    assert clean.summary["tool_call_tasks"] == 3
+    assert clean.summary["refused_tool_calls"] == 0 and clean.summary["refused_call_rate"] == 0.0
+    wrapped = run_suite(config(), MockAdapter(fenced))
+    assert wrapped.summary["refused_tool_calls"] == 3
+    assert wrapped.summary["refused_call_rate"] == 1.0

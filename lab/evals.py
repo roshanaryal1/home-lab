@@ -179,12 +179,22 @@ class RunRecord:
         return self
 
 
-def summarise(results: list[TaskResult]) -> dict[str, Any]:
+def summarise(results: list[TaskResult], tasks: list[EvalTask] | None = None) -> dict[str, Any]:
     seconds = [r.seconds for r in results if r.error is None]
     tokens = sum(r.completion_tokens for r in results)
     total_time = sum(seconds)
     ordered = sorted(seconds)
+    tool_ids = {t.id for t in tasks or [] if t.check.get("type") == "tool_call"}
+    refused = 0
+    for r in results:
+        if r.id in tool_ids and r.error is None:
+            try:
+                parse_tool_call(r.answer)
+            except MalformedToolCall:
+                refused += 1
     return {
+        "tool_call_tasks": len(tool_ids), "refused_tool_calls": refused,
+        "refused_call_rate": round(refused / len(tool_ids), 4) if tool_ids else 0.0,
         "tasks": len(results), "passed": sum(r.passed for r in results),
         "errors": sum(r.error is not None for r in results),
         "completion_tokens": tokens,
@@ -218,7 +228,7 @@ def run_suite(config: RunConfig, adapter: Adapter | None = None, *,
             task.id, grade(task.check, reply.text), reply.text, reply.prompt_tokens,
             reply.completion_tokens, reply.seconds or (time.monotonic() - begin)))
     return RunRecord(RECORD_VERSION, started, config, collect_provenance(), results,
-                     summarise(results), rerun_of).seal()
+                     summarise(results, tasks), rerun_of).seal()
 
 
 def make_config(endpoint: str, spec: ModelSpec, *, seed: int = 0, max_tokens: int = 256,

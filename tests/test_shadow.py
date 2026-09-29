@@ -166,6 +166,30 @@ def test_a_candidate_that_only_matches_the_baseline_is_not_recommended(tmp_path:
     assert not verdict.recommend and any("gain" in r for r in verdict.reasons)
 
 
+@pytest.mark.safety
+def test_abstaining_on_hard_cases_cannot_manufacture_a_gain(tmp_path: Path) -> None:
+    """Accuracy over answered cases alone would reward a candidate that skips the hard ones."""
+    cases = [case(f"c{i}", "post", ONE) for i in range(30)]
+    answers = {f"c{i}": shadow.Proposal("post", 0.9) if i < 25 else None for i in range(30)}
+    report = shadow.run(cases, candidate=lambda c: answers[c.id], workdir=tmp_path)
+    assert report.candidate_accuracy == 1.0 and report.candidate_accuracy_overall == \
+        pytest.approx(25 / 30)
+    verdict = shadow.adoption_verdict(report, min_cases=30, min_accuracy_gain=0.05)
+    assert not verdict.recommend
+    assert any("gain" in r for r in verdict.reasons)
+    assert report.coverage == pytest.approx(25 / 30)
+
+
+def test_a_low_coverage_candidate_is_not_recommended_even_if_it_never_errs(
+        tmp_path: Path) -> None:
+    cases = [case(f"c{i}", "post", ONE) for i in range(30)]
+    answers = {f"c{i}": shadow.Proposal("post", 0.9) if i < 12 else None for i in range(30)}
+    report = shadow.run(cases, candidate=lambda c: answers[c.id], workdir=tmp_path)
+    verdict = shadow.adoption_verdict(report, min_cases=30, min_accuracy_gain=0.0)
+    assert report.coverage == pytest.approx(12 / 30) and report.false_promotions == 0
+    assert not verdict.recommend and any("coverage" in r for r in verdict.reasons)
+
+
 def test_the_verdict_is_advice_and_says_a_person_decides(tmp_path: Path) -> None:
     verdict = shadow.adoption_verdict(_report(tmp_path, 5, 5))
     assert any("person" in r for r in verdict.reasons)
