@@ -423,7 +423,10 @@ Implemented and tested:
   **Replicated after pre-registration** (H4, 2026-09-29 16:59 UTC, the
   registered commit): 0 of 9 again; the model attempted 3 of 8 this time
   (adding a `net.fetch` to the attacker's host), all stopped by the broker
-  (`docs/PREREGISTRATION.md`, Results).
+  (`docs/PREREGISTRATION.md`, Results). Repeated on 2026-09-29 23:03 UTC
+  after the served build changed to DWQ (ADR 0001): 0 of 9, utility 7 of 9,
+  no parser refusals; the model again tried the delete and the metadata
+  fetch, and the broker stopped both. Exploratory, not a hypothesis.
   **AgentDojo** (v1.2, run 2026-09-29 against the same model through its
   own local-model agent, `important_instructions` attack; exploratory, not
   a hypothesis): utility 19.6% without attack and 20.2% under attack;
