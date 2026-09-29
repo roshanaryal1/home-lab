@@ -77,9 +77,9 @@ jobs:
         run: uvx zizmor@1.30.1 --offline .github/workflows
 
   secret-scan:
-    # GitHub secret scanning and CodeQL are not available on this private
-    # repository without Advanced Security, so the free equivalent runs
-    # here: gitleaks over the full history, binary pinned by checksum.
+    # An independent full-history check that does not depend on any
+    # GitHub setting: gitleaks, binary pinned by checksum. GitHub's own
+    # secret scanning and push protection are repository settings.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
