@@ -254,14 +254,20 @@ The adapter is done against a mock. These need the M6.
 Run on the M6 on 2026-09-30. Numbers, the `ModelSpec` and where they
 disagree with the ADR are in ADR 0001, "Measured on the M6".
 
-To start the server the way it was measured:
+To start the server as it runs now. Since 2026-09-30 it serves the DWQ
+build: the plain 4-bit build measured below corrupts text it copies (ADR
+0001, point 5).
 
 ```sh
 uv tool install mlx-lm==0.31.3
-HF_HUB_DISABLE_XET=1 uv tool run --from mlx-lm python -c "from huggingface_hub import snapshot_download; snapshot_download('mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit', revision='6e302ea604ad9ab206367e2c501d1571023e7b6d')"
+HF_HUB_DISABLE_XET=1 uv tool run --from mlx-lm python -c "from huggingface_hub import snapshot_download; snapshot_download('mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ', revision='cfcade7221ccd128681961446e5f7906c08cae55')"
 HF_HUB_OFFLINE=1 mlx_lm.server --host 127.0.0.1 --port 8080 --prompt-cache-size 1 \
-  --model ~/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit/snapshots/6e302ea604ad9ab206367e2c501d1571023e7b6d
+  --model ~/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ/snapshots/cfcade7221ccd128681961446e5f7906c08cae55
 ```
+
+When editing the LaunchAgent's `ProgramArguments`, use Python's `plistlib`,
+not `plutil -replace`: on an array index `plutil` inserted a second model
+path and the server exited in a restart loop until fixed.
 
 `HF_HUB_DISABLE_XET=1` because the default download protocol stalled twice
 here. `--prompt-cache-size 1` because the server otherwise keeps every
@@ -271,7 +277,10 @@ large app first; a single Safari tab held 16 GB before the first load.
 - [x] Start the chosen inference server on loopback only; point
       `OpenAICompatibleAdapter` at it. Listens on 127.0.0.1:8080 only.
 - [x] Record the exact weight and tokenizer commit hashes in a `ModelSpec`
-      (never a branch name) and in ADR 0001. `6e302ea604ad...` for both.
+      (never a branch name) and in ADR 0001. Served now (DWQ build):
+      `cfcade7221ccd128681961446e5f7906c08cae55` for both. The measurements in
+      this section used the plain 4-bit build, `6e302ea604ad...`, which is
+      historical only.
 - [x] Measure resident memory with the model loaded and at three context
       lengths; replace `weights_mb`, `kv_bytes_per_token` and
       `DEFAULT_BUDGET_MB` with measured values. 17,180 MB loaded; about
