@@ -70,8 +70,11 @@ settled fact. See paper P5 below.
 
 ### 1.2 The *Claw ecosystem, measured rather than described
 
-**OpenClaw** hit GitHub 2026-01-30 and is the reference point: ~430,000 lines of
-TypeScript, roughly 1 GB of memory. The ecosystem forked along different
+**OpenClaw** is the reference point: a TypeScript project whose GitHub
+repository (`openclaw/openclaw`) was created 2025-11-24 and had 390,782 stars
+on 2026-09-30. The figures of ~430,000 lines and roughly 1 GB of memory, and
+a 2026-01-30 launch date, are [UNVERIFIED]: the repository record does not
+show them (checked 2026-09-30). The ecosystem forked along different
 constraints:
 
 | Project | Approach |
@@ -86,9 +89,17 @@ constraints:
 Agentic AI Systems* ([arXiv 2608.27886](https://arxiv.org/abs/2608.27886)),
 which compared OpenClaw and NanoBot head to head:
 
-> Full task completion: **OpenClaw 31%, NanoBot 25%**, no statistically
-> significant advantage for either. But OpenClaw took longer on 83% of prompts,
-> with geometric mean ratios of **2.98x execution time and 19.44x peak memory**.
+> In the primary benchmark, the rate of full task completion was **31% for
+> OpenClaw and 25% for NanoBot**, a six-percentage-point difference with a 95%
+> task-bootstrap interval from -3 to 15 percentage points, providing no
+> statistically established full-completion advantage for either system.
+> [...] OpenClaw took longer on 83% of prompts and had a higher recorded
+> peak-memory value on every prompt, with geometric mean ratios of **2.98 for
+> wall time and 19.44 for peak memory**.
+
+(Verbatim from the abstract of arXiv 2608.27886, Salman, Halgamuge and
+Susnjak, submitted 2026-08-28; checked 2026-09-30. An earlier version of
+this file paraphrased it inside quotation marks.)
 
 Read that carefully. The heavyweight uses roughly **nineteen times the memory
 for no measurable completion advantage**, and the state of the art completes
@@ -149,7 +160,9 @@ way tool calls are.** That is not caution for its own sake, it is a measured
 I checked whether "benchmark local agent platforms" is novel. It largely is not:
 **ReliabilityBench** covers consistency, perturbation robustness and
 chaos-engineering-style fault injection; there is a public environment with
-**97 tasks and 629 security tests** for prompt injection on tool-using agents;
+**97 tasks and 629 security tests** for prompt injection on tool-using agents
+(as stated in the paper, arXiv 2406.13352; benchmark v1.2, run here on
+2026-09-29, has 949 attack cases);
 *Engineering Reliable Coding Agents* ([arXiv 2608.13867](https://arxiv.org/abs/2608.13867))
 and *Where Reliability Lives* ([arXiv 2609.03192](https://arxiv.org/abs/2609.03192))
 both exist.
