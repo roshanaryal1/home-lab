@@ -555,6 +555,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="run the fixed task set against a model endpoint, with provenance")
     ev.add_argument("eval_args", nargs=argparse.REMAINDER)
 
+    bn = sub.add_parser("bench", add_help=False,
+                        help="benchmark a model endpoint; compare two runs for a tuning gain")
+    bn.add_argument("bench_args", nargs=argparse.REMAINDER)
+
     st = sub.add_parser("status", help="queue, worker health and counters, from the event log")
     st.add_argument("--json", action="store_true")
     st.add_argument("--since-hours", type=float, default=None,
@@ -1146,6 +1150,9 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_dashboard(args)
     if args.command == "setup-plan":
         return cmd_setup_plan(args)
+    if args.command == "bench":
+        from lab import bench
+        return bench.main(args.bench_args)
     if args.command == "eval":
         from lab import evals
         return evals.main(args.eval_args)
