@@ -99,7 +99,10 @@ async def test_repeated_errors_stop_the_slot_and_report_unhealthy(tmp_path, monk
 
 @pytest.mark.asyncio
 async def test_lease_loss_ends_the_worker_process(tmp_path, monkeypatch) -> None:
-    sup = _sup(tmp_path, lease_ttl_seconds=0.3)
+    # The lease is lost only when renew_lease is patched below. A 0.3 s lease
+    # could also expire on its own on a slow CI runner before the worker's pid
+    # was checked, which failed the alive assertion for the wrong reason.
+    sup = _sup(tmp_path, lease_ttl_seconds=1.5)
     sup.register_reviewed("sleep", "lab.handlers.demo:record_pid_then_sleep",
                           tools={"fs.write"})
     task_id = sup.queue.add_task("sleep", agent_kind="sleep", payload={"seconds": 60})
