@@ -20,5 +20,5 @@ happen.
 | Backup then restore | `drill restore` | yes | not yet |
 | Power pull during a task | manual, see `ops/mac-mini-setup.md` | checklist | not yet |
 | Interrupted task after reboot | manual with launchd (6.2) | after 6.2 | not yet |
-| Failed model load | needs the model adapter (5.1) | no | not yet |
+| Failed model load | `drill model-load [--endpoint URL]` | yes | 2026-09-29, all three PASS on the rerun ([server down](log/2026-09-29T185021Z-model-load-server-down.md), [wrong model](log/2026-09-29T185021Z-model-load-wrong-model.md), [too big](log/2026-09-29T185021Z-model-load-too-big.md)); the first run's wrong-model case FAILed because `mlx_lm.server` rejects an unknown model with 404 instead of answering as another model, which the drill had not allowed for; the drill now accepts exactly that 404 or a `ModelMismatch`, nothing else, and passed again under that stricter check ([records](log/2026-09-29T190149Z-model-load-wrong-model.md)) ([record](log/2026-09-29T184943Z-model-load-wrong-model.md)) |
 | Monthly restore drill | `drill restore` against the live database | yes | not yet |

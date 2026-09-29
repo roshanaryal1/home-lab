@@ -195,7 +195,10 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
       2026-09-29: PASS for both kinds; records in `ops/drills/log/`.
 - [ ] Power-pull drill during a running task: pull the plug, boot, confirm
       the task is requeued or held per its idempotency, note timings.
-- [ ] Failed model load drill after the model adapter (5.1) exists.
+- [x] Failed model load drill after the model adapter (5.1) exists.
+      2026-09-29: `drill model-load --endpoint http://127.0.0.1:8080/v1`, all
+      three cases PASS (server down, wrong model, too big for the budget);
+      records in `ops/drills/log/`.
 
 ## 11. Operator account and approval keys (item 4.5, #70)
 
