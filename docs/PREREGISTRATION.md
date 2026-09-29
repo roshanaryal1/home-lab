@@ -1,8 +1,9 @@
 # Pre-registration plan
 
-**DRAFT for the owner to review, edit and submit to OSF. Not yet registered.**
-Last updated 2026-09-30: Amendment 1 at the end records real-model runs made
-before registration and re-specifies H2, adds H2b and H4's replication.
+**Registered on OSF: [osf.io/jfp74](https://osf.io/jfp74), 2026-09-29 14:45:00 UTC**,
+as this file at commit `d8726b43be5290afbb2ce6ae2f6722632705d9a8`, including
+Amendment 1 at the end. The OSF copy is the registered text; later changes to
+this file add results or dated amendments and never edit what was registered.
 
 Registration must be timestamped before the first real-model evaluation run,
 so that no result can shape the plan. The checklist item is section 21 of

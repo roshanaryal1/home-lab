@@ -29,16 +29,20 @@ wrong; do not plan capacity against that number.
 
 ## 2. Network
 
-- [ ] Install Tailscale and sign in.
-- [ ] Note the tailnet hostname. The dashboard (`lab dashboard`) binds to
+- [x] Install Tailscale and sign in. 2026-09-30: the Mac mini, a MacBook
+      and an iPhone on one tailnet.
+- [x] Note the tailnet hostname. The dashboard (`lab dashboard`) binds to
       loopback only by design; to see it from another device, forward a
       private tunnel to `127.0.0.1:8765` rather than changing the bind address.
 - [ ] Confirm **no public port forwarding** exists for this machine on
-      your router.
-- [ ] Do not expose MLX, Ollama or llama.cpp endpoints directly. They
-      bind to loopback or the tailnet interface only.
-- [ ] Enable Remote Login (SSH) for the admin account so this repo can
-      be deployed from the laptop.
+      your router. Not checked yet: needs the router's admin page.
+- [x] Do not expose MLX, Ollama or llama.cpp endpoints directly. They
+      bind to loopback or the tailnet interface only. 2026-09-30: the
+      model server binds 127.0.0.1; a request to its port on the tailnet
+      address is refused.
+- [x] Enable Remote Login (SSH) for the admin account so this repo can
+      be deployed from the laptop. Reachable over the tailnet; key-only
+      login is still to do.
 
 ## 3. Storage
 

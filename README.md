@@ -63,7 +63,10 @@ Since 2026-09-30 the lab's heavy model runs on the M6 itself:
 `Qwen3-Coder-30B-A3B-Instruct` at 4-bit, served by `mlx-lm` on loopback
 only and kept up by a user LaunchAgent (after a `kill -9` it was back in
 19 seconds). The supervisor, the lab account and the lab's own launchd
-daemons are not installed yet (setup sections 11 and 16).
+daemons are not installed yet (setup sections 11 and 16). Until the lab
+account exists, reviewed handlers run in a worker process as the same
+macOS user (`lab/worker.py`), so the process is the boundary; only the
+broker's `shell.run` is sandboxed (`lab/sandbox.py`).
 
 **Reaching it.** The Mac mini and the owner's devices share a private
 Tailscale network. Nothing listens on the internet and no router port is
@@ -80,7 +83,7 @@ ssh -N -L 8765:127.0.0.1:8765 <user>@<mac-mini>   # lab dashboard, once the lab 
 
 | What | Result | Where |
 |---|---|---|
-| Isolation for untrusted code (Apple `container`) | 0.64 s median start, host accounts and files invisible, network on by default so the executor must turn it off | ADR 0007 |
+| Apple `container`, measured for the planned untrusted-code tier (not used by the lab yet) | 0.64 s median start; inside a container the host's accounts and files were not visible; network is on by default, so that executor must turn it off | ADR 0007 |
 | Heavy model memory and speed | 17.2 GB loaded, about 200 KB per token of context, about 16K tokens under the 20.5 GB budget, about 67 tok/s | ADR 0001 |
 | Utility evaluation, 24 tasks | heavy 19, 4B baseline 20; reruns identical | setup section 14, `evals/runs/` |
 | Prompt injection with the real model driving | 0 of 9 attacks succeeded; the model tried 2, the broker stopped both | `SECURITY.md` |
