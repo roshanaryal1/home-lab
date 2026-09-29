@@ -168,7 +168,8 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
 - [ ] First full restore drill: `uv run python -m lab.cli drill restore`
       against the live database. Commit the record from `ops/drills/log/`.
 - [ ] Repeat monthly; log the date in `ops/drills/log/`.
-- [ ] Crash drill on the mini: `uv run python -m lab.cli drill crash`.
+- [x] Crash drill on the mini: `uv run python -m lab.cli drill crash`.
+      2026-09-29: PASS for both kinds; records in `ops/drills/log/`.
 - [ ] Power-pull drill during a running task: pull the plug, boot, confirm
       the task is requeued or held per its idempotency, note timings.
 - [ ] Failed model load drill after the model adapter (5.1) exists.
