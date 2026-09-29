@@ -433,7 +433,12 @@ Implemented and tested:
   often the model falls for an injection, not whether the lab stops it.
   Read the low attack rate with the low utility: the model often failed
   to use AgentDojo's tools at all, which also stops it carrying out an
-  injected goal. AgentDojo was installed in its own environment, not in
+  injected goal. For scale, AgentDojo's published results page (checked
+  2026-09-29 UTC; it has no benchmark-version column, so these may not be
+  v1.2) lists, for the same attack and no defense, Llama-3-70B with
+  prompted tools at 34.02% utility and 25.60% targeted attack success,
+  Gemini 1.5 Flash at 38.14% and 3.50%, and Claude 3.5 Sonnet (Oct 2024)
+  at 79.38% and 1.11%. AgentDojo was installed in its own environment, not in
   the lab's dependencies.
 - **Operator-signed approvals** (`lab/operator.py`, item 4.5, #70).
   `lab operator init` creates an Ed25519 keypair; `lab approve --key`

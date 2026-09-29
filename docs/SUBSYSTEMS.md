@@ -180,10 +180,12 @@ Systematic pass over everything named, with a decision rather than a summary.
 ### Hermes Agent: the one that deserves a real decision
 
 [Hermes Agent](https://github.com/NousResearch/hermes-agent) (Nous Research,
-released 2026-02-25) is the closest existing thing to what you asked for:
+repository created 2025-07-22; the 2026-02-25 release date written here
+earlier is [UNVERIFIED]) is the closest existing thing to what you asked for:
 self-hosted persistent daemon, memory across sessions, scheduled tasks, 90+
 skills, MCP support in both directions, runs local models, **and it writes its
-own reusable skills from experience.** 248k stars.
+own reusable skills from experience.** 250,012 stars when checked on
+2026-09-29 UTC.
 
 It also chose SQLite with FTS5 for memory, independently arriving at the same
 answer this study's consensus did. That is corroboration worth noting.

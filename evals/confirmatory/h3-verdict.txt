@@ -1,0 +1,9 @@
+H3 prompt-cache-size 1 -> 4 on evals/tasks.jsonl; commit 05b8101f dirty=False
+run 1: passed 19 -> 19, errors 0 -> 0, tasks lost []
+median p95 0.6734s -> 0.6755s (gain -0.3%); median tok/s 34.81 -> 34.83 (gain +0.1%)
+REGISTERED RULE: NOT SUPPORTED for this setting (no >=10% gain; not adopted)
+  - best gain +0.3% is below the required 10%   - this is advice only: a person changes the setting 
+  - best gain +0.1% is below the required 10%   - this is advice only: a person changes the setting 
+  - best gain -0.0% is below the required 10%   - this is advice only: a person changes the setting 
+  - best gain +0.1% is below the required 10%   - this is advice only: a person changes the setting 
+  - best gain +0.1% is below the required 10%   - this is advice only: a person changes the setting 

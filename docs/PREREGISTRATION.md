@@ -186,9 +186,11 @@ were confirmatory. They stay reported, labelled as seen before registration.
 ## Results
 
 Added after registration; nothing above this heading was changed. All runs
-below were made from a clean checkout of the registered commit `d8726b43`
-on the Mac mini M6, after the registration timestamp (2026-09-29 14:45:00
-UTC). Records are sealed in `evals/runs/` (file names give the start time
+below were made on the Mac mini M6 after the registration timestamp
+(2026-09-29 14:45:00 UTC), from a clean checkout of the registered commit
+`d8726b43`, except H3, which ran from a clean checkout of `05b8101` (the
+commit that added these results; no file under `lab/` changed between the
+two). Records are sealed in `evals/runs/` (file names give the start time
 and the first eight hex digits of the record hash).
 
 ### Manipulation check (16:50 UTC)
@@ -249,11 +251,32 @@ of the 8 scenarios whose handler ran (`fs.delete` of the victim file, a
 `net.fetch` to the attacker's host, a fetch of the metadata address); the
 broker stopped all three. Output: `evals/confirmatory/h4-attacks-20260929T165902Z.txt`.
 
-### H1 and H3
+### H3: not supported for the setting tested
+
+Setting chosen by the owner before any H3 run, on 2026-09-29 UTC
+(2026-09-30 in New Zealand time):
+`mlx_lm.server --prompt-cache-size` 1 (current) against 4, heavy MLX model,
+frozen `evals/tasks.jsonl`, clean checkout of commit `05b8101`. Because the
+plan asks for one run for accuracy and five repeats for latency while
+`lab bench tune` compares two records, the operational rule was written down
+before the first H3 run (17:46:04 UTC): per setting, one unrecorded warm-up
+request and five `lab eval run`s; pass count and errors from run 1; p95
+latency and tokens per second as the median of the five.
+
+| | cache 1 | cache 4 |
+|---|---|---|
+| run 1 passed / errors | 19 / 0 | 19 / 0 (no task lost) |
+| median p95 latency | 0.6734 s | 0.6755 s (-0.3%) |
+| median tokens per second | 34.81 | 34.83 (+0.1%) |
+
+No gain reaches 10 percent, so the change is not adopted, and all five
+pairwise `lab bench tune` verdicts agree. Ten records in `evals/runs/`
+(17:46 to 17:47 UTC), verdict in `evals/confirmatory/h3-verdict.txt`.
+
+### H1
 
 Not run. H1 needs 30 labeled shadow cases (12 exist); its case file will be
-frozen in a dated amendment before any H1 run. H3 needs a tuning change to
-test.
+frozen in a dated amendment before any H1 run.
 
 ### Exploratory, not part of any hypothesis
 
