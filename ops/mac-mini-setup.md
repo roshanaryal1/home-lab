@@ -440,7 +440,11 @@ expect a call either way between runs.
       pre-registered H2 on `llama-server` (results in
       `docs/PREREGISTRATION.md`): not supported, 0 of 70 refused with and
       without the grammar.
-- [ ] The same for routing labels. Not run yet. Options considered,
+- [ ] The same for routing labels. Deliberately not run (2026-09-29): the
+      only model-produced routing labels are the shadow candidate's, which is
+      what the pre-registered H1 measures, so an exploratory run would expose
+      H1's cases before their file is frozen. Run it inside H1 or after it.
+      Options considered,
       each a new runtime or dependency to decide on: llama.cpp's
       `llama-server` (checked in its source: a `json_schema` or `grammar`
       request field is converted to a GBNF grammar that constrains
@@ -490,4 +494,10 @@ expect a call either way between runs.
 - [ ] #16: the ceiling mechanism is built (wall clock, RSS and CPU for reviewed
       handlers). Set `task_max_rss_mb` and `task_max_cpu_seconds` from measured
       peaks of the real handlers with headroom, and check the model server's
-      own footprint stays inside the 32 GB admission budget.
+      own footprint stays inside the 32 GB admission budget. 2026-09-29: no
+      real reviewed handler exists yet (`lab/handlers/` holds only the demo,
+      and the summarizer in `lab/loop.py` runs inside the supervisor, not in a
+      ceilinged worker), so there is nothing real to measure and the defaults
+      (2048 MB, 900 s) stay. The model server's half is measured (ADR 0001):
+      16 GiB idle, about +7 GiB at 37K tokens, under the 24.96 GiB Metal
+      ceiling.
