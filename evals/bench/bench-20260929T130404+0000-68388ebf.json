@@ -1,0 +1,38 @@
+{
+  "cold_start_seconds": 0.2984959580353461,
+  "decode_tokens_per_second": 76.59,
+  "end_to_end_tokens_per_second": 68.05,
+  "errors": 0,
+  "first_token_p50": 0.06715491705108434,
+  "first_token_p95": 0.06823620799696073,
+  "max_tokens": 128,
+  "method": "first token latency is the wall time of a one-token request (the adapter does not stream); decode speed is completion tokens over the extra time a longer answer takes",
+  "model": {
+    "context_tokens": 8192,
+    "heavy": true,
+    "kv_bytes_per_token": 200000,
+    "max_output_tokens": 128,
+    "name": "/Users/roshanaryal/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit/snapshots/6e302ea604ad9ab206367e2c501d1571023e7b6d",
+    "revision": "6e302ea604ad9ab206367e2c501d1571023e7b6d",
+    "tokenizer_revision": "6e302ea604ad9ab206367e2c501d1571023e7b6d",
+    "weights_mb": 17180
+  },
+  "provenance": {
+    "cryptography": "50.0.1",
+    "lab_commit": "ef326c9342a9ae82dd5ff20ff87f689bc6a03748",
+    "lab_version": "0.1.0",
+    "machine": "arm64",
+    "macos_build": "26A428",
+    "on_target": true,
+    "os": "Darwin 27.0.0",
+    "power_settings": "AC Power:\n Sleep On Power Button 1\n autorestartatconnect 0\n lowpowermode         0\n standby              0\n ttyskeepawake        1\n powernap             1\n displaysleep         10\n womp                 1\n networkoversleep     0\n sleep                0\n tcpkeepalive         1\n autorestart          0\n disksleep            10",
+    "power_settings_sha256": "22be6273bcd15892ccbdd7955a166fc9a5f990cfb7c8221a9bd1e7d0c1f7cfd8",
+    "python": "3.13.15",
+    "sqlite": "3.53.1",
+    "tree_dirty": true
+  },
+  "repeats": 5,
+  "server_rss_mb": 15623.2,
+  "sha256": "68388ebfbcb5eaae894afd801582cbeb619dfe2a0718e96865aae45fc02ec707",
+  "started_at": "2026-09-29T13:04:04+00:00"
+}

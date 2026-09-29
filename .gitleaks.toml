@@ -1,0 +1,21 @@
+# Secret-scan configuration. The built-in rules all apply; one narrow
+# exception is added below.
+title = "home-lab gitleaks config"
+
+[extend]
+useDefault = true
+
+# Sealed evaluation and benchmark records name the model they measured by
+# its Hugging Face commit, e.g. "tokenizer_revision": "<40 hex>". That is a
+# public identifier, not a key, but generic-api-key reads the word "token"
+# next to a long hex string as one. The exception is limited to that rule,
+# to record files under evals/, and to a revision field holding a 40 or 64
+# hex-digit hash. Any other secret-looking value in those files is still
+# reported.
+[[allowlists]]
+description = "Model commit hashes in sealed eval and bench records"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+paths = ['''^evals/(runs|bench)/[^/]+\.json$''']
+regexes = ['''(?:tokenizer_)?revision"?\s*:\s*"?[0-9a-f]{40}(?:[0-9a-f]{24})?"?$''']
