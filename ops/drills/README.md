@@ -16,7 +16,7 @@ happen.
 
 | Drill | Command | Software ready | Demonstrated on the mini |
 |---|---|---|---|
-| Crash mid-task | `drill crash` | yes | not yet |
+| Crash mid-task | `drill crash` | yes | 2026-09-29, both kinds PASS ([idempotent](log/2026-09-29T081543Z-crash-idempotent.md), [non-idempotent](log/2026-09-29T081543Z-crash-non-idempotent.md)) |
 | Backup then restore | `drill restore` | yes | not yet |
 | Power pull during a task | manual, see `ops/mac-mini-setup.md` | checklist | not yet |
 | Interrupted task after reboot | manual with launchd (6.2) | after 6.2 | not yet |
