@@ -105,6 +105,11 @@ Add anything here. No commitment implied. Promote only after checking the gate.
   broker stopped both (SECURITY.md, 2026-09-30). "The model will fall for
   it, so the controls cannot depend on it" with a measured example. Short
   post candidate for Track B.
+- The inference server silently ignored the JSON-schema `response_format`
+  (identical output with and without it), while the same schema pasted
+  into the system prompt cut invalid tool calls from 23.5% to 2.0%.
+  "Check that your constraint is enforced, not just accepted." Build-log
+  entry, 2026-09-30, setup section 20.
 - Vendor documentation as an unreliable narrator: the M6 bandwidth claim
   (170 GB/s real vs a surveyed system's "300+ GB/s") is one data point;
   P2's cutoff-documentation findings are another. May be a thread, may be thin.

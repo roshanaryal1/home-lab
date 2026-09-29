@@ -386,17 +386,44 @@ the paths, then:
 
 ## 20. Constrained decoding (item 5.3, #76)
 
+**Exploratory, not the pre-registered H2.** `docs/PREREGISTRATION.md`
+defines H2 over the three frozen `tool_call` tasks in `evals/tasks.jsonl`
+only. The figures below add 48 generated prompts and a schema-in-prompt
+condition that the pre-registration does not name, so they can guide the
+next step but cannot confirm or refute H2 without a dated amendment.
+
+Measured 2026-09-30 on the heavy model, 51 tool-call prompts (the 3
+`tool_call` tasks in `evals/tasks.jsonl` plus `fs.read`, `fs.write` and
+`fs.list` over 16 paths), temperature 0, graded by `parse_tool_call`:
+
+| mode | refused | right tool | mean latency |
+|---|---|---|---|
+| plain prompt | 12 of 51 (23.5%), all `fs.write` | 39 | 0.47 s |
+| `response_format` = `lab.grammar.response_format()` | 12 of 51, identical | 39 | 0.47 s |
+| same schema as text in a system prompt | 1 of 51 (2.0%), `fs.list` | 50 | 0.57 s |
+
+The plain rate was 11 of 51 on an earlier server start (section 13), so
+expect a call either way between runs.
+
+- [x] Confirm the inference server honors `response_format`: **it does
+      not.** `mlx_lm.server` 0.31.3 has no `response_format` handling in its
+      source, and sending the schema changed nothing. It is ignored
+      silently, so a caller cannot tell from the response.
 - [ ] After the section 13 baseline, run the same task file with
       grammar-constrained decoding for tool calls and routing labels.
-      Baseline to beat: 11 of 51 tool calls refused (21.6%), ADR 0001.
+      Blocked on a server that enforces a grammar while decoding. Options,
+      each a new runtime or dependency to decide on: llama.cpp's
+      `llama-server` (checked in its source: a `json_schema` or `grammar`
+      request field is converted to a GBNF grammar that constrains
+      generation; needs GGUF weights of the same model), or a grammar
+      library as an MLX logits processor behind our own loopback server
+      (MLX support of the candidate libraries not checked yet).
 - [ ] Record invalid-call rate, correct-task rate and latency next to the
       baseline. Adopt only on a measured gain; the strict parser stays either
-      way.
-
-- [ ] Confirm the inference server honors `response_format`
-      (`lab.grammar.response_format()`, passed to `OpenAICompatibleAdapter`);
-      the harness generates and validates the schema, server support is
-      measured here, not assumed.
+      way. The schema-in-prompt row above is a measured gain without new
+      dependencies but is **not** constrained decoding: the model can still
+      emit an invalid call, and the parser still refuses it. Adopting it is
+      a prompt change for whoever builds tool-call prompts.
 
 ## 21. Pre-registration (item 8.1, #82)
 

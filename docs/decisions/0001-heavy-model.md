@@ -173,8 +173,11 @@ Recorded as measured; no figure above was adjusted to fit.
    twenty-turn loop is closer to three minutes than two.
 2. **Tool-call reliability**: 21.6% of calls refused. This is the second
    "what would change this" condition below. It is not yet a reason to
-   switch: constrained decoding (section 20) and the comparison run are
-   the next evidence.
+   switch: in an exploratory run (not the pre-registered H2, which uses
+   only the three frozen tool-call tasks), putting the tool schema in the
+   system prompt cut it to 2.0% (1 of 51) on the same prompts (setup
+   section 20, 2026-09-30), and the server ignores `response_format`, so
+   true constrained decoding is still unmeasured.
 3. **Context**: about 16K tokens under the budget, and 64K is impossible
    on this machine (Metal ceiling), whatever the model supports.
 4. **Memory itself fits**: 17.2 GB against the 20.5 GB budget, as claimed.
