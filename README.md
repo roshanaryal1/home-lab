@@ -126,6 +126,7 @@ uv run python -m lab.cli control pause|resume|drain|stop --by you   # the whole-
 uv run python -m lab.cli watchdog [--max-age 90] [--dry-run]   # kill a hung supervisor; launchd restarts it
 uv run python -m lab.cli cancel <task> --by you   # cancel work that has not started
 uv run python -m lab.cli selftest [--alert-config F]   # chain, backup restore, health, safety tests; alerts on failure
+uv run python -m lab.cli setup-plan [--apply]      # print the lab-account setup; --apply needs root on macOS
 uv run python -m lab.cli keepawake [--once] [--grace 600]   # hold caffeinate only while work is pending
 uv run python -m lab.cli tick [--repo owner/repo]     # one pass: observe, summarize with the model, route
 uv run python -m lab.cli emit [--min-failures 3]  # queue proposals from patterns in the event log
@@ -174,6 +175,7 @@ lab/metrics.py       `lab status`, derived from the event log
 lab/control.py       the operator mode switch: pause, drain, stop
 lab/service.py       heartbeat, watchdog and the launchd definitions (`ops/launchd/`)
 lab/selftest.py, alert.py   nightly self-test; the operator-configured alert hook
+lab/accountplan.py   the lab-account setup written as a plan, dry-run by default
 lab/keepawake.py, logsetup.py   queue-aware sleep prevention; rotating private JSON logs
 lab/loop.py          the loop: summarizer handler, ledger claim, rubric route, `lab tick`
 lab/emitter.py       proposals emitted from the event log, each with its event chain

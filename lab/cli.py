@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any
 
 from lab import (
+    accountplan,
     alert,
     audit,
     backup,
@@ -479,6 +480,14 @@ def build_parser() -> argparse.ArgumentParser:
     stc.add_argument("--tests-dir", type=Path, default=None)
     stc.add_argument("--alert-config", type=Path, default=None,
                      help="operator-owned JSON naming the alert command")
+    sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
+                        "setup")
+    sp.add_argument("--user", default="lab")
+    sp.add_argument("--operator-pubkey", default=None,
+                    help="absolute path of the operator's PUBLIC key to install "
+                    "(default: ~/.lab-operator/operator.pub)")
+    sp.add_argument("--apply", action="store_true",
+                    help="run the mutating steps; needs root and macOS")
 
     ka = sub.add_parser("keepawake", help="hold the machine awake only while work is pending")
     ka.add_argument("--once", action="store_true", help="print the decision and exit")
@@ -567,6 +576,29 @@ def build_parser() -> argparse.ArgumentParser:
     chk.add_argument("--checkpoint", type=Path, required=True)
 
     return parser
+
+
+def cmd_setup_plan(args: argparse.Namespace) -> int:
+    """Touches no database. Prints the plan; with --apply, runs it (root, macOS only)."""
+    try:
+        steps = accountplan.build(args.user, operator_pubkey=args.operator_pubkey)
+    except ValueError as exc:
+        print(f"setup-plan: {exc}", file=sys.stderr)
+        return 1
+    print(accountplan.render(steps))
+    if not args.apply:
+        return 0
+    try:
+        result = accountplan.apply(steps)
+    except accountplan.ApplyRefused as exc:
+        print(f"setup-plan: {exc}", file=sys.stderr)
+        return 1
+    if not result.ok and result.failed is not None:
+        print(f"setup-plan: stopped at: {result.failed.command}\n{_escape(result.detail)}",
+              file=sys.stderr)
+        return 1
+    print(f"applied {len(result.steps_run)} steps; now run the checks above by hand")
+    return 0
 
 
 def cmd_keepawake(args: argparse.Namespace) -> int:
@@ -1112,6 +1144,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_shadow(args)
     if args.command == "dashboard":
         return cmd_dashboard(args)
+    if args.command == "setup-plan":
+        return cmd_setup_plan(args)
     if args.command == "eval":
         from lab import evals
         return evals.main(args.eval_args)
