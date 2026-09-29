@@ -433,6 +433,11 @@ expect a call either way between runs.
       before the first real eval run, and link the registration from
       `docs/PIPELINE.md`. The registration timestamp must precede the first
       run's provenance record.
+      2026-09-30: this did not happen in order. Real-model runs from
+      sections 12, 13, 14 and 20 came first; Amendment 1 in
+      `docs/PREREGISTRATION.md` lists them as exploratory and moves the
+      confirmatory H2, H2b and H4 runs onto a held-out task file
+      (`evals/toolcalls-v1.jsonl`) that runs only after registration.
 
 ## 22. Shadow experiment, tuning and memory ceilings (items 8.3, 8.8, #84, #88, #16)
 
