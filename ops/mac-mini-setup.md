@@ -419,10 +419,11 @@ expect a call either way between runs.
       source, and sending the schema changed nothing. It is ignored
       silently, so a caller cannot tell from the response.
 - [x] After the section 13 baseline, run the same task file with
-      grammar-constrained decoding for tool calls and routing labels.
-      Done as the pre-registered H2 on `llama-server` (results in
+      grammar-constrained decoding for tool calls. Done as the
+      pre-registered H2 on `llama-server` (results in
       `docs/PREREGISTRATION.md`): not supported, 0 of 70 refused with and
-      without the grammar. Routing labels not run. Options considered,
+      without the grammar.
+- [ ] The same for routing labels. Not run yet. Options considered,
       each a new runtime or dependency to decide on: llama.cpp's
       `llama-server` (checked in its source: a `json_schema` or `grammar`
       request field is converted to a GBNF grammar that constrains
