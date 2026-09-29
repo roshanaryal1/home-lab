@@ -228,6 +228,9 @@ The runner and record format are done and tested against a stub endpoint.
 - [ ] `lab eval rerun` the record on the same commit; expect identical
       answers at temperature 0 with a fixed seed, and note any that move.
 - [ ] Repeat for the smaller baseline model (5.2) with the same task file.
+- [ ] `lab bench run ... --server-pid PID` for each model; commit the sealed
+      report from `evals/bench/`. First token is a one-token request until the
+      server streams; note that when quoting the number.
 
 ## 15. First real destination (item 8.6, #86)
 
@@ -344,7 +347,8 @@ the paths, then:
       the rubric baseline, and `lab.shadow.run` with `model_candidate` compares
       a real model. Grow the case file past 30 labeled cases before trusting
       `adoption_verdict`.
-- [ ] 8.8: after section 14, measure queue wait, tasks per hour, tail latency,
+- [ ] 8.8: `lab bench tune BASELINE CANDIDATE` compares two eval records and
+      recommends only on a gain with no task lost. After section 14, measure queue wait, tasks per hour, tail latency,
       peak memory, throttling and energy on the fixed task set; tune only with
       a measured gain.
 - [ ] #16: the ceiling mechanism is built (wall clock, RSS and CPU for reviewed

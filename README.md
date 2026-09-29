@@ -148,6 +148,8 @@ uv run python -m lab.cli dashboard [--port 8765]   # read-only status page on lo
 uv run python -m lab.cli ledger show <task>       # claims, their evidence and status; review, verify
 uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record; --db notes it as a measurement
 uv run python -m lab.cli eval rerun <record>      # repeat a run from its record alone, then compare
+uv run python -m lab.cli bench run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # cold start, first token, decode speed, server memory
+uv run python -m lab.cli bench tune <baseline> <candidate>   # recommend a setting only on a measured gain with no task lost
 uv run python -m lab.attacks                      # benign-plus-hostile scenarios against a stub model
 ```
 
@@ -183,6 +185,7 @@ lab/model.py         bounded model adapter: pinned revisions, admission, strict 
 lab/memory.py        inspectable memory: FTS5, provenance, expiry, revoke that reaches drafts
 lab/rubric.py        the router's rules: evidence weight to post, blog, paper or nothing
 lab/ledger.py        research claims with statuses separate from task state, evidence snapshots
+lab/bench.py         benchmark of one endpoint and the tuning gate
 lab/evals.py         fixed task set run against any endpoint, sealed provenance records
 lab/attacks.py       injection harness
 evals/tasks.jsonl    the 24 tasks (arithmetic, extraction, format, code, tool calls, injection)
