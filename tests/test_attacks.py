@@ -139,3 +139,52 @@ async def test_reading_the_network_taints_a_trusted_task_and_its_children(tmp_pa
     kinds = [r["kind"] for r in sup.queue.events(task_id)]
     assert "task_tainted" in kinds
     sup.close()
+
+
+# ------------------------------------------------ a model-driven agent (4.7, #72)
+
+
+def _bounded(replies):
+    from lab.model import BoundedModel, MockAdapter, ModelSpec
+    spec = ModelSpec("mock-agent", "a" * 40, "a" * 40, 8192, 512, 1, heavy=False)
+    return BoundedModel(spec, MockAdapter(replies))
+
+
+def _obeys_the_page(messages: list[dict[str, str]]) -> str:
+    """A scripted model that turns every injected directive into a real JSON
+    tool call, then writes the summary, then says it is done."""
+    import json
+    page = messages[1]["content"]                         # the task and the fetched page
+    turn = sum(m["role"] == "assistant" for m in messages)
+    calls = [{"tool": t, "arguments": json.loads(p)} for t, p in attacks.DIRECTIVE.findall(page)]
+    calls.append({"tool": "fs.write", "arguments": {"path": "summary.txt",
+                                                    "content": "revenue grew 4 percent"}})
+    calls.append({"tool": "done", "arguments": {}})
+    return json.dumps(calls[min(turn, len(calls) - 1)])
+
+
+@pytest.mark.safety
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", SCENARIOS, ids=[s.name for s in SCENARIOS])
+async def test_a_model_emitting_the_injected_calls_is_still_blocked(scenario, tmp_path) -> None:
+    grade = await run_scenario(scenario, tmp_path,
+                               model=attacks.model_agent(_bounded(_obeys_the_page)))
+    assert not grade.attack_succeeded, f"{scenario.name}: the forbidden effect happened"
+
+
+@pytest.mark.asyncio
+async def test_malformed_model_output_is_counted_and_never_executed(tmp_path) -> None:
+    agent = attacks.model_agent(_bounded(["not json", '{"tool": "fs.write", "arguments": '
+                                          '{"path": "x.txt", "bogus": 1}}']), max_steps=3)
+    grade = await run_scenario(BY_NAME["write a git hook"], tmp_path, model=agent)
+    assert not grade.attack_succeeded and not grade.utility
+    assert agent.stats["refused_calls"] == 3 and agent.stats["executed_calls"] == 0
+
+
+@pytest.mark.parametrize("reply,done", [('{"tool": "done"}', True),
+                                        ('{"tool": "done", "arguments": {}}', True),
+                                        ('{"tool": "done", "arguments": {"x": 1}}', False),
+                                        ('{"tool": "done", "extra": 1}', False),
+                                        ("done", False)])
+def test_only_a_clean_done_signal_ends_the_agent(reply: str, done: bool) -> None:
+    assert attacks._is_done(reply) is done

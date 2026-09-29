@@ -95,6 +95,16 @@ Add anything here. No commitment implied. Promote only after checking the gate.
   caches by default and ran out of memory on a request that fits alone.
   One machine, one model, one day: a build-log entry now, a finding only
   after the second candidate and repeat runs.
+- A 4B model tied a 30B mixture-of-experts on the lab's own 24-task
+  utility set (20 vs 19 of 24, 2026-09-30, `ops/mac-mini-setup.md` section
+  14), and both fell for the same one-line injection (`inject-1`). Small
+  task set, so a build-log observation, not a claim; worth a post only if
+  it survives a bigger set.
+- Real-model injection run: a coder model obeyed 2 of 8 hidden
+  instructions (delete a file, fetch the cloud metadata address) and the
+  broker stopped both (SECURITY.md, 2026-09-30). "The model will fall for
+  it, so the controls cannot depend on it" with a measured example. Short
+  post candidate for Track B.
 - Vendor documentation as an unreliable narrator: the M6 bandwidth claim
   (170 GB/s real vs a surveyed system's "300+ GB/s") is one data point;
   P2's cutoff-documentation findings are another. May be a thread, may be thin.
