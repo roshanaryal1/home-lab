@@ -92,15 +92,19 @@ sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
 The services run `/opt/homelab/.venv/bin/python`. Code and Python are
 root-owned so the lab account cannot change what it runs.
 
+The clone and `uv sync` run as the operator, never as root: `uv sync`
+builds the project with its build backend, and that code must not run with
+root privileges. Root only creates the empty directories and takes
+ownership afterwards.
+
 ```sh
-sudo git clone https://github.com/roshanaryal1/home-lab.git /opt/homelab
-sudo git -C /opt/homelab -c advice.detachedHead=false checkout "$COMMIT"
-cd /opt/homelab && sudo env UV_PYTHON_INSTALL_DIR=/opt/homelab-python \
-  UV_CACHE_DIR=/opt/homelab-uvcache UV_PYTHON_PREFERENCE=only-managed \
-  "$UV" sync --locked
+sudo install -d -o "$USER" -g staff -m 755 /opt/homelab /opt/homelab-python
+git clone https://github.com/roshanaryal1/home-lab.git /opt/homelab
+git -C /opt/homelab -c advice.detachedHead=false checkout "$COMMIT"
+cd /opt/homelab && UV_PYTHON_INSTALL_DIR=/opt/homelab-python \
+  UV_PYTHON_PREFERENCE=only-managed "$UV" sync --locked
 sudo chown -R root:wheel /opt/homelab /opt/homelab-python
 sudo chmod -R go-w /opt/homelab /opt/homelab-python
-sudo rm -rf /opt/homelab-uvcache
 ```
 
 - Check, as the lab account:
@@ -108,6 +112,7 @@ sudo rm -rf /opt/homelab-uvcache
   prints 3.53.1 or later; and `sudo -u lab /usr/bin/touch /opt/homelab/x`
   is refused.
 - Undo: `sudo rm -rf /opt/homelab /opt/homelab-python`.
+- Rehearsal note: the scratch rehearsal ran `uv sync` as the operator too.
 
 ## Step 4. Settings the service files need (sudo)
 
@@ -116,11 +121,13 @@ The committed plists leave two things to the operator.
 ```sh
 P=/Library/LaunchDaemons
 sudo plutil -insert EnvironmentVariables.LAB_OPERATOR_PUBKEY -string /etc/homelab/operator.pub $P/com.homelab.supervisor.plist
-MODEL_ID=$(curl -s http://127.0.0.1:8080/v1/models | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["id"])')
+MODEL_ID=$(curl -sf http://127.0.0.1:8080/v1/models | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["id"])')
+if [ -z "$MODEL_ID" ]; then echo "STOP: the model server did not answer; start it and redo this block"; else
 sudo plutil -insert EnvironmentVariables -dictionary $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_URL -string http://127.0.0.1:8080/v1 $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_NAME -string "$MODEL_ID" $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_REVISION -string "$MODEL_REV" $P/com.homelab.tick.plist
+fi
 sudo plutil -lint $P/com.homelab.*.plist
 ```
 
@@ -174,7 +181,7 @@ sleep 40; NEW=$(pgrep -f lab.supervisor)
 [ -n "$NEW" ] && [ "$NEW" != "$OLD" ] && echo "restarted as $NEW" || echo "NOT restarted"
 OLD=$NEW; sudo kill -STOP "$OLD"                     # frozen; the watchdog must kill it
 sleep 150; NEW=$(pgrep -f lab.supervisor)
-if ps -p "$OLD" >/dev/null; then echo "FAIL: frozen $OLD still exists"; \
+if ps -p "$OLD" >/dev/null; then echo "FAIL: frozen $OLD still exists; resuming it"; sudo kill -CONT "$OLD"; \
 elif [ -n "$NEW" ] && [ "$NEW" != "$OLD" ]; then echo "replaced: $OLD -> $NEW"; \
 else echo "FAIL: no new supervisor"; fi
 sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db watchdog --dry-run
