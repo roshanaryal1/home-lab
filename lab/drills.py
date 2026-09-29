@@ -225,19 +225,22 @@ def drill_model_load(endpoint: str | None = None) -> list[DrillResult]:
             msgs, max_tokens=4, timeout_seconds=60)
     except ModelError as exc:
         err = exc
-    if stub is not None:
-        stub.shutdown()
+    finally:
+        if stub is not None:
+            stub.shutdown()
+            stub.server_close()
     free = slot_free(ctrl, spec)
     # Two safe outcomes: a server that answers anyway is caught by the lab
     # (ModelMismatch); mlx_lm.server instead rejects an unknown model name
-    # itself (HTTP 404, first seen in the 2026-09-29 drill on the M6).
+    # itself with HTTP 404 (first seen in the 2026-09-29 drill on the M6).
+    # Only 404 counts: a 400, 408 or 429 says nothing about the model.
     refused = isinstance(err, ModelMismatch) or (
-        isinstance(err, ModelError) and str(err).startswith("inference server returned 4"))
+        isinstance(err, ModelError) and str(err) == "inference server returned 404")
     results.append(DrillResult(
         "model-load-wrong-model",
         f"the server at {endpoint} is asked for a model it does not serve",
         "refused, never answered: ModelMismatch if the server answers as another model, "
-        "or the server's own 4xx for an unknown model; the heavy slot is free afterwards",
+        "or the server's own 404 for an unknown model; the heavy slot is free afterwards",
         f"{type(err).__name__ if err else 'no error'}: {err}; slot free={free}",
         refused and free))
 
