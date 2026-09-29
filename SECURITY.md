@@ -432,6 +432,17 @@ Implemented and tested:
   private as the directory they are written to. Recovery drills
   (`lab drill`, `ops/drills/`) record every run and count as
   demonstrated only on the Mac mini; the monthly drill there is parked.
+- **Status dashboard** (`lab/dashboard.py`, `lab dashboard`, H7). A read-only
+  page and JSON view over the same metrics as `lab status`. `make_server`
+  refuses any bind address that is not loopback; only GET and HEAD are served
+  (every other method is 405); the Host header must name a loopback address,
+  which stops DNS rebinding from a web page in the operator's browser; the
+  database is opened read-only per request; every stored string is HTML
+  escaped; the page carries a `default-src 'none'` policy, no script and no
+  form, and is never cached. It has no authentication because it exposes
+  nothing beyond loopback; exposing it further is the operator's decision and
+  should be a private tunnel, not a wider bind
+  (`tests/test_dashboard.py`).
 
 ## Known gaps in what exists
 

@@ -30,7 +30,9 @@ wrong; do not plan capacity against that number.
 ## 2. Network
 
 - [ ] Install Tailscale and sign in.
-- [ ] Note the tailnet hostname; you will bind the dashboard to it later.
+- [ ] Note the tailnet hostname. The dashboard (`lab dashboard`) binds to
+      loopback only by design; to see it from another device, forward a
+      private tunnel to `127.0.0.1:8765` rather than changing the bind address.
 - [ ] Confirm **no public port forwarding** exists for this machine on
       your router.
 - [ ] Do not expose MLX, Ollama or llama.cpp endpoints directly. They

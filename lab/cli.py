@@ -521,6 +521,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="the route you hoped for; thin evidence is refused upward")
     rt.add_argument("--store", type=Path, default=None)
 
+    dash = sub.add_parser("dashboard", help="serve a read-only status page on loopback")
+    dash.add_argument("--host", default="127.0.0.1", help="loopback addresses only")
+    dash.add_argument("--port", type=int, default=8765)
+
     sh = sub.add_parser("shadow", help="measure the rubric on labeled research cases")
     sh.add_argument("--cases", type=Path, required=True)
 
@@ -979,6 +983,24 @@ def cmd_chain(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) 
     return 0
 
 
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    from lab import dashboard
+    try:
+        server = dashboard.make_server(args.db, host=args.host, port=args.port)
+    except (dashboard.DashboardError, OSError) as exc:
+        print(f"dashboard: {exc}", file=sys.stderr)
+        return 1
+    host, port = str(server.server_address[0]), server.server_address[1]
+    print(f"read-only status page on http://{host}:{port}/  (Ctrl-C to stop)")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
 def cmd_shadow(args: argparse.Namespace) -> int:
     from lab import shadow
     try:
@@ -1088,6 +1110,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_keepawake(args)
     if args.command == "shadow":
         return cmd_shadow(args)
+    if args.command == "dashboard":
+        return cmd_dashboard(args)
     if args.command == "eval":
         from lab import evals
         return evals.main(args.eval_args)
