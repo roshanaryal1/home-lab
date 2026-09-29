@@ -317,6 +317,11 @@ the paths, then:
       baseline. Adopt only on a measured gain; the strict parser stays either
       way.
 
+- [ ] Confirm the inference server honors `response_format`
+      (`lab.grammar.response_format()`, passed to `OpenAICompatibleAdapter`);
+      the harness generates and validates the schema, server support is
+      measured here, not assumed.
+
 ## 21. Pre-registration (item 8.1, #82)
 
 - [ ] Create the OSF account (owner).
@@ -331,6 +336,10 @@ the paths, then:
       deterministic rubric (`lab/rubric.py`); measure per-class error, false
       promotion, abstention, calibration, latency and memory. A typed allow
       or a confidence never acts as permission.
+- [ ] 8.3 tooling exists: `lab shadow --cases evals/shadow_cases.jsonl` runs
+      the rubric baseline, and `lab.shadow.run` with `model_candidate` compares
+      a real model. Grow the case file past 30 labeled cases before trusting
+      `adoption_verdict`.
 - [ ] 8.8: after section 14, measure queue wait, tasks per hour, tail latency,
       peak memory, throttling and energy on the fixed task set; tune only with
       a measured gain.

@@ -206,7 +206,13 @@ class MockAdapter:
 class OpenAICompatibleAdapter:
     """Chat completions against a loopback server (mlx-lm, llama.cpp, vLLM)."""
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, *, response_format: dict[str, Any] | None = None) -> None:
+        """``response_format`` is sent with every request when set: the
+        constrained-decoding option (``lab.grammar.response_format()``). Whether
+        a server honours it is server-specific and measured, not assumed."""
+        if response_format is not None and not isinstance(response_format, dict):
+            raise ValueError("response_format must be a JSON object")
+        self._response_format = response_format
         parts = urllib.parse.urlsplit(base_url)
         if parts.scheme != "http" or (parts.hostname or "") not in LOOPBACK:
             raise ValueError("the inference server must be http on loopback; "
@@ -223,6 +229,8 @@ class OpenAICompatibleAdapter:
                                    "stream": False}
         if seed is not None:
             payload["seed"] = seed
+        if self._response_format is not None:
+            payload["response_format"] = self._response_format
         started = time.monotonic()
         conn = http.client.HTTPConnection(self._host, self._port,
                                           timeout=ticket.timeout_seconds)

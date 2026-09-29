@@ -521,6 +521,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="the route you hoped for; thin evidence is refused upward")
     rt.add_argument("--store", type=Path, default=None)
 
+    sh = sub.add_parser("shadow", help="measure the rubric on labeled research cases")
+    sh.add_argument("--cases", type=Path, required=True)
+
     led = sub.add_parser("ledger", help="research claims, their evidence and their status")
     led.add_argument("--store", type=Path, default=None,
                      help="artifact store (default: 'artifacts' next to the database)")
@@ -976,6 +979,17 @@ def cmd_chain(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) 
     return 0
 
 
+def cmd_shadow(args: argparse.Namespace) -> int:
+    from lab import shadow
+    try:
+        report = shadow.run(shadow.load_cases(args.cases))
+    except (shadow.ShadowError, OSError) as exc:
+        print(f"shadow: {exc}", file=sys.stderr)
+        return 1
+    print(shadow.format_report(report))
+    return 0
+
+
 def cmd_route(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     ledger = Ledger(queue._conn, ArtifactStore(args.store or args.db.parent / "artifacts",
                                                queue._conn))
@@ -1072,6 +1086,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_selftest(args)
     if args.command == "keepawake":
         return cmd_keepawake(args)
+    if args.command == "shadow":
+        return cmd_shadow(args)
     if args.command == "eval":
         from lab import evals
         return evals.main(args.eval_args)
