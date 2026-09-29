@@ -6,7 +6,7 @@ covers setup sections 1, 5, 11 and 16, and prepares 10 and 19. Every
 step says what it changes, how to check it, how to undo it, and which
 checklist items it closes (by name).
 
-Written 2026-09-30. The deployment approach (Python installed under
+Written 2026-09-29 UTC (2026-09-30 in New Zealand). The deployment approach (Python installed under
 `/opt`, not in a home folder, which the lab account cannot read) was
 rehearsed in a scratch directory without `sudo` on that date: Python
 3.13.15, SQLite 3.53.1, no reference to any home directory inside the
