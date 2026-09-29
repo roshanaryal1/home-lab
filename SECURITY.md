@@ -304,6 +304,18 @@ Implemented and tested:
   a symlink and its owner and mode are read from the open descriptor. The channel itself (which
   service, which account) is not chosen here and the dead-man switch that
   catches the lab going silent is not built (#79).
+- **The lab-account setup plan** (`lab/accountplan.py`, `lab setup-plan`,
+  H5c). The step that makes the boundaries real (a non-admin `lab` account
+  that cannot read the operator's private key, cannot edit its own
+  LaunchDaemon definitions and cannot become root) is written as an ordered
+  list of absolute-path commands. Building or printing the plan executes
+  nothing; `--apply` runs only the mutating steps, only as root, only on
+  macOS, in order, and stops at the first failure. The read-only checks (lab
+  cannot sudo, is not in the admin group, cannot read `operator.key`, cannot
+  overwrite a service file) are listed with what to expect and are never run
+  by `--apply`; they are the evidence the boundary exists, and they are run
+  on the mini (#70). The account name is validated as a POSIX name, and the
+  private key appears only in a check that expects "Permission denied".
 - **Sleep prevention and logs** (`lab/keepawake.py`, `lab/logsetup.py`, H5a).
   `lab keepawake` is read-only on the database: it holds `caffeinate -i`
   while a task is queued, leased or running or the log moved within the

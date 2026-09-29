@@ -173,7 +173,9 @@ The code is done and tested. What makes it a boundary is which OS account
 can read what, and that needs the machine. Parked until the M6.
 
 - [ ] Create the non-admin `lab` account (section 1) and keep the
-      operator (admin) account separate.
+      operator (admin) account separate. `lab setup-plan` prints every command
+      and the four checks; read it, run it with `sudo ... --apply` (or by hand),
+      then run each check and confirm the "expect" line.
 - [ ] As the operator: `uv run python -m lab.cli operator init --dir ~/.lab-operator`.
       The private key stays in the operator's home (`chmod 700 ~/.lab-operator`).
 - [ ] Copy only `operator.pub` to a path the `lab` account can read; set
