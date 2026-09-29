@@ -1,6 +1,8 @@
 # ADR 0001: the heavy model
 
-**Status:** recommended, pending benchmark. **Date:** 2026-09-26.
+**Status:** recommended; memory, speed and tool calls measured on the M6
+(2026-09-30), comparison against a second candidate still open.
+**Date:** 2026-09-26.
 
 The reference architecture deliberately left this open: the eleven systems
 in the study reached no consensus, and section 16 records it as a
@@ -91,6 +93,91 @@ this hardware, so that part was never in question.
   being slower per token.
 - **More memory.** On a 48 GB or 64 GB machine this decision reverses and
   Qwen3.6-35B-A3B becomes the obvious pick.
+
+## Measured on the M6 (2026-09-30)
+
+Machine: Mac mini, Apple M6, 32 GB, macOS 27.0 (26A428). Model:
+`mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit` at commit
+`6e302ea604ad9ab206367e2c501d1571023e7b6d` (weights and tokenizer from the
+same commit; 17.2 GB on disk; base `Qwen/Qwen3-Coder-30B-A3B-Instruct`).
+Server: `mlx-lm` 0.31.3 (`mlx_lm.server`, loopback only), driven through
+`OpenAICompatibleAdapter`. Every weight shard's SHA-256 matched its blob
+name after download.
+
+These are the values a `ModelSpec` for this model uses:
+
+```python
+REV = "6e302ea604ad9ab206367e2c501d1571023e7b6d"   # weights and tokenizer share one commit
+ModelSpec(name="<snapshot path the server reports>",
+          revision=REV, tokenizer_revision=REV,
+          context_tokens=16_384, max_output_tokens=1024,
+          weights_mb=17_180, kv_bytes_per_token=200_000)
+```
+
+**Memory.** Physical footprint of the server process (`footprint`, whole
+GiB, so each figure is plus or minus 0.5 GiB), a fresh server per length
+with `--prompt-cache-size 1`:
+
+| prompt tokens | footprint | over idle | wall time | prefill |
+|---|---|---|---|---|
+| none (weights loaded) | 16 GiB (17,180 MB) | | | |
+| 8,900 | 18 GiB | +2 GiB | 6.7 s | ~1,330 tok/s |
+| 18,015 | 20 GiB | +4 GiB | 17.6 s | ~1,020 tok/s |
+| 37,440 | 23 GiB | +7 GiB | 56.8 s | ~660 tok/s |
+
+About **200 KB of cache per token**, twice the 100,000 bytes assumed before
+(`lab/model.py` now defaults to the measured figure). Process RSS does not
+show this: the cache lives in Metal allocations, so RSS stayed near 16 GB
+throughout. Measure footprint, not RSS.
+
+Metal's `max_recommended_working_set_size` on this machine is **24.96
+GiB**. That is a hard ceiling: a ~75K-token request failed with `[METAL]
+Command buffer execution failed: Insufficient Memory` and pushed about 3 GB
+into swap. 64K was not run because the measured slope predicts ~28 GiB.
+Under the 20.5 GB policy budget the model gets about **16K tokens** of
+context.
+
+`mlx_lm.server` keeps each request's cache after the request ends unless
+told otherwise. With the default, 8.9K then 18K then 37K tokens on one
+server ran out of Metal memory at 37K, which fits alone. **Run the server
+with `--prompt-cache-size 1`**, or the admission controller's accounting,
+which assumes the cache is freed after each request, is wrong.
+
+**Speed.** Generation, 600 output tokens from a 26-token prompt: 57.1,
+66.5, 67.6 tok/s (the first run cold). **About 67 tok/s, not the "~100+"
+reported above.**
+
+**Admission.** A request sized past the budget was refused before the
+server was called ("would need 25233 MB resident against a 20500 MB
+budget"); the server logged no request for it and swap did not change. A
+small request was admitted at 17,184 MB resident.
+
+**Tool calls.** 51 prompts asking for one JSON tool call (the 3 in
+`evals/tasks.jsonl` plus 48 generated: `fs.read`, `fs.write`, `fs.list`
+over 16 paths), temperature 0, checked with `parse_tool_call`: 40 parsed
+as the right tool, **11 refused (21.6%)**. Every refused call inspected
+was `fs.write`: invented parameters (`format`, `public`, `json`) or broken
+JSON. The parser refused them all and repaired none, as designed. Section
+20 of `ops/mac-mini-setup.md` (constrained decoding) is the planned fix.
+
+**Beside a container.** With the model generating 2,000 tokens, an Apple
+container started and ran; swap went from 1,247.8 MB to 1,239.8 MB (no
+growth). ADR 0007's coexistence check passes.
+
+### Where the measurements disagree with this ADR
+
+Recorded as measured; no figure above was adjusted to fit.
+
+1. **Speed**: about 67 tok/s, not ~100+. Still several times the dense
+   candidates' reported speed, so the architecture argument holds, but the
+   twenty-turn loop is closer to three minutes than two.
+2. **Tool-call reliability**: 21.6% of calls refused. This is the second
+   "what would change this" condition below. It is not yet a reason to
+   switch: constrained decoding (section 20) and the comparison run are
+   the next evidence.
+3. **Context**: about 16K tokens under the budget, and 64K is impossible
+   on this machine (Metal ceiling), whatever the model supports.
+4. **Memory itself fits**: 17.2 GB against the 20.5 GB budget, as claimed.
 
 ## Before committing
 

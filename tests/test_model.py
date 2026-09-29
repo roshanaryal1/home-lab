@@ -107,6 +107,20 @@ def test_weights_larger_than_the_budget_never_load() -> None:
         BoundedModel(spec(), MockAdapter(["x"]), ctrl).generate(msgs())
 
 
+@pytest.mark.safety
+def test_the_measured_heavy_model_gets_about_16k_tokens_under_the_default_budget() -> None:
+    """Measured on the M6 (ADR 0001): 17,180 MB resident with the weights
+    loaded, and about 200 KB of cache per token. The default per-token cost
+    must be the measured one, not the old planning figure."""
+    heavy = ModelSpec("qwen-m6", REV, TOK, 32_768, 1024, 17_180)
+    ctrl = AdmissionController()
+    with ctrl.admit(heavy, msgs("x" * 14_000 * 3), 1024):    # ~15K tokens: fits
+        pass
+    with (pytest.raises(AdmissionRefused, match="resident"),   # ~18K tokens: would not
+          ctrl.admit(heavy, msgs("x" * 17_000 * 3), 1024)):
+        pass
+
+
 def test_two_heavy_models_do_not_fit_together() -> None:
     ctrl = AdmissionController()
     ctrl.load(spec(name="a"))

@@ -148,9 +148,10 @@ ADR 0007, "Measured on the M6".
       Median 0.637 s; worst 17.377 s (first run after install), 0.706 s
       after that. VM RSS 381 MiB idle, peak 1980 MiB during the lab's
       suite with a 1024 MB guest.
-- [ ] With the heavy model loaded and generating, start one container.
+- [x] With the heavy model loaded and generating, start one container.
       Record memory pressure and swap before and during. Pass only if no
-      swap growth. Waits for the real model (section 13).
+      swap growth. 2026-09-30: PASS, swap 1,247.8 MB before and 1,239.8 MB
+      after while the model generated 2,000 tokens (ADR 0001).
 - [x] Confirm from inside a container that the host's directory service
       is unreachable (`getent passwd` shows only the guest's accounts) and
       that only the mounted workspace is visible. Also found: networking
@@ -219,17 +220,38 @@ graders are in `lab/attacks.py`; they take any handler.
 
 The adapter is done against a mock. These need the M6.
 
-- [ ] Start the chosen inference server on loopback only; point
-      `OpenAICompatibleAdapter` at it.
-- [ ] Record the exact weight and tokenizer commit hashes in a `ModelSpec`
-      (never a branch name) and in ADR 0001.
-- [ ] Measure resident memory with the model loaded and at three context
+Run on the M6 on 2026-09-30. Numbers, the `ModelSpec` and where they
+disagree with the ADR are in ADR 0001, "Measured on the M6".
+
+To start the server the way it was measured:
+
+```sh
+uv tool install mlx-lm==0.31.3
+HF_HUB_DISABLE_XET=1 uv tool run --from mlx-lm python -c "from huggingface_hub import snapshot_download; snapshot_download('mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit', revision='6e302ea604ad9ab206367e2c501d1571023e7b6d')"
+HF_HUB_OFFLINE=1 mlx_lm.server --host 127.0.0.1 --port 8080 --prompt-cache-size 1 \
+  --model ~/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit/snapshots/6e302ea604ad9ab206367e2c501d1571023e7b6d
+```
+
+`HF_HUB_DISABLE_XET=1` because the default download protocol stalled twice
+here. `--prompt-cache-size 1` because the server otherwise keeps every
+request's cache and runs out of Metal memory. Close Safari or any other
+large app first; a single Safari tab held 16 GB before the first load.
+
+- [x] Start the chosen inference server on loopback only; point
+      `OpenAICompatibleAdapter` at it. Listens on 127.0.0.1:8080 only.
+- [x] Record the exact weight and tokenizer commit hashes in a `ModelSpec`
+      (never a branch name) and in ADR 0001. `6e302ea604ad...` for both.
+- [x] Measure resident memory with the model loaded and at three context
       lengths; replace `weights_mb`, `kv_bytes_per_token` and
-      `DEFAULT_BUDGET_MB` with measured values.
-- [ ] Confirm a request sized to exceed the budget is refused at
+      `DEFAULT_BUDGET_MB` with measured values. 17,180 MB loaded; about
+      200 KB per token (now the default); `DEFAULT_BUDGET_MB` stays 20,500
+      as policy, under the 24.96 GiB Metal ceiling. Measure footprint, not
+      RSS.
+- [x] Confirm a request sized to exceed the budget is refused at
       admission and the machine does not swap.
-- [ ] Run the malformed tool-call cases against the real model and record
-      how often it emits a call the parser refuses.
+- [x] Run the malformed tool-call cases against the real model and record
+      how often it emits a call the parser refuses. 11 of 51 (21.6%), all
+      inspected ones `fs.write`; see section 20.
 
 ## 14. Real-model evaluation runs (item 7.3, #81)
 
@@ -335,6 +357,7 @@ the paths, then:
 
 - [ ] After the section 13 baseline, run the same task file with
       grammar-constrained decoding for tool calls and routing labels.
+      Baseline to beat: 11 of 51 tool calls refused (21.6%), ADR 0001.
 - [ ] Record invalid-call rate, correct-task rate and latency next to the
       baseline. Adopt only on a measured gain; the strict parser stays either
       way.

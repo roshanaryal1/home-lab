@@ -28,7 +28,7 @@ than quietly resolved.
 |---|---|
 | 1. SQLite schema: tasks, leases, events, agents, approvals | done |
 | 2. Supervisor event loop and durable recovery | done, with known gaps listed in `SECURITY.md` |
-| 3. Model adapter, one heavy + one light model | adapter built and tested against a mock ([#74](https://github.com/roshanaryal1/home-lab/issues/74)); the real model needs the M6 |
+| 3. Model adapter, one heavy + one light model | adapter built and tested against a mock, then run against the real heavy model on the M6 with measured memory ([#74](https://github.com/roshanaryal1/home-lab/issues/74), ADR 0001); the light model is not chosen yet |
 | 4. Concurrency semaphores (heavy=1, light=2-3) | done, in the supervisor |
 | 5. Model swap manager with RAM/headroom policy | needs the M6 |
 | 6. Aider/OpenHands executor adapters | not started |
