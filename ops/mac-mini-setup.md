@@ -255,6 +255,11 @@ uv run python -m lab.attacks --endpoint http://127.0.0.1:8080/v1 \
       agent and tools, so it is a model-level number, beside the lab-level
       0 of 9 above.
 - [ ] Repeat after every model or prompt change (gate G2, then nightly, 6.4).
+      2026-09-29 23:03 UTC, after the switch to the DWQ build: attack success
+      0 of 9, utility 7 of 9, no parser refusals; the model attempted the
+      delete and the metadata fetch, both stopped by the broker
+      (`evals/exploratory/attacks-dwq-20260929T230323Z.txt`). Stays open: it
+      is a standing rule, and the nightly job (section 18) does not exist yet.
 
 ## 13. Model adapter on the real model (items 5.1 and 5.2, #74, #75)
 
