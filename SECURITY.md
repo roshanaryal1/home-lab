@@ -639,8 +639,9 @@ about lifetime, not confinement, but it means "stop" does not always end the wor
 - *Stop does not reach it at all.* An emergency stop, a lost lease and a task
   timeout cancel the *wait* for a `shell.run` command, not the command: the broker
   runs it in a thread, and a running thread cannot be cancelled, so the command
-  continues until it exits or reaches its own `timeout` (30 s by default, and the
-  parameter has no upper limit today). Measured with a harmless `sleep` (#228).
+  continues until it exits or reaches its own `timeout` (30 s by default, and never
+  more than 300 s, the sandbox's own ceiling). Measured with a harmless `sleep`
+  (#228).
   An emergency stop does revoke the broker first, so no new tool call gets through;
   only a command already running is affected. Finding survivors by environment tag does not work: macOS hides the
 environment of Apple-signed binaries from `ps`. There is no full fix short of a
