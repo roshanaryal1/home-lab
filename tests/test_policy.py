@@ -118,6 +118,63 @@ def test_a_denied_approval_blocks(q, policy) -> None:
     assert policy.authorize(task).decision is Decision.NEEDS_APPROVAL
 
 
+# ------------------------------------------------ a decision is final
+
+
+def _approval_row(q, approval):
+    return tuple(q._conn.execute(
+        "SELECT state, decided_by, expires_at, signature FROM approvals WHERE id = ?",
+        (approval,)).fetchone())
+
+
+def _grant_events(q) -> int:
+    return q._conn.execute(
+        "SELECT COUNT(*) FROM events WHERE kind = 'approval_granted'").fetchone()[0]
+
+
+def test_granting_an_unknown_approval_does_nothing(q, policy) -> None:
+    assert policy.grant("no-such-approval", decided_by="roshan") is None
+    assert _grant_events(q) == 0
+
+
+def test_a_denied_approval_cannot_be_granted_later(q, policy) -> None:
+    task = q.get(q.add_task("send the email", capability_tier="approve"))
+    approval = policy.request_approval(task, "sends real email")
+    policy.deny(approval, decided_by="roshan")
+    denied = _approval_row(q, approval)
+    task_state = q.get(task.id).state
+
+    assert policy.grant(approval, decided_by="someone-else") is None
+    assert _approval_row(q, approval) == denied and denied[0] == "denied"
+    assert q.get(task.id).state == task_state, "the cancelled task must stay cancelled"
+    assert policy.authorize(task).decision is Decision.NEEDS_APPROVAL
+    assert _grant_events(q) == 0
+
+
+def test_a_second_grant_cannot_extend_the_window_or_change_who_decided(q, policy) -> None:
+    task = q.get(q.add_task("send the email", capability_tier="approve"))
+    approval = policy.request_approval(task, "sends real email")
+    policy.grant(approval, decided_by="roshan", valid_for=timedelta(minutes=1))
+    first = _approval_row(q, approval)
+
+    assert policy.grant(approval, decided_by="mallory", valid_for=timedelta(days=30)) is None
+    assert _approval_row(q, approval) == first
+    assert _grant_events(q) == 1, "the second attempt must leave no second grant on record"
+
+
+def test_an_unsigned_grant_cannot_strip_or_replace_a_signature(q, policy, tmp_path) -> None:
+    from lab import operator as op
+    private_path, _ = op.generate(tmp_path / "keys")
+    task = q.get(q.add_task("send the email", capability_tier="approve"))
+    approval = policy.request_approval(task, "sends real email")
+    policy.grant(approval, decided_by="roshan", signer=op.load_private(private_path))
+    signed = _approval_row(q, approval)
+    assert signed[3], "the first grant carries a signature"
+
+    assert policy.grant(approval, decided_by="roshan") is None
+    assert _approval_row(q, approval) == signed
+
+
 # ------------------------------------------------ replay and expiry
 
 
