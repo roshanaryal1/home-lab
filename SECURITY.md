@@ -457,11 +457,18 @@ Implemented and tested:
   from what was reviewed, escapes control and bidi characters in
   everything it prints, and warns when a grant is unsigned. **This is a
   boundary only once the private key is unreadable to the agent's OS
-  account and the supervisor is configured with the public key.** Neither
-  is true yet: without a configured key approvals are not checked (the
-  supervisor logs a warning at start), and the lab account is parked for
-  the Mac mini (`ops/mac-mini-setup.md` section 11). Adds `cryptography`
-  as the first runtime dependency.
+  account and the supervisor is configured with the public key.** On the
+  Mac mini both hold since 2026-09-30: the `lab` account gets `Permission
+  denied` reading the private key, and the daemon and `lab tick` refuse to
+  start without the public key (#190; `--allow-unsigned` exists for dummy
+  data). Still open: the fabricated-signature test on the machine (#70).
+  A supervisor built any other way does not check approvals: tests do
+  that on purpose, and so does the attack harness (`lab/attacks.py`),
+  which runs only on a throwaway temporary database with a dummy secret.
+  Any new code that builds a `Supervisor` against a real database must set
+  `require_operator_key`; `tests/test_supervisor_entrypoints.py` fails
+  when a new construction site appears until someone records why it is
+  safe (#200). Adds `cryptography` as the first runtime dependency.
 - **Backup and restore** (`lab/backup.py`, item 3.4, #67). `lab backup`
   snapshots the live database with SQLite's online backup API (no torn
   copy, supervisor keeps running) and copies only artifact blobs the
