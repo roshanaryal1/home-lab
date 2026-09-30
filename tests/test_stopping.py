@@ -2,7 +2,9 @@
 
 Done when: after an injected policy error the worker recovers and the
 task is released; after lease loss or a stop, no later tool call
-succeeds and no child process survives.
+succeeds and no child process survives. "Child" here means a process that stays in
+the command's process group, which is what the stop kills. A process that leaves the
+group with setsid, or by double fork, survives it: a known limit, #223.
 """
 
 from __future__ import annotations
