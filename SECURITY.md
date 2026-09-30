@@ -457,11 +457,24 @@ Implemented and tested:
   from what was reviewed, escapes control and bidi characters in
   everything it prints, and warns when a grant is unsigned. **This is a
   boundary only once the private key is unreadable to the agent's OS
-  account and the supervisor is configured with the public key.** Neither
-  is true yet: without a configured key approvals are not checked (the
-  supervisor logs a warning at start), and the lab account is parked for
-  the Mac mini (`ops/mac-mini-setup.md` section 11). Adds `cryptography`
-  as the first runtime dependency.
+  account and the supervisor is configured with the public key.** On the
+  Mac mini both hold since 2026-09-30: the `lab` account gets `Permission
+  denied` reading the private key, and the daemon and `lab tick` refuse to
+  start without the public key (#190). `--allow-unsigned` and
+  `lab tick --mock-reply` exist for dummy data and are refused on any
+  machine where `/etc/homelab/operator.pub` exists, a root-owned file the lab
+  account cannot remove. Still open: the fabricated-signature test on the
+  machine (#70). **Not closed:** code running as the lab account can build
+  a `Supervisor` in its own process against the database, which the lab
+  account owns, and that supervisor would not check approvals; only
+  separating the database from the code the agent runs closes that (#70).
+  A supervisor built any other way does not check approvals: tests do
+  that on purpose, and so does the attack harness (`lab/attacks.py`),
+  which runs only on a throwaway temporary database with a dummy secret.
+  Any new code that builds a `Supervisor` against a real database must set
+  `require_operator_key`; `tests/test_supervisor_entrypoints.py` counts the
+  construction sites in every file under `lab/` and fails when the count
+  changes, until someone records why the new one is safe (#200). Adds `cryptography` as the first runtime dependency.
 - **Backup and restore** (`lab/backup.py`, item 3.4, #67). `lab backup`
   snapshots the live database with SQLite's online backup API (no torn
   copy, supervisor keeps running) and copies only artifact blobs the

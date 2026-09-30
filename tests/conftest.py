@@ -14,6 +14,16 @@ import inspect
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _no_deployed_lab_key(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory):
+    """The Mac mini has a real /etc/homelab/operator.pub, which makes unsigned mode
+    refuse to run; tests that use it must not depend on the machine they run on."""
+    from lab import supervisor
+    monkeypatch.setattr(supervisor, "DEPLOYED_OPERATOR_KEY",
+                        tmp_path_factory.getbasetemp() / "no-deployed-operator.pub")
+    yield
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "asyncio: run this coroutine test in a fresh event loop"
