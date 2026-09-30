@@ -1,7 +1,7 @@
 # Install home-lab on your Mac
 
-home-lab is a local-first personal-agent runtime. The installer below is
-designed for a fresh macOS user account and keeps the runtime under a
+home-lab is a local-first personal-agent runtime. This guide walks you
+through installing it on a Mac you administer, and keeps the runtime under a
 dedicated non-admin `lab` account.
 
 > **Current scope:** this guide installs the repository and prepares the
@@ -12,16 +12,17 @@ dedicated non-admin `lab` account.
 
 ### Hardware
 
-| Unified memory | Recommended starting model | Notes |
+| Unified memory | Starting model | Status |
 |---|---|---|
-| 16 GB | Qwen3 4B Instruct 4-bit | Use the small model for development and light tasks. |
-| 32 GB | Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ | This is the currently measured heavy-model target. Keep one heavy inference slot. |
-| 64 GB | Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ or a separately benchmarked larger model | Do not increase concurrency or choose a larger model merely because memory is available; measure first. |
+| 16 GB | Qwen3 4B Instruct 4-bit | **Untested.** The small model was only run as a baseline on a 32 GB machine. |
+| 32 GB | Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ | **Measured** on the project's Apple M6 Mac mini. Keep one heavy inference slot. |
+| 64 GB | The 32 GB model, or a separately benchmarked larger one | **Untested.** Do not raise concurrency or pick a larger model merely because memory is free; measure first. |
 
-The 32 GB heavy model has been measured on the project's target Apple
-silicon machine. Its measured weight footprint is about 17.2 GB and the
-project uses a 20.5 GB admission budget. Context length also consumes
-unified memory.
+Only the 32 GB row has been measured: the model's weights take about 17.2 GB
+and the project uses a 20.5 GB admission budget, and the context also uses
+memory. That budget is a constant in `lab/model.py` and cannot be set from
+configuration yet, so on a 16 GB Mac it is larger than the machine: run
+only the small model there.
 
 ### Software
 
@@ -48,8 +49,10 @@ From the repository root, run the read-only prerequisite check:
 ```
 
 It changes nothing and never calls `sudo`. A successful check prints the
-detected macOS version, architecture, unified-memory estimate, Git, Python
-and `uv` availability, and the recommended model tier.
+detected macOS version, architecture, unified memory, and whether Git, the
+Xcode Command Line Tools and `uv` are present, and marks the model tier for
+your memory size as measured or untested. It does not look at Python: `uv`
+installs the Python 3.13 the project needs.
 
 If it reports a missing prerequisite, install that prerequisite and run the
 check again.
@@ -68,13 +71,19 @@ For a normal user clone:
 ```sh
 export REPO="$HOME/home-lab"
 export BACKUP_VOLUME="/Volumes/labbackup"
-export MODEL_ID="mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ"
 export MODEL_REV="cfcade7221ccd128681961446e5f7906c08cae55"
 ```
 
-Change `REPO`, `BACKUP_VOLUME` and the model variables to match your
-machine. The backup volume is optional until you perform backup/restore
-work.
+Change `REPO` and `BACKUP_VOLUME` to match your machine. The backup volume is
+optional until you perform backup and restore work. `MODEL_REV` is the revision
+of the 32 GB model above; for any other model use that model's own revision.
+
+There is deliberately no model name to type. The runbook reads it from the
+model server, which reports the name it will accept (on the project's machine a
+path to the downloaded snapshot). The Hugging Face repository name is refused by
+that server with HTTP 404, so do not put it in the configuration.
+
+Keep one Terminal window open for the whole install: these are shell variables.
 
 The production runbook also uses a fixed root-owned deployment location
 (`/opt/homelab`) so the non-admin lab account cannot modify the code it
@@ -112,8 +121,8 @@ uv run python -m lab.cli operator init --dir "$HOME/.lab-operator"
 
 Check that the directory contains:
 
-- `operator.key` — private signing key; never give this to the agent.
-- `operator.pub` — public verification key.
+- `operator.key`: private signing key; never give this to the agent.
+- `operator.pub`: public verification key.
 
 The lab account must not be able to read `operator.key`.
 
@@ -137,6 +146,9 @@ sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
   --operator-pubkey "$HOME/.lab-operator/operator.pub"
 ```
 
+This is step 2 of the runbook in section 6: do it once, here or there, not
+both (a second run stops at "create the account", which already exists).
+
 After applying, verify that:
 
 ```sh
@@ -144,10 +156,13 @@ sudo -u lab /usr/bin/sudo -n -l
 /usr/bin/dscl . -read /Groups/admin GroupMembership
 sudo -u lab /bin/cat "$HOME/.lab-operator/operator.key"
 sudo -u lab /usr/bin/touch /Library/LaunchDaemons/com.homelab.supervisor.plist
+sudo -u lab /bin/ls "$HOME"
 ```
 
-The first, third and fourth commands should be refused. The admin-group
-listing should not contain `lab`.
+The first, third, fourth and fifth commands must be refused. The admin-group
+listing must not contain `lab`. If the fifth command lists your files, run
+`chmod 700 "$HOME"` and check again: a new account is in the `staff` group, and a
+group-readable home folder would let it read your files.
 
 ## 6. Deploy and start
 
@@ -159,10 +174,9 @@ ops/runbook-lab-account-and-daemons.md
 
 Before running it:
 
-1. Set `REPO`, `COMMIT`, `MODEL_ID`, `MODEL_REV` and
-   `BACKUP_VOLUME`.
+1. Set `REPO`, `COMMIT`, `MODEL_REV` and `BACKUP_VOLUME`.
 2. Read the complete runbook.
-3. Start with its dry-run/setup-plan steps.
+3. Skip its steps 1 and 2: they are sections 4 and 5 above and are done.
 4. Keep the model server on loopback.
 5. Use dummy data only.
 
@@ -174,12 +188,12 @@ from code executed by the non-admin `lab` account.
 With the services running, check health:
 
 ```sh
-sudo -u lab "$REPO/.venv/bin/python" -m lab.cli \
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli \
   --db /var/homelab/lab.db status
 
-sudo -u lab "$REPO/.venv/bin/python" -m lab.cli tasks
-sudo -u lab "$REPO/.venv/bin/python" -m lab.cli approvals
-sudo -u lab "$REPO/.venv/bin/python" -m lab.cli audit verify
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db tasks
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db approvals
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db audit verify
 ```
 
 For the current system, an empty queue is a valid first-run state.
@@ -210,7 +224,7 @@ When backup work is enabled, use the value of `BACKUP_VOLUME` rather than
 hard-coding a volume name:
 
 ```sh
-sudo -u lab "$REPO/.venv/bin/python" -m lab.cli \
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli \
   --db /var/homelab/lab.db backup \
   --to "$BACKUP_VOLUME/home-lab-backups"
 ```
@@ -274,84 +288,16 @@ the model, context, macOS and other applications.
 ## What is deliberately not promised yet
 
 This guide does **not** claim that home-lab is a drop-in replacement for
-other personal agents. The current product roadmap in #189 adds chat,
-brokered tools, memory, skills, integrations and bounded autonomy
-incrementally.
+other personal agents. It has no chat interface, no real tools and no memory
+you can talk to yet. Where the project could go is a proposal, not a plan: see
+[docs/ROADMAP.md](ROADMAP.md) and issue #189.
 
-Until the Phase 1/2 execution path is complete, installation should be
-treated as installation of the controlled runtime foundation rather than
-an invitation to give an agent unrestricted access to the Mac.
+Installing it today gives you the controlled runtime foundation: a queue, a
+supervisor, signed approvals, an audit log and a local model. It is not an
+invitation to give an agent unrestricted access to your Mac.
 
-## 11. Mac validation before merging
+## For maintainers
 
-The documentation changes are only ready to merge after the install path is
-actually exercised on a real Apple silicon Mac. From a fresh macOS user
-account, record the outputs rather than relying on a documentation-only
-review.
-
-Run these checks in order:
-
-1. **Prerequisites**
-   ```sh
-   ./scripts/check-prerequisites.sh
-   ```
-   Confirm it is read-only, reports Apple silicon and the correct unified
-   memory, and gives the expected model tier.
-
-2. **Repository and CLI**
-   ```sh
-   uv sync --locked
-   uv run python -m lab.cli --help
-   uv run python -m lab.cli operator init --dir "$HOME/.lab-operator"
-   ```
-
-3. **Setup plan**
-   ```sh
-   uv run python -m lab.cli setup-plan \
-     --operator-pubkey "$HOME/.lab-operator/operator.pub"
-   ```
-   Review the plan before applying it. Do not continue if it contains an
-   owner-specific home path or an unexpected model/path.
-
-4. **Apply and isolation**
-   Run the `sudo ... setup-plan --apply` command from this guide, then
-   confirm:
-   - `lab` is not an admin;
-   - `lab` cannot read the operator private key;
-   - `lab` cannot write the root-owned deployment or launchd files;
-   - the operator public key is the only key copied into `/etc/homelab`.
-
-5. **Deployment**
-   Follow the deployment runbook with `REPO`, `COMMIT`, `MODEL_ID`,
-   `MODEL_REV` and `BACKUP_VOLUME` set explicitly. Record any command that
-   differs from the guide before changing the guide.
-
-6. **Services and health**
-   Confirm all six launchd jobs load, the supervisor runs as `lab`, the
-   queue reports healthy, and:
-   ```sh
-   sudo -u lab "$REPO/.venv/bin/python" -m lab.cli tasks
-   sudo -u lab "$REPO/.venv/bin/python" -m lab.cli approvals
-   sudo -u lab "$REPO/.venv/bin/python" -m lab.cli audit verify
-   ```
-
-7. **Model serving**
-   Confirm the selected model is the pinned revision, the server listens
-   only on `127.0.0.1:8080`, and a basic local inference succeeds. Do not
-   expose the endpoint to the LAN.
-
-8. **Recovery**
-   Run the documented supervisor kill/restart and freeze/watchdog drills.
-   Also perform the separate in-flight-task startup-recovery drill required
-   by the runbook. Record the observed recovery times and task states.
-
-9. **Teardown**
-   Verify the uninstall sequence can stop/unload services and remove the
-   deployment without accidentally deleting data that was not explicitly
-   backed up.
-
-The merge gate for this issue is therefore: **the guide is implemented in
-PR #196, and the fresh-user Mac validation is the remaining machine-level
-acceptance test.** If a command fails on the real Mac, fix the guide or
-implementation first; do not mark the acceptance item complete just because
-CI passes.
+The checklist for testing this guide on a fresh Mac or macOS user, which is
+the open acceptance item of issue #188, is in
+[ops/install-validation.md](../ops/install-validation.md).
