@@ -279,11 +279,19 @@ class ToolResult:
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
 
+_PROTECTED_FOLDED = frozenset(name.casefold() for name in sandbox.PROTECTED_NAMES)
+
+
 def _is_protected(parts: list[str]) -> bool:
-    """Git hooks and shell start-up files run outside the sandbox later."""
-    if parts and parts[-1] in sandbox.PROTECTED_NAMES:
+    """Git hooks and shell start-up files run outside the sandbox later.
+
+    Compared without regard to case: on the default macOS volume ``.GIT/hooks`` and
+    ``.ZSHRC`` are the very same files (#215).
+    """
+    folded = [part.casefold() for part in parts]
+    if folded and folded[-1] in _PROTECTED_FOLDED:
         return True
-    return any(a == ".git" and b == "hooks" for a, b in itertools.pairwise(parts))
+    return any(a == ".git" and b == "hooks" for a, b in itertools.pairwise(folded))
 
 
 @dataclass
