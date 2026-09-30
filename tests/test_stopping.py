@@ -3,8 +3,8 @@
 Done when: after an injected policy error the worker recovers and the
 task is released; after lease loss or a stop, no later tool call
 succeeds and no child process survives. That holds for worker processes, which the
-stop kills. It does not hold for a `shell.run` command that is already running (the
-broker runs it in a thread that cannot be cancelled, #228), nor for a process that
+stop kills, and, since #228, for a `shell.run` command that is already running (a
+cancel flag ends it; tests/test_shell_cancel.py). It does not hold for a process that
 leaves the command's process group with setsid() (#223).
 """
 

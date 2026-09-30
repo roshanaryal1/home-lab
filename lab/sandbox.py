@@ -68,6 +68,7 @@ import selectors
 import shutil
 import signal
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,6 +99,7 @@ class SandboxResult:
     denied: bool = False
     timed_out: bool = False
     truncated: bool = False
+    cancelled: bool = False       # the caller's cancel flag ended it (#228)
 
 
 # Hard ceilings a request cannot raise (item 1.10).
@@ -122,6 +124,7 @@ class _Execution:
     stderr: bytes
     timed_out: bool
     truncated: bool
+    cancelled: bool = False
 
 
 def _kill_group(pgid: int) -> None:
@@ -130,14 +133,20 @@ def _kill_group(pgid: int) -> None:
 
 
 def _execute(cmd: list[str], *, cwd: str, env: dict[str, str],
-             timeout: float, cap: int) -> _Execution:
+             timeout: float, cap: int,
+             cancel: threading.Event | None = None) -> _Execution:
     """Run ``cmd`` in its own process group with bounded time and output.
 
     Output is streamed and kept up to ``cap`` bytes per stream; anything
     beyond is read and discarded so the child cannot block on a full
     pipe and memory cannot grow with it. At the deadline, and again once
     the command has exited, the whole group is killed, so background
-    children and fork chains do not outlive the call.
+    children and fork chains do not outlive the call. ``cancel`` is the way
+    to end it early from another thread: the loop below checks it about ten
+    times a second, kills the group and returns with ``cancelled`` set. A
+    thread cannot be cancelled from outside, so without this an emergency stop
+    left a running command alone until its timeout (#228). A process that
+    leaves the group with setsid still survives it (#223).
     """
     proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -145,17 +154,21 @@ def _execute(cmd: list[str], *, cwd: str, env: dict[str, str],
     assert proc.stdout is not None and proc.stderr is not None
     out_fd, err_fd = proc.stdout.fileno(), proc.stderr.fileno()
     buffers = {out_fd: bytearray(), err_fd: bytearray()}
-    truncated = timed_out = False
+    truncated = timed_out = cancelled = False
     deadline = time.monotonic() + timeout
+    poll = 0.1 if cancel is not None else 0.5
     with selectors.DefaultSelector() as sel:
         for stream in (proc.stdout, proc.stderr):
             sel.register(stream, selectors.EVENT_READ)
         while sel.get_map():
+            if cancel is not None and cancel.is_set():
+                cancelled = True
+                break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 timed_out = True
                 break
-            for key, _ in sel.select(min(remaining, 0.5)):
+            for key, _ in sel.select(min(remaining, poll)):
                 chunk = os.read(key.fd, 65536)
                 if not chunk:
                     sel.unregister(key.fileobj)
@@ -166,7 +179,7 @@ def _execute(cmd: list[str], *, cwd: str, env: dict[str, str],
                     buf.extend(chunk[:room])
                 if len(chunk) > max(room, 0):
                     truncated = True
-    if timed_out:
+    if timed_out or cancelled:
         _kill_group(proc.pid)
     try:
         proc.wait(timeout=max(0.0, deadline - time.monotonic()) + 1.0)
@@ -178,7 +191,7 @@ def _execute(cmd: list[str], *, cwd: str, env: dict[str, str],
     stdout, stderr = bytes(buffers[out_fd]), bytes(buffers[err_fd])
     proc.stdout.close()
     proc.stderr.close()
-    return _Execution(proc.returncode, stdout, stderr, timed_out, truncated)
+    return _Execution(proc.returncode, stdout, stderr, timed_out, truncated, cancelled)
 
 
 def available() -> bool:
@@ -287,6 +300,7 @@ def run(
     timeout: float = 30.0,
     allow_network: bool = False,
     extra_readable: tuple[Path, ...] = (),
+    cancel: threading.Event | None = None,
 ) -> SandboxResult:
     """Run a command confined to ``workspace``.
 
@@ -316,7 +330,13 @@ def run(
         env=command_environment(root),
         timeout=min(max(timeout, 0.0), MAX_TIMEOUT_SECONDS),
         cap=MAX_OUTPUT_BYTES,
+        cancel=cancel,
     )
+    if done.cancelled:
+        return SandboxResult(ok=False, returncode=-1,
+                             stdout=done.stdout.decode(errors="replace"),
+                             stderr="cancelled", cancelled=True,
+                             truncated=done.truncated)
     if done.timed_out:
         return SandboxResult(ok=False, returncode=-1,
                              stdout=done.stdout.decode(errors="replace"),

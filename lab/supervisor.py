@@ -475,6 +475,7 @@ class Supervisor:
 
     def _interrupt(self, task_id: str, reason: str) -> None:
         """Cancel a running handler, remembering why."""
+        self.broker.cancel_running(task_id)      # its shell commands too (#228)
         work = self._running.get(task_id)
         if work is not None and not work.done():
             self._interrupted[task_id] = reason
@@ -663,6 +664,7 @@ class Supervisor:
                 log.error("cannot record success of %s: lease lost", task.id)
         finally:
             self._running.pop(task.id, None)
+            self.broker.cancel_running(task.id)   # whichever way it ended (#228)
             if not work.done():
                 work.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
