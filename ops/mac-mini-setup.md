@@ -242,7 +242,8 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
 ## 11. Operator account and approval keys (item 4.5, #70)
 
 The code is done and tested. What makes it a boundary is which OS account
-can read what, and that needs the machine. Parked until the M6.
+can read what, and that needs the machine. Done on the Mac mini on 2026-09-30,
+except the fabricated-signature test below.
 
 - [x] Create the non-admin `lab` account (section 1) and keep the
       operator (admin) account separate. Done 2026-09-30, all four checks

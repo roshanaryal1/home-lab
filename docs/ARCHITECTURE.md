@@ -1,6 +1,6 @@
 # System architecture, current state
 
-**2026-09-28.** What this build actually looks like right now: substrate
+**2026-09-28, deployment status updated 2026-09-30.** What this build actually looks like right now: substrate
 plus the three planes ADR 0004 names as missing. Not a design document; the
 design is `llm-architects/analysis/consensus/reference-architecture.md`
 (frozen, the P1 research artifact) and `docs/decisions/0004-operating-system.md`
@@ -15,7 +15,7 @@ drifts from the code is worse than no diagram.
 
 ```mermaid
 flowchart TB
-    subgraph substrate["Execution substrate: built, 114 tests, CI on 2 platforms"]
+    subgraph substrate["Execution substrate: built, tested, CI on 2 platforms"]
         direction TB
         queue["SQLite WAL queue<br/>lab/queue.py<br/>leases, fencing, idempotency"]
         supervisor["Supervisor<br/>lab/supervisor.py<br/>bounded worker pool"]
@@ -81,10 +81,10 @@ re-losing.
 | Python runtime | uv-managed | Chosen; mini needs patch-version pin | [ADR 0002](decisions/0002-python-runtime.md) |
 | Memory | `lab/memory.py` (SQLite FTS5) | FTS5 baseline built: provenance, trust, expiry, inspect, correct, revoke (reaches the ledger), delete. `sqlite-vec` embeddings not built and must beat this baseline first | [ADR 0003](decisions/0003-memory.md) |
 | Observation plane | `lab/observe.py`, `lab/slice.py` | GitHub slice (#39, #46): closed issues and merged PRs become queued proposals. Event-log emitter (`lab/emitter.py`, `lab emit`, #32): three rules (`repeated_failure`, `similar_closed_issues`, `unpublished_measurement`) queue `notify`-tier, event-origin proposals naming the events or issue URLs behind them (`lab chain`). A merged fix with a reproduction is not built | [#32](https://github.com/roshanaryal1/home-lab/issues/32) |
-| Nightly self-test and alerts | `lab/selftest.py`, `lab/alert.py` | Built and tested on Linux; the alert channel and the nightly run on the M6 are checklist items | H5b |
-| Lab-account setup plan | `lab/accountplan.py`, `lab setup-plan` | Built and tested as data on Linux; running it and its checks are M6 steps | H5c, #70 |
-| Sleep prevention and logs | `lab/keepawake.py`, `lab/logsetup.py` | Built and tested on Linux; `caffeinate` and the daemon run on the M6 | H5a |
-| Unattended loop | `lab/loop.py`, `lab tick` | Built and tested against a scripted model: proposals are summarized by a tool-less model, recorded as an evidence-ledger claim and routed by the rubric, each step audited. The heavy model now runs on the M6; the loop itself runs once the supervisor daemons are installed (setup section 16, `ops/runbook-lab-account-and-daemons.md`) | H1 |
+| Nightly self-test and alerts | `lab/selftest.py`, `lab/alert.py` | Built and tested on Linux. On the M6 since 2026-09-30 the nightly self-test and the status check are installed as LaunchDaemons and configured to alert to the system log (an alert has not been triggered yet); a Telegram channel (`lab/telegram_alert.py`) is built but not wired to the machine, and the dead-man switch does not exist | H5b, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
+| Lab-account setup plan | `lab/accountplan.py`, `lab setup-plan` | Built and tested as data on Linux; run on the M6 on 2026-09-30, and its four checks came out as expected (`lab` cannot `sudo`, is not an admin, cannot read the operator key or edit a service definition) | H5c, #70 |
+| Sleep prevention and logs | `lab/keepawake.py`, `lab/logsetup.py` | Built and tested on Linux; the keep-awake daemon has run on the M6 since 2026-09-30, and the `caffeinate` assertion under a real queue is still to check | H5a |
+| Unattended loop | `lab/loop.py`, `lab tick` | Built and tested against a scripted model: proposals are summarized by a tool-less model, recorded as an evidence-ledger claim and routed by the rubric, each step audited. The heavy model runs on the M6, and since 2026-09-30 the loop runs there every five minutes as a LaunchDaemon; its queue is still empty, and it refuses to start without the operator key (#190) | H1 |
 | Artifact router | `lab/rubric.py`, `lab/route.py` | Rubric built (7.2): routes a research task by evidence weight over the ledger, refuses thin evidence upward, states conflicts, bounded stop rule. The single-signal v0 in `route.py` remains for the vertical slice. Human review of every route | [#33](https://github.com/roshanaryal1/home-lab/issues/33) |
 | Secret broker and connectors | `lab/vault.py`, `lab/connectors.py` | Built and tested with dummy credentials and a fake transport; Keychain path unexercised until the mini | [#15](https://github.com/roshanaryal1/home-lab/issues/15) |
 | Publish plane | `lab/publish.py`, `lab/broker.py` | Reviewed publishing built against a dummy provider: approval bound to destination and draft hash, write-ahead receipts, idempotency keys, reconciliation of lost responses. No real destination yet | [#86](https://github.com/roshanaryal1/home-lab/issues/86) |
@@ -100,7 +100,7 @@ re-losing.
 | Benchmark and tuning gate | `lab/bench.py`, `lab bench` | Built and tested against a scripted adapter: cold start, first token (a one-token request, since the adapter does not stream), decode speed and server memory, sealed with the model revision and lab commit; a setting is recommended only if no task is lost and the gain clears a threshold. Real figures are checklist items | H6b |
 | Injection harness | `lab/attacks.py` | 9 benign-plus-hostile scenarios, graded on files, database and network. Against the worst-case stub and against the real model on the M6 (pre-registered H4, and again after the switch to DWQ): 0 of 9 attacks succeed | [#72](https://github.com/roshanaryal1/home-lab/issues/72) |
 | Status dashboard | `lab/dashboard.py`, `lab dashboard` | Built and tested: read-only page and JSON over `metrics.collect` and `control.get`, loopback bind enforced, GET only, Host header checked, output escaped, no script or form. Reaching it from another device (a private tunnel to the loopback port) is a checklist item | H7 |
-| launchd + watchdog | `lab/service.py`, `ops/launchd/`, `lab watchdog` | Built: heartbeat written from the event loop, a periodic watchdog that kills a supervisor whose heartbeat is stale (pid and start time checked), and generated LaunchDaemon definitions. Not yet installed or exercised on the M6 | [#78](https://github.com/roshanaryal1/home-lab/issues/78), `ops/mac-mini-setup.md` §16 |
+| launchd + watchdog | `lab/service.py`, `ops/launchd/`, `lab watchdog` | Built: heartbeat written from the event loop, a periodic watchdog that kills a supervisor whose heartbeat is stale (pid and start time checked), and generated LaunchDaemon definitions. Installed on the M6 on 2026-09-30 as six LaunchDaemons (the supervisor runs as the non-admin `lab` account from root-owned code in `/opt/homelab`). After `kill -9` the supervisor was back at the 40 s check; a frozen one was replaced by the 150 s check, so the two-minute target is not yet demonstrated | [#78](https://github.com/roshanaryal1/home-lab/issues/78), `ops/mac-mini-setup.md` §16 |
 
 ## Related documents
 
