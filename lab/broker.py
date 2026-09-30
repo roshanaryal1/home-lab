@@ -59,6 +59,7 @@ import math
 import os
 import shutil
 import stat
+import threading
 import urllib.parse
 import uuid
 from collections.abc import Callable, Iterator
@@ -415,6 +416,11 @@ class ExecutionBroker:
         # Set by revoke(): an emergency stop takes authority away from
         # every session at once, before any work is cancelled (item 1.8).
         self._revoked = False
+        # Cancel flags of the shell commands running right now, by task. A command
+        # runs in a thread, which cannot be cancelled from outside, so a stop has
+        # to reach it through this flag (#228).
+        self._shell_lock = threading.Lock()
+        self._shell_cancels: dict[str, set[threading.Event]] = {}
         # None means a non-idempotent tool cannot be journaled, so it is
         # refused: fail closed, like a missing policy engine.
         self._journal = journal
@@ -501,8 +507,20 @@ class ExecutionBroker:
         return ToolSession(self, ctx)
 
     def revoke(self) -> None:
-        """Refuse every call from every session from now on."""
+        """Refuse every call from every session from now on, and end the shell
+        commands that are running (they are otherwise left to their timeout)."""
         self._revoked = True
+        with self._shell_lock:
+            for flags in self._shell_cancels.values():
+                for flag in flags:
+                    flag.set()
+
+    def cancel_running(self, task_id: str) -> None:
+        """End the shell commands this task is running. Called when its work is
+        interrupted: a stop, a lost lease or the wall-clock ceiling."""
+        with self._shell_lock:
+            for flag in self._shell_cancels.get(task_id, ()):
+                flag.set()
 
     def _prepare(self, ctx: ExecutionContext, tool: str, params: dict[str, Any],
                  ) -> tuple[Callable[[ToolRequest, Workspace], ToolResult],
@@ -972,13 +990,26 @@ class ExecutionBroker:
         """
         argv = request.params["argv"]
 
+        cancel = threading.Event()
+        with self._shell_lock:
+            if self._revoked:
+                cancel.set()             # revoked between the check and now
+            self._shell_cancels.setdefault(request.task_id, set()).add(cancel)
         try:
             result = sandbox.run(
                 argv, ws.root,
                 timeout=float(request.params.get("timeout", 30.0)),
+                cancel=cancel,
             )
         except sandbox.SandboxUnavailable as exc:
             raise BrokerError(f"refusing to run unconfined: {exc}") from exc
+        finally:
+            with self._shell_lock:
+                flags = self._shell_cancels.get(request.task_id)
+                if flags is not None:
+                    flags.discard(cancel)
+                    if not flags:
+                        del self._shell_cancels[request.task_id]
 
         return ToolResult(
             ok=result.ok,
@@ -987,6 +1018,7 @@ class ExecutionBroker:
                     "returncode": result.returncode,
                     "sandbox_denied": result.denied,
                     "timed_out": result.timed_out,
+                    "cancelled": result.cancelled,
                     "truncated": result.truncated},
             error=None if result.ok else result.stderr.strip() or "failed",
         )
