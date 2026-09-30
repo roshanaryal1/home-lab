@@ -166,6 +166,8 @@ rejections, revisit after benchmarking:
 
 Once steps 1 to 5 are done:
 
+> **zsh note.** The blocks below have `#` comments at the end of some lines. macOS's default zsh does not treat those as comments when you paste, so run `setopt interactivecomments` first (it lasts for that Terminal window), or leave the comments out.
+
 ```sh
 # from the laptop
 ssh <admin>@<tailnet-host>
