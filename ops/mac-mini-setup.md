@@ -242,7 +242,11 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
 ## 11. Operator account and approval keys (item 4.5, #70)
 
 The code is done and tested. What makes it a boundary is which OS account
-can read what, and that needs the machine. Parked until the M6.
+can read what, and that needs the machine. The account, the key and the
+supervisor's use of the public key are done on the Mac mini (2026-09-30). Two
+things are not: the fabricated-signature test, and keeping the queue database out
+of reach of the code the agent runs (both unticked below; while the second is
+open the operator boundary is not closed, see SECURITY.md).
 
 - [x] Create the non-admin `lab` account (section 1) and keep the
       operator (admin) account separate. Done 2026-09-30, all four checks
