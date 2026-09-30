@@ -45,8 +45,14 @@ The `sudo` sitting for sections 1, 5, 11 and 16 is scripted step by step in
       model server binds 127.0.0.1; a request to its port on the tailnet
       address is refused.
 - [x] Enable Remote Login (SSH) for the admin account so this repo can
-      be deployed from the laptop. Reachable over the tailnet; key-only
-      login is still to do.
+      be deployed from the laptop. Reachable over the tailnet. 2026-09-30:
+      key-only (#182). The MacBook's Ed25519 key is the one entry in
+      `~/.ssh/authorized_keys`; `/etc/ssh/sshd_config.d/050-homelab-keys-only.conf`
+      sets `PasswordAuthentication no` and `KbdInteractiveAuthentication no`
+      (`sshd -T` confirms both). A password-only attempt gets
+      `Permission denied (publickey)`; key login works. Another device
+      (such as an iPhone SSH app) needs its own key added first. Undo:
+      remove that file.
 
 ## 3. Storage
 
