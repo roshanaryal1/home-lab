@@ -160,3 +160,18 @@ def test_the_real_drafts_render_without_their_ids() -> None:
     text = rs.render_sheet(rs.blind(cases))
     assert len(cases) == 18 and text.count("Route: ______") == 18
     assert not any(case["id"] in text for case in cases)
+
+
+def test_non_ascii_text_survives_a_non_utf8_locale(tmp_path: Path,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    # The files are UTF-8 whatever the locale says: force a locale that could not encode them.
+    import locale
+    monkeypatch.setattr(locale, "getpreferredencoding", lambda *a, **k: "cp1252")
+    case = _case("secret-zh", "post", "\u6d4b\u91cf cache \u2014 latency")
+    case["claims"][0]["evidence"][0]["text"] = "\u8ba1\u65f6\u5668 ran"
+    cases = tmp_path / "cases.jsonl"
+    cases.write_text(json.dumps(case, ensure_ascii=False) + "\n", encoding="utf-8")
+    out = tmp_path / "out"
+    assert rs.main(["sheet", "--cases", str(cases), "--out", str(out)]) == 0
+    sheet = (out / "review-sheet.md").read_bytes().decode("utf-8")
+    assert "\u6d4b\u91cf cache \u2014 latency" in sheet and "\u8ba1\u65f6\u5668 ran" in sheet

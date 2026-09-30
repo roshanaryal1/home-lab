@@ -73,7 +73,7 @@ def _check_claims(claims: list[Any], where: str) -> None:
 
 def load_cases(path: Path) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
-    for number, line in enumerate(path.read_text().splitlines(), 1):
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
             continue
         try:
@@ -198,12 +198,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "sheet":
             blinded = blind(cases, args.seed, args.exclude)
             args.out.mkdir(parents=True, exist_ok=True)
-            (args.out / "review-sheet.md").write_text(render_sheet(blinded) + "\n")
-            (args.out / "answers-template.json").write_text(
-                json.dumps(answers_template(blinded), indent=2) + "\n")
+            sheet = render_sheet(blinded) + "\n"
+            (args.out / "review-sheet.md").write_text(sheet, encoding="utf-8")
+            template = json.dumps(answers_template(blinded), indent=2) + "\n"
+            (args.out / "answers-template.json").write_text(template, encoding="utf-8")
             print(f"wrote {len(blinded)} cases to {args.out}")
             return 0
-        print(format_comparison(compare(cases, json.loads(args.answers.read_text()),
+        print(format_comparison(compare(cases, json.loads(args.answers.read_text(encoding="utf-8")),
                                         args.seed, args.exclude)))
         return 0
     except (ReviewError, OSError, ValueError) as exc:
