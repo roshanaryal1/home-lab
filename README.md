@@ -79,6 +79,8 @@ forwarded. SSH works over the tailnet; the model and the dashboard stay on
 the Mac mini's loopback and are reached through an SSH tunnel, never by
 widening what they bind to:
 
+> **zsh note.** The blocks below have `#` comments at the end of some lines. macOS's default zsh does not treat those as comments when you paste, so run `setopt interactivecomments` first (it lasts for that Terminal window), or leave the comments out.
+
 ```sh
 ssh -N -L 8080:127.0.0.1:8080 <user>@<mac-mini>   # the model, at http://127.0.0.1:8080/v1
 ssh -N -L 8765:127.0.0.1:8765 <user>@<mac-mini>   # lab dashboard, after `lab dashboard` is started on the mini
@@ -177,6 +179,8 @@ machine is named the canonical copy and changes to skills have an approval
 step ([#87](https://github.com/roshanaryal1/home-lab/issues/87)).
 
 ## Operating the lab
+
+> **zsh note.** The blocks below have `#` comments at the end of some lines. macOS's default zsh does not treat those as comments when you paste, so run `setopt interactivecomments` first (it lasts for that Terminal window), or leave the comments out.
 
 ```sh
 uv run python -m lab.cli status [--json] [--alert-config F]   # queue, worker health, counters; exit 2 if unhealthy

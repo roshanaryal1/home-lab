@@ -13,6 +13,8 @@ rehearsed in a scratch directory without `sudo` on that date: Python
 environment, and `lab.cli` ran. The `plutil` edits in step 4 were tested
 on copies of the committed plists and pass `plutil -lint`.
 
+> **zsh note.** Some blocks below have `#` comments at the end of some lines. macOS's default zsh does not treat those as comments when you paste, so run `setopt interactivecomments` first (it lasts for that Terminal window), or leave the comments out. The variables block in particular must not be pasted with its comment: it would leave `MODEL_REV` empty.
+
 ## Before you start
 
 - Check out `main` in the operator's clone and confirm CI is green.
