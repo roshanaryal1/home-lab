@@ -66,11 +66,12 @@ Internal 512 GB, latency-sensitive state only:
       start otherwise (WAL-reset bug, https://sqlite.org/wal.html section 11).
       2026-09-30: 3.53.1 with the repo's Python.
 - [x] Active repositories and worktrees.
-- [x] Hot model weights, the ones in daily use. (The heavy model's MLX
-      and GGUF builds, in the Hugging Face cache.)
+- [x] Hot model weights, the ones in daily use. (The served DWQ MLX
+      build, in the Hugging Face cache. The other builds live on the
+      external volume only, see below.)
 - [ ] Keep a substantial free-space reserve. Do not fill the internal
       disk just because there is capacity; leave room for swap, WAL
-      growth and model swapping. 2026-09-30: about 309 GiB free.
+      growth and model swapping. 2026-09-30: about 325 GiB free.
 
 External 1 TB, mounted at a stable path:
 
@@ -80,7 +81,11 @@ External 1 TB, mounted at a stable path:
       under `models/hf-cache/`, every blob checked against its SHA-256. Copy
       with `rsync -aL`: the Hugging Face cache now links some blobs into a
       shared store, and a plain `rsync -a` copied those as dangling links.
-      The internal copies are still there (about 32 GB) and can be removed.
+      2026-09-30: all 17 files re-checked against the internal copies by
+      SHA-256 (0 differences, 0 broken links), then the internal copies were
+      removed with the owner's approval given that day (#183); internal
+      free space went from 293 to 325 GiB. To use one again, copy it back
+      with `rsync -aL` into `~/.cache/huggingface/hub/`.
 - [x] Research corpus, PDFs, datasets. 2026-09-30: the papers the docs cite
       (`docs/REFERENCES.md`), as version-pinned arXiv PDFs plus AgentDojo's
       NeurIPS 2024 proceedings PDF, on `labbackup` under
