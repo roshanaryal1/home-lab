@@ -42,7 +42,8 @@ Both are mature daily-use agents. home-lab has none of the following yet:
   and Daytona (README).
 - **Any model.** Both swap hosted and local model providers (READMEs).
 - **One-line install** on macOS, Linux and Windows (Hermes Agent README;
-  the OpenClaw README lists Docker, Nix and other paths).
+  OpenClaw's recorded README also documents one-line shell and PowerShell
+  installers for macOS, Linux and Windows).
 
 ## Where home-lab differs on safety
 
