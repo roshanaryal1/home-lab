@@ -63,6 +63,7 @@ from __future__ import annotations
 import contextlib
 import os
 import platform
+import re
 import selectors
 import shutil
 import signal
@@ -196,6 +197,12 @@ PROTECTED_NAMES = (".bashrc", ".bash_profile", ".profile", ".zshrc", ".zshenv",
                    ".zprofile", ".zlogin", ".envrc")
 
 
+def _rx(text: str) -> str:
+    """Escape text for a Seatbelt regex literal. In ``#"..."`` a single backslash
+    escapes; doubling it makes a rule that quietly matches nothing (#215)."""
+    return re.sub(r"([.^$*+?()\[\]{}|\\])", r"\\\1", text)
+
+
 def _profile_path(path: Path) -> str:
     text = str(path)
     if _PROFILE_UNSAFE.intersection(text):
@@ -255,6 +262,13 @@ def build_profile(
     lines.append(f'(deny file-write* (subpath "{root}/.git/hooks"))')
     for name in PROTECTED_NAMES:
         lines.append(f'(deny file-write* (literal "{root}/{name}"))')
+    # The same rule at any depth: the hooks of a repository inside the workspace and a
+    # start-up file in a sub-directory run outside the sandbox just the same (#215).
+    # Measured on macOS 27: Seatbelt matches these case-insensitively on APFS.
+    root_rx = _rx(root)
+    names_rx = "|".join(_rx(name) for name in PROTECTED_NAMES)
+    lines.append(f'(deny file-write* (regex #"^{root_rx}/(.*/)?\\.git/hooks(/|$)"))')
+    lines.append(f'(deny file-write* (regex #"^{root_rx}/(.*/)?({names_rx})$"))')
 
     if allow_network:
         # Not reachable yet: nothing calls this with network on, and

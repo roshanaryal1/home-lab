@@ -74,7 +74,11 @@ Implemented and tested:
   (0700) per-task workspaces; file tools walk paths by descriptor with
   O_NOFOLLOW in every component, so a symlink, or a directory swapped for
   one, is refused at the moment of use (item 1.5, R09); git hooks and
-  shell start-up files cannot be written or deleted; the Seatbelt
+  shell start-up files cannot be written or deleted, at any depth and
+  whatever the case of the name (the default macOS volume is
+  case-insensitive), by the file tools or by a sandboxed command (#215:
+  the profile used to cover only the top of the workspace and the file
+  tools only exact-case names); the Seatbelt
   profile is passed inline and never written into the workspace (R10);
   default-deny tool allowlists per task, byte and file-count ceilings,
   and an artifact manifest per execution.
