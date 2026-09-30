@@ -13,6 +13,8 @@ rehearsed in a scratch directory without `sudo` on that date: Python
 environment, and `lab.cli` ran. The `plutil` edits in step 4 were tested
 on copies of the committed plists and pass `plutil -lint`.
 
+> **zsh note.** Some blocks below have `#` comments at the end of some lines. macOS's default zsh does not treat those as comments when you paste, so run `setopt interactivecomments` first (it lasts for that Terminal window), or leave the comments out. The variables block in particular must not be pasted with its comment: it would leave `MODEL_REV` empty.
+
 ## Before you start
 
 - Check out `main` in the operator's clone and confirm CI is green.
@@ -224,6 +226,75 @@ decide ownership in the sitting.
 
 - Closes: 10 "first full restore drill" (copy the record into
   `ops/drills/log/` and commit it).
+
+## Updating the deployed code
+
+Do this when a merged change has to reach the Mac mini (#204). It has not been
+tried yet: the first run is the owner's, and its result belongs in this section.
+
+The installed service definitions in `/Library/LaunchDaemons` are copies. A code
+update does not change them, so first look at what the update touches, then
+decide whether they need reinstalling.
+
+```sh
+COMMIT="PASTE_THE_NEW_COMMIT"
+UV="$HOME/.local/bin/uv"
+OLD=$(sudo git -C /opt/homelab rev-parse HEAD)
+echo "deployed now: $OLD, updating to: $COMMIT"
+```
+
+Read both lines before going on: `deployed now` must be a 40 character hash and
+`updating to` must not still say `PASTE_`.
+
+The deployment is owned by root so the lab account cannot change what it runs.
+As in step 3, ownership passes to you for the update and returns to root after,
+and `git` and `uv sync` run as you, never as root:
+
+```sh
+sudo chown -R "$USER" /opt/homelab /opt/homelab-python
+git -C /opt/homelab fetch origin
+git -C /opt/homelab -c advice.detachedHead=false checkout "$COMMIT"
+git -C /opt/homelab diff --stat "$OLD" "$COMMIT" -- ops/launchd lab/service.py
+cd /opt/homelab && UV_PYTHON_INSTALL_DIR=/opt/homelab-python UV_PYTHON_PREFERENCE=only-managed "$UV" sync --locked
+sudo chown -R root:wheel /opt/homelab /opt/homelab-python
+sudo chmod -R go-w /opt/homelab /opt/homelab-python
+```
+
+- **The `diff --stat` line.** Empty output means the service definitions did not
+  change. Any file listed means the installed copy of that definition is stale:
+  reinstall it (`sudo install -o root -g wheel -m 644 /opt/homelab/ops/launchd/<file>
+  /Library/LaunchDaemons/<file>`), redo that file's settings from step 4, then
+  `sudo launchctl bootout system/com.homelab.<name>` and `bootstrap` it again.
+  Do not re-run `setup-plan --apply` for this: it tries to create the `lab`
+  account again.
+- **After ownership is back with root,** run git as root
+  (`sudo git -C /opt/homelab ...`): as you it stops with "dubious ownership",
+  which is correct and is not to be silenced with `safe.directory`.
+
+Then restart the two services that stay running (the others start fresh on
+their timers) and check. Look at `status` first: `kickstart -k` kills the
+supervisor, and work running at that moment is interrupted (startup recovery
+requeues idempotent tasks and holds the rest for review), so do it when the
+queue is idle.
+
+```sh
+for s in supervisor keepawake; do sudo launchctl kickstart -k system/com.homelab.$s; done
+sleep 10
+sudo git -C /opt/homelab rev-parse HEAD
+ps -o user=,pid= -p $(pgrep -f lab.supervisor)
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db status | head -3
+sudo -u lab /usr/bin/touch /opt/homelab/x
+```
+
+- `rev-parse` prints the commit you asked for.
+- `ps` shows `lab` as the user, and a new pid.
+- `status` shows `health` as `IDLE` or `OK` (`ATTENTION` or `UNHEALTHY` needs
+  a look at the reasons it lists) and `mode` as `running`.
+- `touch` is refused with `Permission denied`.
+
+**Roll back** by running the same block with `COMMIT` set to the `OLD` hash
+printed at the start (write it down). If the supervisor does not start, its
+reason is in `/var/log/homelab/supervisor.err`.
 
 ## What stays open after this sitting
 

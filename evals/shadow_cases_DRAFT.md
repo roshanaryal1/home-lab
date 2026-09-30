@@ -18,6 +18,16 @@ it"). To limit that:
 - Six are marked contestable: cases where a reasonable reader, or the
   rubric, could route differently. They are the most useful ones for H1.
 
+**Update, 2026-09-30:** the rubric (no model) was afterwards run on these
+cases by the same assistant, to see whether they load. Two cannot be built in
+a ledger: `d-paper-one-source` and `d-paper-control-contradicts` describe
+states the ledger refuses to reach. On the other 16 the rubric agrees with the
+drafted label on 15; `d-blog-two-sources` differs (its two claims together
+cite three distinct incident sources, which the rubric counts as a blog). So
+the drafter has seen the rubric's output, and the drafted labels largely
+reproduce it, which is why an independent relabel is required. Nothing was
+frozen or registered. See `evals/h1_review/README.md` and #84.
+
 Before any H1 run:
 
 1. Someone other than the drafter, ideally not looking at `lab/rubric.py`,

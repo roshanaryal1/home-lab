@@ -75,6 +75,14 @@ def system_resolver(host: str, port: int) -> list[str]:
     return sorted({str(info[4][0]) for info in infos})
 
 
+def tls_context() -> ssl.SSLContext:
+    """The client context for outbound TLS: certificates and host names are checked,
+    and TLS 1.2 is the floor whatever the interpreter's OpenSSL defaults to (#206)."""
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
 def socket_transport(ip: str, port: int, host: str, target: str, timeout: float,
                      max_bytes: int, *, tls: bool = True, method: str = "GET",
                      headers: dict[str, str] | None = None,
@@ -87,7 +95,7 @@ def socket_transport(ip: str, port: int, host: str, target: str, timeout: float,
         raw.connect((ip, port))
         stream: Any = raw
         if tls:
-            stream = ssl.create_default_context().wrap_socket(raw, server_hostname=host)
+            stream = tls_context().wrap_socket(raw, server_hostname=host)
         conn = http.client.HTTPConnection(host, port, timeout=timeout)
         conn.sock = stream
         conn.request(method, target, body=body, headers={
@@ -128,10 +136,22 @@ def _host_allowed(host: str, allowed: frozenset[str]) -> bool:
                for a in allowed)
 
 
+# IPv6 forms that carry an IPv4 address or are deprecated. ``ipaddress`` calls the
+# NAT64 prefix "global" without looking at what it embeds, so it is unwrapped here.
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_IPV4_COMPATIBLE = ipaddress.ip_network("::/96")
+_SITE_LOCAL = ipaddress.ip_network("fec0::/10")
+
+
 def _check_address(text: str) -> None:
-    ip = ipaddress.ip_address(text)
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address = ipaddress.ip_address(text)
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        elif ip in _NAT64:
+            ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)     # check what it translates to
+        elif ip in _IPV4_COMPATIBLE or ip in _SITE_LOCAL:
+            raise EgressDenied(f"{text} is not a public address")
     if not ip.is_global or ip.is_multicast:
         raise EgressDenied(f"{text} is not a public address")
 

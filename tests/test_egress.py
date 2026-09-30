@@ -15,6 +15,7 @@ from lab.egress import (
     EgressDenied,
     EgressGateway,
     Response,
+    _check_address,
     parse_allowlist,
     socket_transport,
     validate,
@@ -132,10 +133,25 @@ def test_allowlist_entries_must_be_dns_names(entry: str) -> None:
     "127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254",
     "100.64.0.1", "0.0.0.0", "224.0.0.1", "240.0.0.1", "::1", "fe80::1", "fc00::1",
     "::ffff:127.0.0.1", "::ffff:169.254.169.254", "::",
+    # #212: forms that carry an IPv4 address, and deprecated ranges
+    "64:ff9b::7f00:1", "64:ff9b::a00:1", "64:ff9b::a9fe:a9fe", "64:ff9b::c0a8:101",
+    "::10.0.0.1", "::127.0.0.1", "::a9fe:a9fe", "fec0::1", "feff::1",
 ])
 def test_names_that_resolve_to_non_public_addresses_are_refused(bad: str) -> None:
     with pytest.raises(EgressDenied, match="not a public address"):
         validate("https://docs.example.org/", ALLOWED, resolver({"docs.example.org": [bad]}))
+
+
+@pytest.mark.safety
+@pytest.mark.parametrize("good", [
+    "93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946",
+    # 64:ff9b::/96 translating a public IPv4 address (93.184.216.34) is what a
+    # DNS64 network hands out for an ordinary site, so it must keep working
+    "64:ff9b::5db8:d822", "::ffff:93.184.216.34",
+])
+def test_public_addresses_still_pass_including_a_nat64_form_of_a_public_ipv4(good: str) -> None:
+    result = validate("https://docs.example.org/", ALLOWED, resolver({"docs.example.org": [good]}))
+    assert result.ip == good
 
 
 @pytest.mark.safety
@@ -288,6 +304,34 @@ def server():
     httpd.shutdown()
 
 
+def test_outbound_tls_checks_certificates_and_names_and_starts_at_tls_1_2() -> None:
+    # #206: the floor must not depend on how the interpreter's OpenSSL is configured.
+    import ssl
+
+    from lab.egress import tls_context
+    context = tls_context()
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+    assert context.minimum_version >= ssl.TLSVersion.TLSv1_2
+
+
+def test_the_tls_floor_holds_even_if_the_default_context_allows_older_versions(
+        monkeypatch) -> None:
+    import ssl
+
+    from lab import egress
+
+    real = ssl.create_default_context
+
+    def permissive() -> ssl.SSLContext:
+        context = real()
+        context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+        return context
+
+    monkeypatch.setattr(egress.ssl, "create_default_context", permissive)
+    assert egress.tls_context().minimum_version == ssl.TLSVersion.TLSv1_2
+
+
 def test_the_socket_transport_connects_to_the_pinned_ip_and_sends_the_name(server) -> None:
     """Below the policy layer, so a local server is reachable: this checks
     the mechanics, that the connection goes to the IP given while Host
@@ -379,3 +423,70 @@ async def test_the_fetch_tool_counts_as_an_external_action_for_the_rule_of_two(
     await sup.run(max_tasks=1)
     assert ran == [] and sup.queue.get(task_id).state == "cancelled"
     sup.close()
+
+
+# ------------------------------------------- properties of the address check (#217)
+
+
+def _embed(kind: str, v4: int):
+    import ipaddress
+    if kind == "mapped":                       # ::ffff:a.b.c.d
+        return ipaddress.IPv6Address((0xFFFF << 32) | v4)
+    if kind == "nat64":                        # 64:ff9b::a.b.c.d
+        return ipaddress.IPv6Address((0x0064FF9B << 96) | v4)
+    if kind == "compatible":                   # ::a.b.c.d (deprecated)
+        return ipaddress.IPv6Address(v4)
+    return ipaddress.IPv6Address((0x2002 << 112) | (v4 << 80))     # 6to4
+
+
+def _refused(address: object) -> bool:
+    try:
+        _check_address(str(address))
+    except EgressDenied:
+        return True
+    return False
+
+
+@pytest.mark.safety
+def test_an_ipv6_form_never_smuggles_in_a_non_public_ipv4_address() -> None:
+    import ipaddress
+
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    @settings(max_examples=400, deadline=None, derandomize=True)
+    @given(st.integers(0, 2**32 - 1), st.sampled_from(["mapped", "nat64", "compatible", "6to4"]))
+    def check(v4: int, kind: str) -> None:
+        inner = ipaddress.IPv4Address(v4)
+        if not inner.is_global or inner.is_multicast:
+            assert _refused(_embed(kind, v4)), f"{kind} form of {inner} was allowed"
+
+    check()
+
+
+@pytest.mark.safety
+def test_whatever_the_check_allows_is_global_and_carries_no_non_public_ipv4() -> None:
+    import ipaddress
+
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    @settings(max_examples=600, deadline=None, derandomize=True)
+    @given(st.ip_addresses(v=4) | st.ip_addresses(v=6)
+           | st.integers(0, 2**32 - 1).map(lambda n: _embed("nat64", n))
+           | st.integers(0, 2**32 - 1).map(lambda n: _embed("compatible", n)))
+    def check(address) -> None:
+        if _refused(address):
+            return
+        assert address.is_global and not address.is_multicast
+        if isinstance(address, ipaddress.IPv6Address):
+            low = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+            carried = []
+            if address.ipv4_mapped is not None:
+                carried.append(address.ipv4_mapped)
+            if address in ipaddress.ip_network("64:ff9b::/96"):
+                carried.append(low)
+            assert all(v.is_global and not v.is_multicast for v in carried), address
+            assert address not in ipaddress.ip_network("::/96")
+
+    check()

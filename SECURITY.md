@@ -74,7 +74,11 @@ Implemented and tested:
   (0700) per-task workspaces; file tools walk paths by descriptor with
   O_NOFOLLOW in every component, so a symlink, or a directory swapped for
   one, is refused at the moment of use (item 1.5, R09); git hooks and
-  shell start-up files cannot be written or deleted; the Seatbelt
+  shell start-up files cannot be written or deleted, at any depth and
+  whatever the case of the name (the default macOS volume is
+  case-insensitive), by the file tools or by a sandboxed command (#215:
+  the profile used to cover only the top of the workspace and the file
+  tools only exact-case names); the Seatbelt
   profile is passed inline and never written into the workspace (R10);
   default-deny tool allowlists per task, byte and file-count ceilings,
   and an artifact manifest per execution.
@@ -148,8 +152,11 @@ Implemented and tested:
   DNS names only (no spelling of an IP literal can match), no
   credentials in URLs. The name is resolved once per hop; every returned
   address must be globally routable (loopback, private, link-local
-  including 169.254.169.254, CGNAT, multicast, reserved and IPv4-mapped
-  forms are refused, and one bad address refuses the whole answer); the
+  including 169.254.169.254, CGNAT, multicast and reserved are refused; an
+  IPv4-mapped or NAT64 (`64:ff9b::/96`) address is checked as the IPv4
+  address it carries, and the deprecated IPv4-compatible (`::/96`) and
+  site-local (`fec0::/10`) forms are refused (#212); one bad address
+  refuses the whole answer); the
   connection then goes to that validated address with the name used only
   for TLS and Host, so a rebinding server gets no second lookup.
   Redirects are never followed by the transport: each hop is fully
@@ -158,7 +165,8 @@ Implemented and tested:
   attempt is audited by host and URL hash (never the query string), and
   an audit failure stops the request. `net.fetch` counts as an external
   action for the Rule of Two (`tests/test_egress.py`). Not covered: the
-  server's TLS certificate is verified against the system store only,
+  server's TLS certificate is verified against the system store only (TLS 1.2
+  is the explicit minimum, `tls_context()`, #206),
   nothing limits total bytes per task across calls, and the shell tool's
   network access is governed by the sandbox profile, not this gateway.
 - **Secret broker and connectors** (`lab/vault.py`, `lab/connectors.py`,
@@ -171,17 +179,23 @@ Implemented and tested:
   is asked. The broker resolves the secret from `LAB_SECRET_<NAME>` or
   the Keychain at the moment of the call, puts it in the request header,
   sends through the egress gateway with no redirects (the credential
-  goes to one host), and scrubs the value, and its URL-encoded and
-  base64 forms, from the result and any error. There is no list
+  goes to one host), and scrubs the value from the result and any error:
+  raw, URL-encoded, base64, and matched character by character in its
+  JSON-escaped (`\"`, `\/`, `\uXXXX` in either case), HTML-escaped and
+  percent-encoded (either case) forms, so a server that escapes only some
+  characters is covered (#219). There is no list
   operation, so a worker cannot enumerate secrets. A test has the server
   echo the header back in three encodings and then searches every table,
   the returned result and the log for the value. The tool holds a secret
   and an outside effect, so the Rule of Two refuses it for any task with
   untrusted input (`tests/test_connectors.py`). Limits: a secret shorter
   than 8 characters is refused, not handled; the value exists in the
-  supervisor's memory during the call; and a destination that stores what
+  supervisor's memory during the call; a destination that stores what
   it is sent can still be told to repeat the value later, which redaction
-  cannot see.
+  cannot see; and a destination that deliberately re-encodes an echo in some
+  other way (hex, upper-cased, reversed, split) defeats redaction, which no
+  redactor can prevent. What limits that is that the credential is only ever
+  sent to the one host the connector names.
 - **Evidence ledger** (`lab/ledger.py`, migration 7, #90). A research
   task records its question, protocol version, data and code identifiers,
   outputs and validation checks. Each conclusion is a claim whose status
@@ -391,8 +405,8 @@ Implemented and tested:
   "running")`, and a supervisor that has the operator's public key treats an
   unsigned, forged or replayed `running` row as still paused. Pause, drain
   and stop remove authority and need no signature. Limit: without a
-  configured key the switch is unsigned, and until the lab account exists
-  (#70) the private key is only as safe as the account holding it. `lab
+  configured key the switch is unsigned; on the Mac mini the lab account
+  cannot read the private key (checked 2026-09-30, #70). `lab
   cancel` refuses running work and points to `control stop`.
   Nothing acts on it yet.
 - **Injection harness and taint on read** (`lab/attacks.py`, item 4.7,
@@ -457,11 +471,24 @@ Implemented and tested:
   from what was reviewed, escapes control and bidi characters in
   everything it prints, and warns when a grant is unsigned. **This is a
   boundary only once the private key is unreadable to the agent's OS
-  account and the supervisor is configured with the public key.** Neither
-  is true yet: without a configured key approvals are not checked (the
-  supervisor logs a warning at start), and the lab account is parked for
-  the Mac mini (`ops/mac-mini-setup.md` section 11). Adds `cryptography`
-  as the first runtime dependency.
+  account and the supervisor is configured with the public key.** On the
+  Mac mini both hold since 2026-09-30: the `lab` account gets `Permission
+  denied` reading the private key, and the daemon and `lab tick` refuse to
+  start without the public key (#190). `--allow-unsigned` and
+  `lab tick --mock-reply` exist for dummy data and are refused on any
+  machine where `/etc/homelab/operator.pub` exists, a root-owned file the lab
+  account cannot remove. Still open: the fabricated-signature test on the
+  machine (#70). **Not closed:** code running as the lab account can build
+  a `Supervisor` in its own process against the database, which the lab
+  account owns, and that supervisor would not check approvals; only
+  separating the database from the code the agent runs closes that (#70).
+  A supervisor built any other way does not check approvals: tests do
+  that on purpose, and so does the attack harness (`lab/attacks.py`),
+  which runs only on a throwaway temporary database with a dummy secret.
+  Any new code that builds a `Supervisor` against a real database must set
+  `require_operator_key`; `tests/test_supervisor_entrypoints.py` counts the
+  construction sites in every file under `lab/` and fails when the count
+  changes, until someone records why the new one is safe (#200). Adds `cryptography` as the first runtime dependency.
 - **Backup and restore** (`lab/backup.py`, item 3.4, #67). `lab backup`
   snapshots the live database with SQLite's online backup API (no torn
   copy, supervisor keeps running) and copies only artifact blobs the

@@ -5,6 +5,8 @@ failure and records what happened. Recovery counts as **demonstrated**
 only for a drill that ran on the Mac mini with `LAB_TARGET=mac-mini`
 exported; anywhere else the record says "rehearsal" and does not count.
 
+> **zsh note.** The blocks below have `#` comments at the end of some lines. macOS's default zsh does not treat those as comments when you paste, so run `setopt interactivecomments` first (it lasts for that Terminal window), or leave the comments out.
+
 ```sh
 uv run python -m lab.cli drill crash              # SIGKILL mid-task, restart, recover
 uv run python -m lab.cli --db ~/.local/share/home-lab/lab.db drill restore

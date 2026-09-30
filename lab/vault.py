@@ -78,22 +78,61 @@ def _forms(secret: str) -> list[str]:
     return sorted((f for f in forms if f), key=len, reverse=True)
 
 
+# What a server can turn one character into when it reflects a header: JSON escapes
+# (short forms and \\uXXXX in either case), HTML entities and percent-hex in either
+# case. Servers escape per character, not per string (Go escapes & < >, PHP escapes /),
+# so the match pattern allows each character to appear in any of its forms (#219).
+_NAMED = {'"': ['\\"', "&quot;"], "'": ["&apos;"], "&": ["&amp;"], "<": ["&lt;"],
+          ">": ["&gt;"], "/": ["\\/"], "\\": ["\\\\"], " ": ["+"]}
+
+
+def _alternatives(ch: str) -> list[str]:
+    if ch.isascii() and ch.isalnum():
+        return [ch]                    # letters and digits are never escaped in practice
+    units = ch.encode("utf-16-be")
+    unit_hex = [units[i:i + 2].hex() for i in range(0, len(units), 2)]
+    utf8 = ch.encode("utf-8")
+    forms = [ch, "".join(f"\\u{u}" for u in unit_hex),
+             "".join(f"\\u{u.upper()}" for u in unit_hex),
+             "".join(f"%{b:02x}" for b in utf8), "".join(f"%{b:02X}" for b in utf8),
+             f"&#{ord(ch)};", f"&#x{ord(ch):x};", f"&#x{ord(ch):X};", *_NAMED.get(ch, [])]
+    return sorted(dict.fromkeys(forms), key=len, reverse=True)
+
+
+def _echo_pattern(secret: str) -> re.Pattern[str] | None:
+    """A pattern matching the secret with any of its characters escaped any way above."""
+    if secret.isascii() and secret.isalnum():
+        return None
+    parts = []
+    for ch in secret:
+        alts = _alternatives(ch)
+        parts.append(re.escape(alts[0]) if len(alts) == 1
+                     else "(?:" + "|".join(re.escape(a) for a in alts) + ")")
+    return re.compile("".join(parts))
+
+
 class Redactor:
     """Scrubs a set of secret values from any nested structure."""
 
     def __init__(self, secrets: list[str] | None = None) -> None:
         self._needles: list[str] = []
+        self._patterns: list[re.Pattern[str]] = []
         for secret in secrets or []:
             self.add(secret)
 
     def add(self, secret: str) -> None:
         self._needles.extend(f for f in _forms(secret) if f not in self._needles)
         self._needles.sort(key=len, reverse=True)
+        pattern = _echo_pattern(secret)
+        if pattern is not None:
+            self._patterns.append(pattern)
 
     def scrub(self, value: Any) -> Any:
         if isinstance(value, str):
             for needle in self._needles:
                 value = value.replace(needle, REDACTED)
+            for pattern in self._patterns:
+                value = pattern.sub(REDACTED, value)
             return value
         if isinstance(value, dict):
             return {self.scrub(k): self.scrub(v) for k, v in value.items()}
