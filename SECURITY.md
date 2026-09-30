@@ -158,7 +158,8 @@ Implemented and tested:
   attempt is audited by host and URL hash (never the query string), and
   an audit failure stops the request. `net.fetch` counts as an external
   action for the Rule of Two (`tests/test_egress.py`). Not covered: the
-  server's TLS certificate is verified against the system store only,
+  server's TLS certificate is verified against the system store only (TLS 1.2
+  is the explicit minimum, `tls_context()`, #206),
   nothing limits total bytes per task across calls, and the shell tool's
   network access is governed by the sandbox profile, not this gateway.
 - **Secret broker and connectors** (`lab/vault.py`, `lab/connectors.py`,
