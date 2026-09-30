@@ -126,9 +126,12 @@ matters needs a third destination as well.
 - [x] `launchd` job with `RunAtLoad` and `KeepAlive` for the supervisor.
       2026-09-30: `com.homelab.supervisor` runs as `lab`; after `kill -9`
       launchd restarted it within 40 s (section 16).
-- [x] A separate watchdog or heartbeat process. `KeepAlive` restarts a
-      dead process; it does not notice a wedged one. 2026-09-30: a frozen
-      supervisor (`kill -STOP`) was replaced within 150 s (section 16).
+- [ ] A separate watchdog or heartbeat process. `KeepAlive` restarts a
+      dead process; it does not notice a wedged one. 2026-09-30: the
+      watchdog is installed and a frozen supervisor (`kill -STOP`) had been
+      replaced at the first check, 150 s later; the two-minute target is
+      not yet demonstrated (section 16, #78). Tick this when a timed
+      re-drill shows replacement by 120 s.
 - [ ] Structured rotating logs (built: `lab/logsetup.py`): set `LAB_LOG_DIR`
       in the supervisor's plist, on the external SSD for the long-term set.
 - [ ] Queue-aware sleep prevention (built: `lab keepawake`): install

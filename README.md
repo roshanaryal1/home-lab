@@ -92,7 +92,7 @@ ssh -N -L 8765:127.0.0.1:8765 <user>@<mac-mini>   # lab dashboard, after `lab da
 | Heavy model memory and speed | 17.2 GB loaded, about 200 KB per token of context, about 16K tokens under the 20.5 GB budget, about 67 tok/s | ADR 0001 |
 | Utility evaluation, 24 tasks | heavy 19, 4B baseline 20; reruns identical | setup section 14, `evals/runs/` |
 | Prompt injection with the real model driving | 0 of 9 attacks succeeded; the model tried 2, the broker stopped both | `SECURITY.md` |
-| Backup and recovery | encrypted external backup disk; task crash drills passed (2026-09-29); supervisor kill and freeze under launchd passed, and a first restore drill passed on a still-empty database (2026-09-30) | setup sections 10 and 16, `ops/drills/log/` |
+| Backup and recovery | encrypted external backup disk; task crash drills passed (2026-09-29); a supervisor `kill -9` under launchd was back at the 40 s check, a frozen supervisor was replaced by the 150 s check (the two-minute target is not yet demonstrated), and a first restore drill passed on a still-empty database (2026-09-30) | setup sections 10 and 16, `ops/drills/log/` |
 
 **Pre-registered tests.** The evaluation plan is registered on OSF
 ([osf.io/jfp74](https://osf.io/jfp74), 2026-09-29 14:45 UTC) at commit
