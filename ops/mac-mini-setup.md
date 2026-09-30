@@ -77,8 +77,9 @@ External 1 TB, mounted at a stable path:
       shared store, and a plain `rsync -a` copied those as dangling links.
       2026-09-30: all 17 files re-checked against the internal copies by
       SHA-256 (0 differences, 0 broken links), then the internal copies were
-      removed (#183); internal free space went from 293 to 325 GiB. To use
-      one again, copy it back with `rsync -aL` into `~/.cache/huggingface/hub/`.
+      removed with the owner's approval given that day (#183); internal
+      free space went from 293 to 325 GiB. To use one again, copy it back
+      with `rsync -aL` into `~/.cache/huggingface/hub/`.
 - [x] Research corpus, PDFs, datasets. 2026-09-30: the papers the docs cite
       (`docs/REFERENCES.md`), as version-pinned arXiv PDFs plus AgentDojo's
       NeurIPS 2024 proceedings PDF, on `labbackup` under
