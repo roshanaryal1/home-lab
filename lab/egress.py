@@ -136,10 +136,22 @@ def _host_allowed(host: str, allowed: frozenset[str]) -> bool:
                for a in allowed)
 
 
+# IPv6 forms that carry an IPv4 address or are deprecated. ``ipaddress`` calls the
+# NAT64 prefix "global" without looking at what it embeds, so it is unwrapped here.
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_IPV4_COMPATIBLE = ipaddress.ip_network("::/96")
+_SITE_LOCAL = ipaddress.ip_network("fec0::/10")
+
+
 def _check_address(text: str) -> None:
-    ip = ipaddress.ip_address(text)
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address = ipaddress.ip_address(text)
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        elif ip in _NAT64:
+            ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)     # check what it translates to
+        elif ip in _IPV4_COMPATIBLE or ip in _SITE_LOCAL:
+            raise EgressDenied(f"{text} is not a public address")
     if not ip.is_global or ip.is_multicast:
         raise EgressDenied(f"{text} is not a public address")
 

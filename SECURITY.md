@@ -148,8 +148,11 @@ Implemented and tested:
   DNS names only (no spelling of an IP literal can match), no
   credentials in URLs. The name is resolved once per hop; every returned
   address must be globally routable (loopback, private, link-local
-  including 169.254.169.254, CGNAT, multicast, reserved and IPv4-mapped
-  forms are refused, and one bad address refuses the whole answer); the
+  including 169.254.169.254, CGNAT, multicast and reserved are refused; an
+  IPv4-mapped or NAT64 (`64:ff9b::/96`) address is checked as the IPv4
+  address it carries, and the deprecated IPv4-compatible (`::/96`) and
+  site-local (`fec0::/10`) forms are refused (#212); one bad address
+  refuses the whole answer); the
   connection then goes to that validated address with the name used only
   for TLS and Host, so a rebinding server gets no second lookup.
   Redirects are never followed by the transport: each hop is fully

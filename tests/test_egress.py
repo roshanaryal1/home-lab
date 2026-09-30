@@ -132,10 +132,25 @@ def test_allowlist_entries_must_be_dns_names(entry: str) -> None:
     "127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254",
     "100.64.0.1", "0.0.0.0", "224.0.0.1", "240.0.0.1", "::1", "fe80::1", "fc00::1",
     "::ffff:127.0.0.1", "::ffff:169.254.169.254", "::",
+    # #212: forms that carry an IPv4 address, and deprecated ranges
+    "64:ff9b::7f00:1", "64:ff9b::a00:1", "64:ff9b::a9fe:a9fe", "64:ff9b::c0a8:101",
+    "::10.0.0.1", "::127.0.0.1", "::a9fe:a9fe", "fec0::1", "feff::1",
 ])
 def test_names_that_resolve_to_non_public_addresses_are_refused(bad: str) -> None:
     with pytest.raises(EgressDenied, match="not a public address"):
         validate("https://docs.example.org/", ALLOWED, resolver({"docs.example.org": [bad]}))
+
+
+@pytest.mark.safety
+@pytest.mark.parametrize("good", [
+    "93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946",
+    # 64:ff9b::/96 translating a public IPv4 address (93.184.216.34) is what a
+    # DNS64 network hands out for an ordinary site, so it must keep working
+    "64:ff9b::5db8:d822", "::ffff:93.184.216.34",
+])
+def test_public_addresses_still_pass_including_a_nat64_form_of_a_public_ipv4(good: str) -> None:
+    result = validate("https://docs.example.org/", ALLOWED, resolver({"docs.example.org": [good]}))
+    assert result.ip == good
 
 
 @pytest.mark.safety
