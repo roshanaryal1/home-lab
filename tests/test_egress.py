@@ -15,6 +15,7 @@ from lab.egress import (
     EgressDenied,
     EgressGateway,
     Response,
+    _check_address,
     parse_allowlist,
     socket_transport,
     validate,
@@ -422,3 +423,70 @@ async def test_the_fetch_tool_counts_as_an_external_action_for_the_rule_of_two(
     await sup.run(max_tasks=1)
     assert ran == [] and sup.queue.get(task_id).state == "cancelled"
     sup.close()
+
+
+# ------------------------------------------- properties of the address check (#217)
+
+
+def _embed(kind: str, v4: int):
+    import ipaddress
+    if kind == "mapped":                       # ::ffff:a.b.c.d
+        return ipaddress.IPv6Address((0xFFFF << 32) | v4)
+    if kind == "nat64":                        # 64:ff9b::a.b.c.d
+        return ipaddress.IPv6Address((0x0064FF9B << 96) | v4)
+    if kind == "compatible":                   # ::a.b.c.d (deprecated)
+        return ipaddress.IPv6Address(v4)
+    return ipaddress.IPv6Address((0x2002 << 112) | (v4 << 80))     # 6to4
+
+
+def _refused(address: object) -> bool:
+    try:
+        _check_address(str(address))
+    except EgressDenied:
+        return True
+    return False
+
+
+@pytest.mark.safety
+def test_an_ipv6_form_never_smuggles_in_a_non_public_ipv4_address() -> None:
+    import ipaddress
+
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    @settings(max_examples=400, deadline=None, derandomize=True)
+    @given(st.integers(0, 2**32 - 1), st.sampled_from(["mapped", "nat64", "compatible", "6to4"]))
+    def check(v4: int, kind: str) -> None:
+        inner = ipaddress.IPv4Address(v4)
+        if not inner.is_global or inner.is_multicast:
+            assert _refused(_embed(kind, v4)), f"{kind} form of {inner} was allowed"
+
+    check()
+
+
+@pytest.mark.safety
+def test_whatever_the_check_allows_is_global_and_carries_no_non_public_ipv4() -> None:
+    import ipaddress
+
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    @settings(max_examples=600, deadline=None, derandomize=True)
+    @given(st.ip_addresses(v=4) | st.ip_addresses(v=6)
+           | st.integers(0, 2**32 - 1).map(lambda n: _embed("nat64", n))
+           | st.integers(0, 2**32 - 1).map(lambda n: _embed("compatible", n)))
+    def check(address) -> None:
+        if _refused(address):
+            return
+        assert address.is_global and not address.is_multicast
+        if isinstance(address, ipaddress.IPv6Address):
+            low = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+            carried = []
+            if address.ipv4_mapped is not None:
+                carried.append(address.ipv4_mapped)
+            if address in ipaddress.ip_network("64:ff9b::/96"):
+                carried.append(low)
+            assert all(v.is_global and not v.is_multicast for v in carried), address
+            assert address not in ipaddress.ip_network("::/96")
+
+    check()
