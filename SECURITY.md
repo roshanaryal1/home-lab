@@ -627,27 +627,28 @@ shell.
 **Do not describe this sandbox as preventing username or home-directory
 disclosure.** It does not.
 
-**A command can outlive its task, in two ways.** They stay inside the profile (no
-network, writes only under the workspace, no database or credentials), so this is
-about lifetime, not confinement, but it means "stop" does not always end the work.
+**A command can outlive its task by leaving its process group.** It stays inside
+the profile (no network, writes only under the workspace, no database or
+credentials), so this is about lifetime, not confinement, but it means "stop" does not
+always end the work. The timeout and the stop kill the command's process group. A
+process that calls `setsid()` gets a new group and survives that: measured on macOS 27
+(#223), `perl -e 'use POSIX; POSIX::setsid(); exec q(sleep), q(N)' &` and a perl daemon
+that forks twice and calls `setsid()` were still running after `sandbox.run` returned,
+while same-group children were killed. Finding such survivors by environment tag does
+not work: macOS hides the environment of Apple-signed binaries from `ps`. There is no
+full fix short of a process boundary, which is why anything untrusted is meant for the
+container tier (ADR 0007, #181); until then, treat an approved `shell.run` command as
+able to leave a process behind.
 
-- *It leaves the process group.* The timeout kills the command's process group. A
-  process that calls `setsid()` gets a new group and survives it: measured on macOS
-  27 (#223), `perl -e 'use POSIX; POSIX::setsid(); exec q(sleep), q(N)' &` and a perl
-  daemon that forks twice and calls `setsid()` were still running after
-  `sandbox.run` returned, while same-group children were killed.
-- *Stop does not reach it at all.* An emergency stop, a lost lease and a task
-  timeout cancel the *wait* for a `shell.run` command, not the command: the broker
-  runs it in a thread, and a running thread cannot be cancelled, so the command
-  continues until it exits or reaches its own `timeout` (30 s by default, and never
-  more than 300 s, the sandbox's own ceiling). Measured with a harmless `sleep`
-  (#228).
-  An emergency stop does revoke the broker first, so no new tool call gets through;
-  only a command already running is affected. Finding survivors by environment tag does not work: macOS hides the
-environment of Apple-signed binaries from `ps`. There is no full fix short of a
-process boundary, which is why anything untrusted is meant for the container tier
-(ADR 0007, #181); until then, treat an approved `shell.run` command as able to leave
-a process behind.
+**A stop reaches a command that is already running (#228).** An emergency stop, a
+lost lease and the task's wall-clock ceiling set a cancel flag on every `shell.run`
+command the task is running; the run loop checks it about ten times a second and kills
+the command's process group. Before this, they cancelled only the *wait* for the
+command: the broker runs it in a thread, a running thread cannot be cancelled, and the
+command carried on until it exited or reached its own timeout (30 s by default, never
+more than 300 s, the sandbox's ceiling); a `sleep` was still alive 2 s after the
+cancel. An emergency stop also revokes the broker first, so no new tool call gets
+through.
 
 Known limitation: `sandbox-exec` is deprecated by Apple. It remains
 functional, macOS's own daemons use Seatbelt internally, and Apple has
