@@ -269,10 +269,12 @@ open the operator boundary is not closed, see SECURITY.md).
       fabricated signature (expect `approval_rejected` in the events).
       2026-09-30: the `cat` half done (`Permission denied`); the
       fabricated-signature half is still to do.
-- [ ] As `lab`, list the operator's home folder: `sudo -u lab /bin/ls "$HOME"`
-      must say `Permission denied`. `lab` is in `staff` and the home folder is
-      750 group `staff`, so by its permissions it can read group-readable files
-      there (about 38,000 under `~/.claude` alone); not yet checked with a real
+- [ ] As `lab`, list the operator's home folder and a folder below it:
+      `sudo -u lab /bin/ls "$HOME"` and `sudo -u lab /bin/ls "$HOME/Public"` must
+      both say `Permission denied`. `lab` is in `staff` and the home folder is
+      750 group `staff`, so by permissions alone it can read group-readable files
+      there (38,315 of the 38,495 files under `~/.claude`, counting only those
+      whose parent folders the group can search); not yet checked with a real
       read, fix is `chmod 700 "$HOME"` (#225).
 - [ ] Put the queue database, policy files and credentials under a
       directory the reviewed handlers' worker processes cannot open (#70

@@ -93,15 +93,19 @@ sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
 file, `operator.key`, which is mode 600. But a new macOS account is put in the
 `staff` group, and the operator's home folder is usually `drwxr-x---` with group
 `staff`, so `lab` can traverse it and read whatever below it is group-readable
-(for example everything under `~/.claude`). Check, and fix if it lists:
+(on the project's machine 38,315 of the 38,495 files under `~/.claude`, counting
+only files whose every parent folder the group can also search). Check the folder
+and one folder below it, since blocking the listing alone is not the same as
+blocking the way in. `~/Public` exists on every macOS account:
 
 ```sh
 sudo -u lab /bin/ls "$HOME"
+sudo -u lab /bin/ls "$HOME/Public"
 ```
 
-The right answer is `Permission denied`. If it lists your files, run
-`chmod 700 "$HOME"` (your own folder, no `sudo`) and check again. Do this before
-the first task runs.
+Both must say `Permission denied`. If either lists anything, run `chmod 700 "$HOME"`
+(your own folder, no `sudo`) and check both again. Do this before the first task
+runs.
 
 ## Step 3. Deploy the code to /opt/homelab (sudo)
 
