@@ -474,6 +474,29 @@ the paths, then:
       To test it, run `lab status --alert-config` against a scratch database
       holding a task whose lease has expired (a paused or stopped lab is not
       unhealthy, so `lab control` will not trigger it).
+- [ ] Telegram as the channel (built: `lab/telegram_alert.py`, #79). It is a
+      command for `lab/alert.py`, so the steps are the two files below plus the
+      code being on the machine (see "Updating the deployed code" in
+      `ops/runbook-lab-account-and-daemons.md`). Use a **new, alert-only bot**
+      from BotFather, never the token of the shell bot: the `lab` account has to
+      read this one. Press Start on the new bot once so it may message you.
+      Then, in a Terminal on the mini (the token is typed at a hidden prompt,
+      never pasted into a command line):
+
+      ```sh
+      read -s "TOK?Alert bot token: "; echo
+      printf '{"bot_token": "%s", "chat_id": %s}\n' "$TOK" "$(security find-generic-password -a "$USER" -s homelab-telegram-chat -w)" | sudo tee /etc/homelab/telegram-alert.json >/dev/null
+      unset TOK
+      sudo chown lab /etc/homelab/telegram-alert.json && sudo chmod 600 /etc/homelab/telegram-alert.json
+      printf '{"command": ["/opt/homelab/.venv/bin/python", "-m", "lab.telegram_alert", "--config", "/etc/homelab/telegram-alert.json"], "timeout_seconds": 30, "min_interval_seconds": 3600}\n' | sudo tee /etc/homelab/alert.json >/dev/null
+      sudo chown lab /etc/homelab/alert.json && sudo chmod 600 /etc/homelab/alert.json
+      echo "homelab test alert" | sudo -u lab /opt/homelab/.venv/bin/python -m lab.telegram_alert --config /etc/homelab/telegram-alert.json
+      ```
+
+      The last line must put a message in your chat and print nothing. The
+      command refuses a config that group or others can read, and never prints
+      the token. Alerts are only as private as Telegram: they are not end-to-end
+      encrypted, so they carry status words, not secrets.
 - [ ] Dead-man switch: an external service expects a ping every few minutes
       from the lab and alerts when it stops. Unplug the network; the alert must
       arrive within ten minutes.
