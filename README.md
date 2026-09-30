@@ -33,8 +33,8 @@ than quietly resolved.
 | 5. Model swap manager with RAM/headroom policy | not built; the budget it needs is now measured on the M6 (ADR 0001) |
 | 6. Aider/OpenHands executor adapters | not started |
 | 7. Research evidence ledger and verification pipeline | ledger built: claim status is separate from task status, every claim opens its exact source ([#90](https://github.com/roshanaryal1/home-lab/issues/90)); the automated verification pipeline is not |
-| 8. Dedicated-user permissions and task workspaces | code done (operator-signed approvals); account setup is a checklist for the mini, [#70](https://github.com/roshanaryal1/home-lab/issues/70) |
-| 9. launchd + watchdog + queue-aware caffeinate | heartbeat, watchdog and plists built and tested; install and freeze test are on the M6 checklist, [#78](https://github.com/roshanaryal1/home-lab/issues/78) |
+| 8. Dedicated-user permissions and task workspaces | on the M6 since 2026-09-30: the lab runs as a non-admin `lab` account that cannot `sudo`, cannot read the owner's approval key and cannot change its own code or service definitions; the supervisor currently allows keyless startup with signature checks disabled; refusing to start without the owner's public key remains tracked in [#190](https://github.com/roshanaryal1/home-lab/issues/190); the fabricated-signature test on the machine is still open, [#70](https://github.com/roshanaryal1/home-lab/issues/70) |
+| 9. launchd + watchdog + queue-aware caffeinate | installed on the M6 2026-09-30 as six LaunchDaemons; a `kill -9` supervisor was observed back at the 40 s check, while the freeze drill only demonstrated replacement by the 150 s check and did not establish the two-minute target ([kill drill](ops/drills/log/2026-09-30T0100Z-supervisor-kill.md), [freeze drill](ops/drills/log/2026-09-30T0100Z-supervisor-freeze.md), [restore drill](ops/drills/log/2026-09-30T010636Z-restore.md)); caffeinate under a real queue still to check, [#78](https://github.com/roshanaryal1/home-lab/issues/78) |
 | 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status`, `lab control` (pause, drain, stop), `lab cancel` and a read-only `lab dashboard` on loopback exist; alerts and the dead-man switch are parked, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
 | 11. sqlite-vec / FTS retrieval | FTS5 baseline built with inspect, correct, revoke and delete ([#85](https://github.com/roshanaryal1/home-lab/issues/85)); embeddings must beat it on a measured task first |
 | 12. Benchmark and tune before adding anything else | benchmarked on the M6 (`evals/bench/`, setup section 14); first tuning test run as pre-registered H3 (prompt cache 1 against 4: no gain, not adopted, `docs/PREREGISTRATION.md`) |
@@ -62,11 +62,16 @@ agent may hold, and the staged rollout, are in ADR 0006.
 Since 2026-09-30 the lab's heavy model runs on the M6 itself:
 `Qwen3-Coder-30B-A3B-Instruct`, the 4-bit DWQ build (the plain 4-bit build
 corrupts copied text, ADR 0001), served by `mlx-lm` on loopback only and kept
-up by a user LaunchAgent (after a `kill -9` it was back in 16 seconds). The supervisor, the lab account and the lab's own launchd
-daemons are not installed yet (setup sections 11 and 16). Until the lab
-account exists, reviewed handlers run in a worker process as the same
-macOS user (`lab/worker.py`), so the process is the boundary; only the
-broker's `shell.run` is sandboxed (`lab/sandbox.py`).
+up by a user LaunchAgent (after a `kill -9` it was back in 16 seconds).
+
+The lab itself has run there since the same day, installed by
+[the runbook](ops/runbook-lab-account-and-daemons.md): the supervisor runs as
+the non-admin `lab` account from root-owned code in `/opt/homelab`, and the
+watchdog, keep-awake, status check, nightly self-test and five-minute loop
+run as launchd daemons. Reviewed handlers run in a worker process as `lab`
+(`lab/worker.py`); only the broker's `shell.run` is sandboxed
+(`lab/sandbox.py`). The lab has done no real work yet: its queue is empty
+and it holds no credentials.
 
 **Reaching it.** The Mac mini and the owner's devices share a private
 Tailscale network. Nothing listens on the internet and no router port is
@@ -76,7 +81,7 @@ widening what they bind to:
 
 ```sh
 ssh -N -L 8080:127.0.0.1:8080 <user>@<mac-mini>   # the model, at http://127.0.0.1:8080/v1
-ssh -N -L 8765:127.0.0.1:8765 <user>@<mac-mini>   # lab dashboard, once the lab runs
+ssh -N -L 8765:127.0.0.1:8765 <user>@<mac-mini>   # lab dashboard, after `lab dashboard` is started on the mini
 ```
 
 **What has been measured there so far**, each with its record:
@@ -87,7 +92,7 @@ ssh -N -L 8765:127.0.0.1:8765 <user>@<mac-mini>   # lab dashboard, once the lab 
 | Heavy model memory and speed | 17.2 GB loaded, about 200 KB per token of context, about 16K tokens under the 20.5 GB budget, about 67 tok/s | ADR 0001 |
 | Utility evaluation, 24 tasks | heavy 19, 4B baseline 20; reruns identical | setup section 14, `evals/runs/` |
 | Prompt injection with the real model driving | 0 of 9 attacks succeeded; the model tried 2, the broker stopped both | `SECURITY.md` |
-| Backup and recovery | encrypted external backup disk; crash drill passed | setup section 10, `ops/drills/log/` |
+| Backup and recovery | encrypted external backup disk; task crash drills passed (2026-09-29); supervisor kill and freeze under launchd passed, and a first restore drill passed on a still-empty database (2026-09-30) | setup sections 10 and 16, `ops/drills/log/` |
 
 **Pre-registered tests.** The evaluation plan is registered on OSF
 ([osf.io/jfp74](https://osf.io/jfp74), 2026-09-29 14:45 UTC) at commit
@@ -97,6 +102,19 @@ exploratory; the confirmatory runs come after it.
 **One caveat for always-on.** FileVault is on, so after a power cut the
 Mac restarts and waits at the login screen; nothing, the model included,
 runs until someone logs in.
+
+## Where this is going
+
+The owner's aim since 2026-09-30 is an agent other people can install and
+use daily, in the space of OpenClaw and Hermes Agent. home-lab will not
+out-feature them. The position is narrower: **the personal agent whose
+safety boundary is on by default and measured in public.** New daily-use
+features (chat, tools, memory) are to be added only through the existing
+broker, so each inherits the lab account, signed approvals and the audit
+log. The cited comparison is [docs/COMPARISON.md](docs/COMPARISON.md); the
+roadmap is decided in [#189](https://github.com/roshanaryal1/home-lab/issues/189),
+and an install guide for your own Mac is [#188](https://github.com/roshanaryal1/home-lab/issues/188).
+Until that guide exists, this repository documents one machine.
 
 ## The two rules that shape the code
 
@@ -119,10 +137,14 @@ history is scanned for secrets in CI. See [SECURITY.md](SECURITY.md) for the
 repository controls and how to report a vulnerability privately.
 
 Run the lab only with dummy data, review every draft by hand and connect
-no real credentials until three things are true. All three are work on the
-Mac mini, which is now running, and none is done yet: a separate non-admin lab account that
-cannot read the operator's approval key ([#70](https://github.com/roshanaryal1/home-lab/issues/70)),
-per-task memory and CPU ceilings sized on the mini (the mechanism exists, [#16](https://github.com/roshanaryal1/home-lab/issues/16)),
+no real credentials until three things are true. The first is largely
+done: a separate non-admin lab account that cannot read the operator's
+approval key exists on the Mac mini since 2026-09-30, with the
+fabricated-signature test still open ([#70](https://github.com/roshanaryal1/home-lab/issues/70)).
+Setting it up found one gap, the five-minute loop running without the
+key, fixed the same day ([#190](https://github.com/roshanaryal1/home-lab/issues/190)).
+The other two are not done: per-task memory and CPU ceilings sized from
+real handlers ([#180](https://github.com/roshanaryal1/home-lab/issues/180)),
 and the Keychain path exercised on the mini. The egress gateway and the
 secret broker now exist and are tested, but only against fake networks and
 dummy credentials. [SECURITY.md](SECURITY.md) has the full list of what is
