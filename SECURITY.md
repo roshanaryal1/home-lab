@@ -509,6 +509,18 @@ every draft by hand.
   the same OS user, so a hostile handler that found the database file
   could open it; the separate lab account closes that (#70). Only code
   under `lab.handlers` can be loaded into a worker.
+- An owner-only Telegram bot gives the owner a shell on the Mac mini
+  from the phone (#184). It lives outside this repository on purpose and
+  bypasses the lab's broker, approvals and audit log: a command sent
+  through it runs as the owner's macOS user, not as the lab account. It
+  answers one paired chat id only, needs a fresh TOTP code to open the
+  shell, refuses replayed codes and locks `/unlock` after five wrong
+  codes. By the owner's choice the shell then stays open until `/lock`
+  or a reboot, so whoever holds the owner's unlocked phone and Telegram
+  session holds that shell. Telegram bot chats are not end-to-end
+  encrypted: commands and output pass through Telegram's servers, so no
+  secrets go through it. Its token, TOTP secret and chat id live only in
+  the macOS Keychain.
 
 ## What does NOT exist yet
 
