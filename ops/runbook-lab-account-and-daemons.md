@@ -21,7 +21,7 @@ on copies of the committed plists and pass `plutil -lint`.
   reboot it starts only once the operator logs in (FileVault, section 17),
   so until then `tick` records model errors; that is expected.
 
-Variables used below. Replace the two `PASTE_...` values first, then paste
+Variables used below. Replace the `PASTE_...` values first, then paste
 the block once into the terminal:
 
 ```sh
@@ -125,8 +125,7 @@ The committed plists leave two things to the operator.
 ```sh
 P=/Library/LaunchDaemons
 sudo plutil -insert EnvironmentVariables.LAB_OPERATOR_PUBKEY -string /etc/homelab/operator.pub $P/com.homelab.supervisor.plist
-MODEL_ID=$(curl -sf http://127.0.0.1:8080/v1/models | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["id"])')
-if [ -z "$MODEL_ID" ]; then echo "STOP: the model server did not answer; start it and redo this block"; else
+if [ -z "$MODEL_ID" ]; then echo "STOP: set MODEL_ID to the model served on loopback; start it and redo this block"; else
 sudo plutil -insert EnvironmentVariables -dictionary $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_URL -string http://127.0.0.1:8080/v1 $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_NAME -string "$MODEL_ID" $P/com.homelab.tick.plist
