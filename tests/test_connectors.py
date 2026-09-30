@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import base64
+import html
+import json
 import logging
+import re
+import time
 import urllib.parse
 from pathlib import Path
 
@@ -127,6 +131,76 @@ def test_redactor_scrubs_every_encoding_and_nested_structure() -> None:
     out = Redactor([SECRET]).scrub(value)
     text = repr(out)
     assert all(f not in text for f in forms) and REDACTED in text and out["n"] == 5
+
+
+# Encoders a server or framework might use when it reflects a header (#219). They are
+# written independently of the redactor: Python's own json, html and urllib, plus the
+# PHP and Go JSON styles by hand.
+def _json(secret: str) -> str:
+    return json.dumps(secret)[1:-1]
+
+
+def _json_raw(secret: str) -> str:
+    return json.dumps(secret, ensure_ascii=False)[1:-1]
+
+
+ECHO_ENCODERS = {
+    "raw": lambda x: x,
+    "json": _json,
+    "json, non-ASCII kept": _json_raw,
+    "php json (escaped slash)": lambda x: _json(x).replace("/", "\\/"),
+    "go json (html-safe)": lambda x: (_json_raw(x).replace("&", "\\u0026")
+                                      .replace("<", "\\u003c").replace(">", "\\u003e")),
+    "dotnet json (upper hex)": lambda x: (_json_raw(x).replace("+", "\\u002B")
+                                          .replace("'", "\\u0027").replace("&", "\\u0026")),
+    "html escaped": lambda x: html.escape(x),
+    "html escaped, quotes kept": lambda x: html.escape(x, quote=False),
+    "html numeric": lambda x: "".join(f"&#{ord(c)};" if not c.isalnum() else c for c in x),
+    "percent, upper hex": lambda x: urllib.parse.quote(x, safe=""),
+    "percent, lower hex": lambda x: re.sub(
+        r"%[0-9A-F]{2}", lambda m: m.group().lower(), urllib.parse.quote(x, safe="")),
+    "form encoding": urllib.parse.quote_plus,
+    "base64": lambda x: base64.b64encode(x.encode()).decode(),
+    "base64 url-safe, unpadded": lambda x: (
+        base64.urlsafe_b64encode(x.encode()).decode().rstrip("=")),
+}
+
+TRICKY_SECRET = "sk_live/AbC+dEf=gH9&x'y\"z\\w<t>\u00e9"
+
+
+@pytest.mark.parametrize("name", sorted(ECHO_ENCODERS))
+def test_redactor_scrubs_a_credential_however_a_server_encodes_the_echo(name: str) -> None:
+    echoed = ECHO_ENCODERS[name](TRICKY_SECRET)
+    out = Redactor([TRICKY_SECRET]).scrub(f"<<{echoed}>>")
+    assert out == f"<<{REDACTED}>>", (name, out)
+
+
+def test_redactor_scrubs_a_credential_when_the_server_escapes_only_some_characters() -> None:
+    # Go escapes & < > and leaves / alone; PHP escapes / and leaves & alone. A mix is
+    # a form no fixed list of encodings has.
+    secret = "tok/en&value<x>+with=chars"
+    mixes = (
+        "tok\\/en&value<x>+with=chars",
+        "tok/en\\u0026value\\u003cx\\u003e+with=chars",
+        "tok\\/en\\u0026value<x>%2bwith=chars",
+        "tok%2Fen&amp;value&lt;x&gt;+with=chars",
+    )
+    for echoed in mixes:
+        assert Redactor([secret]).scrub(f"[{echoed}]") == f"[{REDACTED}]", echoed
+
+
+def test_redaction_leaves_text_without_the_credential_alone() -> None:
+    text = 'plain text, a/path?x=1&y=2, {"k": "v\\/w"}, &amp; %2f, sk_live and s3cr3t but not all'
+    assert Redactor([SECRET, TRICKY_SECRET]).scrub(text) == text
+
+
+def test_a_long_credential_is_scrubbed_quickly() -> None:
+    secret = ("eyJhbGciOiJIUzI1NiJ9." + "A1-_b2" * 300 + ".sig/nature+9=")
+    body = "x" * 200_000 + secret + "y" * 200_000
+    started = time.monotonic()
+    out = Redactor([secret]).scrub(body)
+    assert secret not in out and REDACTED in out
+    assert time.monotonic() - started < 5.0
 
 
 # --------------------------------------------------------------- connectors

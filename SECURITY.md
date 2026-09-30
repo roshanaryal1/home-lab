@@ -179,17 +179,23 @@ Implemented and tested:
   is asked. The broker resolves the secret from `LAB_SECRET_<NAME>` or
   the Keychain at the moment of the call, puts it in the request header,
   sends through the egress gateway with no redirects (the credential
-  goes to one host), and scrubs the value, and its URL-encoded and
-  base64 forms, from the result and any error. There is no list
+  goes to one host), and scrubs the value from the result and any error:
+  raw, URL-encoded, base64, and matched character by character in its
+  JSON-escaped (`\"`, `\/`, `\uXXXX` in either case), HTML-escaped and
+  percent-encoded (either case) forms, so a server that escapes only some
+  characters is covered (#219). There is no list
   operation, so a worker cannot enumerate secrets. A test has the server
   echo the header back in three encodings and then searches every table,
   the returned result and the log for the value. The tool holds a secret
   and an outside effect, so the Rule of Two refuses it for any task with
   untrusted input (`tests/test_connectors.py`). Limits: a secret shorter
   than 8 characters is refused, not handled; the value exists in the
-  supervisor's memory during the call; and a destination that stores what
+  supervisor's memory during the call; a destination that stores what
   it is sent can still be told to repeat the value later, which redaction
-  cannot see.
+  cannot see; and a destination that deliberately re-encodes an echo in some
+  other way (hex, upper-cased, reversed, split) defeats redaction, which no
+  redactor can prevent. What limits that is that the credential is only ever
+  sent to the one host the connector names.
 - **Evidence ledger** (`lab/ledger.py`, migration 7, #90). A research
   task records its question, protocol version, data and code identifiers,
   outputs and validation checks. Each conclusion is a claim whose status
