@@ -163,8 +163,14 @@ def test_a_redirect_is_not_followed() -> None:
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             hits.append(self.path)
+            # Read the request body first (#229): closing a socket with unread data
+            # makes the kernel send a reset, which the client can see before the
+            # response (119 of 400 requests locally, and once on macOS CI).
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
             self.send_response(302)
             self.send_header("Location", "http://127.0.0.1:1/elsewhere")
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
             self.end_headers()
 
         def log_message(self, *args: object) -> None:
