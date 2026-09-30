@@ -21,13 +21,15 @@ The `sudo` sitting for sections 1, 5, 11 and 16 is scripted step by step in
 `ops/runbook-lab-account-and-daemons.md`.
 
 - [x] Complete macOS setup with your normal admin account.
-- [ ] Create a **dedicated non-admin account** for the lab, for example
+- [x] Create a **dedicated non-admin account** for the lab, for example
       `lab`. Everything the agents do runs as this user. This is the
       single most important control in the whole design: it is what
       makes "delete everything" a scoped failure rather than a total
-      one.
-- [ ] Confirm the `lab` user cannot `sudo`: run `sudo -l` while logged
-      in as it and expect a refusal.
+      one. 2026-09-30: `lab`, uid 502, created by `lab setup-plan --apply`;
+      not in the admin group (`dscl`: root, the owner, `_mbsetupuser`).
+- [x] Confirm the `lab` user cannot `sudo`: run `sudo -l` while logged
+      in as it and expect a refusal. 2026-09-30: `sudo: a password is
+      required`.
 - [x] Turn on FileVault. On (`fdesetup status`, 2026-09-30); the restart
       trade-off is decided in section 17.
 
@@ -121,9 +123,12 @@ matters needs a third destination as well.
 
 ## 5. Always-on
 
-- [ ] `launchd` job with `RunAtLoad` and `KeepAlive` for the supervisor.
-- [ ] A separate watchdog or heartbeat process. `KeepAlive` restarts a
-      dead process; it does not notice a wedged one.
+- [x] `launchd` job with `RunAtLoad` and `KeepAlive` for the supervisor.
+      2026-09-30: `com.homelab.supervisor` runs as `lab`; after `kill -9`
+      launchd restarted it within 40 s (section 16).
+- [x] A separate watchdog or heartbeat process. `KeepAlive` restarts a
+      dead process; it does not notice a wedged one. 2026-09-30: a frozen
+      supervisor (`kill -STOP`) was replaced within 150 s (section 16).
 - [ ] Structured rotating logs (built: `lab/logsetup.py`): set `LAB_LOG_DIR`
       in the supervisor's plist, on the external SSD for the long-term set.
 - [ ] Queue-aware sleep prevention (built: `lab keepawake`): install
@@ -213,10 +218,12 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
 - [ ] `uv run python -m lab.cli backup --to <target>` from a scheduled job;
       confirm a new `*.manifest.json` appears. Scheduling waits for the
       launchd work in section 16.
-- [ ] First full restore drill: `uv run python -m lab.cli drill restore`
+- [x] First full restore drill: `uv run python -m lab.cli drill restore`
       against the live database. Commit the record from `ops/drills/log/`.
-      Waits for a live database: the supervisor creates it, under the lab
-      account (sections 11 and 16).
+      2026-09-30: PASS against `/var/homelab/lab.db`, run as `lab` with
+      `LAB_TARGET=mac-mini` (`ops/drills/log/2026-09-30T010636Z-restore.md`).
+      The database was new (0 events, 0 artifacts), so this proves the
+      mechanism, not a restore of real work; the monthly drill covers that.
 - [ ] Repeat monthly; log the date in `ops/drills/log/`.
 - [x] Crash drill on the mini: `uv run python -m lab.cli drill crash`.
       2026-09-29: PASS for both kinds; records in `ops/drills/log/`.
@@ -232,19 +239,27 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
 The code is done and tested. What makes it a boundary is which OS account
 can read what, and that needs the machine. Parked until the M6.
 
-- [ ] Create the non-admin `lab` account (section 1) and keep the
-      operator (admin) account separate. `lab setup-plan` prints every command
+- [x] Create the non-admin `lab` account (section 1) and keep the
+      operator (admin) account separate. Done 2026-09-30, all four checks
+      as expected. `lab setup-plan` prints every command
       and the four checks; read it, run it with `sudo ... --apply` (or by hand),
       then run each check and confirm the "expect" line.
-- [ ] As the operator: `uv run python -m lab.cli operator init --dir ~/.lab-operator`.
+- [x] As the operator: `uv run python -m lab.cli operator init --dir ~/.lab-operator`.
       The private key stays in the operator's home (`chmod 700 ~/.lab-operator`).
-- [ ] Copy only `operator.pub` to a path the `lab` account can read; set
+      2026-09-30: `operator.key` mode 600, owner only.
+- [x] Copy only `operator.pub` to a path the `lab` account can read; set
       `LAB_OPERATOR_PUBKEY` in the LaunchDaemon environment (6.2).
-- [ ] Confirm the supervisor log does NOT show "approvals are NOT
-      signature-checked".
+      2026-09-30: `/etc/homelab/operator.pub` (root, 644), set for the
+      supervisor and, after #190, for `com.homelab.tick` too.
+- [x] Confirm the supervisor log does NOT show "approvals are NOT
+      signature-checked". 2026-09-30: no log under `/var/log/homelab`
+      shows it. The first check missed that `tick.err` did, because tick
+      builds its own supervisor (#190); fixed on the machine that day.
 - [ ] As `lab`, try `cat ~operator/.lab-operator/operator.key` (expect
       permission denied) and try to approve a test request with a
       fabricated signature (expect `approval_rejected` in the events).
+      2026-09-30: the `cat` half done (`Permission denied`); the
+      fabricated-signature half is still to do.
 - [ ] Put the queue database, policy files and credentials under a
       directory the reviewed handlers' worker processes cannot open (#70
       acceptance: a handler that opens the DB path gets EACCES).
@@ -386,23 +401,36 @@ The definitions are generated by `lab/service.py` and committed under
 `ops/launchd/` with placeholder paths (`/opt/homelab`, user `lab`). Adjust
 the paths, then:
 
-- [ ] Create the `lab` account (section 11) and `/var/log/homelab`, owned by it.
-- [ ] Install `com.homelab.supervisor.plist` in `/Library/LaunchDaemons`
+- [x] Create the `lab` account (section 11) and `/var/log/homelab`, owned by it.
+      2026-09-30: `/var/homelab` and `/var/log/homelab` owned by `lab`, mode 700.
+- [x] Install `com.homelab.supervisor.plist` in `/Library/LaunchDaemons`
       (owner root, mode 644) and `launchctl bootstrap system` it. Confirm
       it runs as `lab` and `LAB_OPERATOR_PUBKEY` is in its environment.
-- [ ] Install `com.homelab.watchdog.plist` the same way (it runs as root and
-      only needs to signal the supervisor).
-- [ ] `kill -9` the supervisor: launchd restarts it within the 30 second
-      throttle, and startup recovery requeues idempotent work.
-- [ ] Freeze it instead: `kill -STOP <pid>`. Within two minutes the
-      watchdog kills it and launchd restarts it. Log the result as a drill
-      (`ops/drills/`).
-- [ ] `lab watchdog --dry-run` prints `healthy` when idle and running.
-- [ ] The loop: install `com.homelab.tick.plist` the same way, with
+      2026-09-30: all six definitions installed root-owned and loaded; the
+      code is deployed root-owned at `/opt/homelab` (commit `bf7fda69`), and
+      `lab` cannot write there.
+- [x] Install `com.homelab.watchdog.plist` the same way (it runs as root and
+      only needs to signal the supervisor). 2026-09-30.
+- [x] `kill -9` the supervisor: launchd restarted it within 40 s
+      (`ops/drills/log/2026-09-30T0100Z-supervisor-kill.md`). The queue was
+      empty; requeue after a crash was shown by the 2026-09-29 crash drills.
+- [ ] Confirm startup recovery under launchd with idempotent and
+      non-idempotent tasks in flight. The 2026-09-30 launchd restart drill had
+      an empty queue; the 2026-09-29 crash drills showed requeue after
+      `SIGKILL` but did not test launchd startup recovery.
+- [ ] Freeze it instead: `kill -STOP <pid>`. The accepted target is recovery
+      within two minutes, but the 2026-09-30 drill only observed replacement
+      at the 150-second check, so the two-minute criterion remains unproven
+      (`ops/drills/log/2026-09-30T0100Z-supervisor-freeze.md`).
+- [x] `lab watchdog --dry-run` prints `healthy` when idle and running.
+      2026-09-30: `healthy pid 33939 (heartbeat 6s old)`.
+- [x] The loop: install `com.homelab.tick.plist` the same way, with
       `LAB_MODEL_URL`, `LAB_MODEL_NAME` and `LAB_MODEL_REVISION` in its
       environment (and in the supervisor's, so the daemon registers the
       summarizer). Run `lab tick` once by hand first and read the
-      `proposal_routed` events with `lab audit verify`.
+      `proposal_routed` events with `lab audit verify`. 2026-09-30:
+      kickstarted by hand, exit 0; `audit verify` ok with 0 events (no
+      proposals yet). Needs `LAB_OPERATOR_PUBKEY` as well (#190).
 
 ## 17. Power and disk encryption (item 6.1, #77)
 
