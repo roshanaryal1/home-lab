@@ -75,6 +75,14 @@ def system_resolver(host: str, port: int) -> list[str]:
     return sorted({str(info[4][0]) for info in infos})
 
 
+def tls_context() -> ssl.SSLContext:
+    """The client context for outbound TLS: certificates and host names are checked,
+    and TLS 1.2 is the floor whatever the interpreter's OpenSSL defaults to (#206)."""
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
 def socket_transport(ip: str, port: int, host: str, target: str, timeout: float,
                      max_bytes: int, *, tls: bool = True, method: str = "GET",
                      headers: dict[str, str] | None = None,
@@ -87,7 +95,7 @@ def socket_transport(ip: str, port: int, host: str, target: str, timeout: float,
         raw.connect((ip, port))
         stream: Any = raw
         if tls:
-            stream = ssl.create_default_context().wrap_socket(raw, server_hostname=host)
+            stream = tls_context().wrap_socket(raw, server_hostname=host)
         conn = http.client.HTTPConnection(host, port, timeout=timeout)
         conn.sock = stream
         conn.request(method, target, body=body, headers={
