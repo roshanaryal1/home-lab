@@ -67,6 +67,23 @@ class MissingOperatorKey(RuntimeError):
     """A supervisor that must check approval signatures has no operator key."""
 
 
+# The operator's public key as the runbook installs it: root-owned, in a root-owned
+# directory, so a process running as the lab account cannot remove it. Its existence
+# marks a machine that runs the lab with signed approvals.
+DEPLOYED_OPERATOR_KEY = Path("/etc/homelab/operator.pub")
+
+
+def refuse_unsigned_when_deployed() -> None:
+    """``--allow-unsigned`` and ``--mock-reply`` are for dummy data on a machine
+    that has no deployed lab. Where the deployed key exists they are refused, so
+    code running as the lab account cannot start an unchecked supervisor from the
+    command line (#200)."""
+    if DEPLOYED_OPERATOR_KEY.exists():
+        raise MissingOperatorKey(
+            f"unsigned mode is refused here: {DEPLOYED_OPERATOR_KEY} exists, so this "
+            "machine runs the lab with signed approvals")
+
+
 def acquire_singleton(db_path: str | Path) -> int:
     """Take the host-wide supervisor lock for ``db_path``, or refuse.
 
@@ -709,6 +726,8 @@ def main(argv: list[str] | None = None) -> int:
                             format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
     async def run() -> None:
+        if args.allow_unsigned:
+            refuse_unsigned_when_deployed()
         sup = Supervisor(SupervisorConfig(db_path=args.db,
                                           require_operator_key=not args.allow_unsigned))
         from lab import handlers
