@@ -651,10 +651,13 @@ def cmd_tick(args: argparse.Namespace) -> int:
         print("tick: no model configured; set LAB_MODEL_URL, LAB_MODEL_NAME and "
               "LAB_MODEL_REVISION (a loopback server), or pass --mock-reply", file=sys.stderr)
         return 1
+    unsigned = args.allow_unsigned or args.mock_reply is not None
     try:
+        if unsigned:
+            supervisor.refuse_unsigned_when_deployed()
         report = asyncio.run(loop.tick(
             args.db, model, repo=args.repo, min_failures=args.min_failures,
-            require_operator_key=not (args.allow_unsigned or args.mock_reply is not None)))
+            require_operator_key=not unsigned))
     except (supervisor.AlreadyRunning, supervisor.MissingOperatorKey) as exc:
         print(f"tick: {exc}", file=sys.stderr)
         return 1
