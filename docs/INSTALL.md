@@ -281,3 +281,77 @@ incrementally.
 Until the Phase 1/2 execution path is complete, installation should be
 treated as installation of the controlled runtime foundation rather than
 an invitation to give an agent unrestricted access to the Mac.
+
+## 11. Mac validation before merging
+
+The documentation changes are only ready to merge after the install path is
+actually exercised on a real Apple silicon Mac. From a fresh macOS user
+account, record the outputs rather than relying on a documentation-only
+review.
+
+Run these checks in order:
+
+1. **Prerequisites**
+   ```sh
+   ./scripts/check-prerequisites.sh
+   ```
+   Confirm it is read-only, reports Apple silicon and the correct unified
+   memory, and gives the expected model tier.
+
+2. **Repository and CLI**
+   ```sh
+   uv sync --locked
+   uv run python -m lab.cli --help
+   uv run python -m lab.cli operator init --dir "$HOME/.lab-operator"
+   ```
+
+3. **Setup plan**
+   ```sh
+   uv run python -m lab.cli setup-plan \
+     --operator-pubkey "$HOME/.lab-operator/operator.pub"
+   ```
+   Review the plan before applying it. Do not continue if it contains an
+   owner-specific home path or an unexpected model/path.
+
+4. **Apply and isolation**
+   Run the `sudo ... setup-plan --apply` command from this guide, then
+   confirm:
+   - `lab` is not an admin;
+   - `lab` cannot read the operator private key;
+   - `lab` cannot write the root-owned deployment or launchd files;
+   - the operator public key is the only key copied into `/etc/homelab`.
+
+5. **Deployment**
+   Follow the deployment runbook with `REPO`, `COMMIT`, `MODEL_ID`,
+   `MODEL_REV` and `BACKUP_VOLUME` set explicitly. Record any command that
+   differs from the guide before changing the guide.
+
+6. **Services and health**
+   Confirm all six launchd jobs load, the supervisor runs as `lab`, the
+   queue reports healthy, and:
+   ```sh
+   sudo -u lab "$REPO/.venv/bin/python" -m lab.cli tasks
+   sudo -u lab "$REPO/.venv/bin/python" -m lab.cli approvals
+   sudo -u lab "$REPO/.venv/bin/python" -m lab.cli audit verify
+   ```
+
+7. **Model serving**
+   Confirm the selected model is the pinned revision, the server listens
+   only on `127.0.0.1:8080`, and a basic local inference succeeds. Do not
+   expose the endpoint to the LAN.
+
+8. **Recovery**
+   Run the documented supervisor kill/restart and freeze/watchdog drills.
+   Also perform the separate in-flight-task startup-recovery drill required
+   by the runbook. Record the observed recovery times and task states.
+
+9. **Teardown**
+   Verify the uninstall sequence can stop/unload services and remove the
+   deployment without accidentally deleting data that was not explicitly
+   backed up.
+
+The merge gate for this issue is therefore: **the guide is implemented in
+PR #196, and the fresh-user Mac validation is the remaining machine-level
+acceptance test.** If a command fails on the real Mac, fix the guide or
+implementation first; do not mark the acceptance item complete just because
+CI passes.
