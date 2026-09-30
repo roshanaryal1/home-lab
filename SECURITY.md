@@ -636,6 +636,28 @@ shell.
 **Do not describe this sandbox as preventing username or home-directory
 disclosure.** It does not.
 
+**A command can outlive its task, in two ways.** They stay inside the profile (no
+network, writes only under the workspace, no database or credentials), so this is
+about lifetime, not confinement, but it means "stop" does not always end the work.
+
+- *It leaves the process group.* The timeout kills the command's process group. A
+  process that calls `setsid()` gets a new group and survives it: measured on macOS
+  27 (#223), `perl -e 'use POSIX; POSIX::setsid(); exec q(sleep), q(N)' &` and a perl
+  daemon that forks twice and calls `setsid()` were still running after
+  `sandbox.run` returned, while same-group children were killed.
+- *Stop does not reach it at all.* An emergency stop, a lost lease and a task
+  timeout cancel the *wait* for a `shell.run` command, not the command: the broker
+  runs it in a thread, and a running thread cannot be cancelled, so the command
+  continues until it exits or reaches its own `timeout` (30 s by default, and never
+  more than 300 s, the sandbox's own ceiling). Measured with a harmless `sleep`
+  (#228).
+  An emergency stop does revoke the broker first, so no new tool call gets through;
+  only a command already running is affected. Finding survivors by environment tag does not work: macOS hides the
+environment of Apple-signed binaries from `ps`. There is no full fix short of a
+process boundary, which is why anything untrusted is meant for the container tier
+(ADR 0007, #181); until then, treat an approved `shell.run` command as able to leave
+a process behind.
+
 Known limitation: `sandbox-exec` is deprecated by Apple. It remains
 functional, macOS's own daemons use Seatbelt internally, and Apple has
 published no replacement covering headless process sandboxing, since App
