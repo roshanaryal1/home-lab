@@ -137,3 +137,36 @@ def test_cli_tick_with_a_mock_reply(tmp_path: Path, capsys: pytest.CaptureFixtur
                  '{"summary": "Three fetcher resets."}']) == 0
     out = capsys.readouterr().out
     assert "1 proposed" in out and "1 routed" in out
+
+
+@pytest.mark.safety
+@pytest.mark.asyncio
+async def test_tick_as_a_service_refuses_to_run_without_the_operator_key(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # #190: tick runs the queue itself when no daemon holds it, so it must
+    # not do that with approvals unchecked.
+    from lab.supervisor import MissingOperatorKey
+    monkeypatch.delenv("LAB_OPERATOR_PUBKEY", raising=False)
+    db = tmp_path / "lab.db"
+    count = "SELECT state, COUNT(*) FROM tasks GROUP BY state ORDER BY state"
+    with TaskQueue(db, owner="seed") as q:
+        _three_failures(q)
+        before = q._conn.execute(count).fetchall()
+    model, _ = _model('{"summary": "x"}')
+    with pytest.raises(MissingOperatorKey):
+        await loop.tick(db, model, require_operator_key=True)
+    with TaskQueue(db, owner="check") as q:
+        assert q._conn.execute(count).fetchall() == before   # nothing proposed or run
+
+
+def test_cli_tick_without_the_operator_key_fails_closed(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.delenv("LAB_OPERATOR_PUBKEY", raising=False)
+    monkeypatch.setattr(loop, "model_from_env", lambda: _model('{"summary": "x"}')[0])
+    db = tmp_path / "lab.db"
+    with TaskQueue(db, owner="seed") as q:
+        _three_failures(q)
+    assert main(["--db", str(db), "tick"]) == 1
+    assert "no operator key" in capsys.readouterr().err
+    assert main(["--db", str(db), "tick", "--allow-unsigned"]) == 0

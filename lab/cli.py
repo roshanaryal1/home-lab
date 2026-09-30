@@ -501,6 +501,8 @@ def build_parser() -> argparse.ArgumentParser:
     tk.add_argument("--mock-reply", default=None,
                     help="scripted model reply, for smoke tests; no model is contacted")
     tk.add_argument("--min-failures", type=int, default=3)
+    tk.add_argument("--allow-unsigned", action="store_true",
+                    help="run without an operator key (dummy data only)")
 
     wd = sub.add_parser("watchdog", help="kill a supervisor whose heartbeat has gone stale")
     wd.add_argument("--max-age", type=float, default=service.DEFAULT_MAX_AGE,
@@ -650,9 +652,10 @@ def cmd_tick(args: argparse.Namespace) -> int:
               "LAB_MODEL_REVISION (a loopback server), or pass --mock-reply", file=sys.stderr)
         return 1
     try:
-        report = asyncio.run(loop.tick(args.db, model, repo=args.repo,
-                                       min_failures=args.min_failures))
-    except supervisor.AlreadyRunning as exc:
+        report = asyncio.run(loop.tick(
+            args.db, model, repo=args.repo, min_failures=args.min_failures,
+            require_operator_key=not (args.allow_unsigned or args.mock_reply is not None)))
+    except (supervisor.AlreadyRunning, supervisor.MissingOperatorKey) as exc:
         print(f"tick: {exc}", file=sys.stderr)
         return 1
     print(f"{report.proposed} proposed, {report.summarized} summarized, {report.routed} routed"

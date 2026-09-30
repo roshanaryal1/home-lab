@@ -63,6 +63,10 @@ class AlreadyRunning(RuntimeError):
     """Another supervisor on this host already holds the database."""
 
 
+class MissingOperatorKey(RuntimeError):
+    """A supervisor that must check approval signatures has no operator key."""
+
+
 def acquire_singleton(db_path: str | Path) -> int:
     """Take the host-wide supervisor lock for ``db_path``, or refuse.
 
@@ -135,6 +139,10 @@ class SupervisorConfig:
     # back to $LAB_OPERATOR_PUBKEY. Unset means approvals are not
     # signature-checked, which is acceptable only on dummy data.
     operator_public_key: str | Path | None = None
+    # Refuse to start instead of warning when no operator key is set. The
+    # service entry points (the daemon and `lab tick`) set this, so a
+    # deployment that forgets the key fails closed (#190).
+    require_operator_key: bool = False
     # How often the event loop writes its heartbeat for the watchdog
     # (item 6.2). A blocked loop stops beating, which is the point.
     heartbeat_seconds: float = 10.0
@@ -175,8 +183,12 @@ class Supervisor:
         # The two egress hooks exist so tests can supply a fake resolver
         # and transport. Production uses the defaults.
         self.config = config
-        self.queue = TaskQueue(config.db_path, owner=config.resolved_owner())
         pubkey_path = config.operator_public_key or os.environ.get("LAB_OPERATOR_PUBKEY")
+        if config.require_operator_key and not pubkey_path:
+            raise MissingOperatorKey(
+                "no operator key: set LAB_OPERATOR_PUBKEY (or operator_public_key) so "
+                "approvals are signature-checked, or pass --allow-unsigned on dummy data")
+        self.queue = TaskQueue(config.db_path, owner=config.resolved_owner())
         self.policy = PolicyEngine(
             self.queue._conn, load_public(Path(pubkey_path)) if pubkey_path else None)
         self._control_key = load_public(Path(pubkey_path)) if pubkey_path else None
@@ -684,6 +696,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--db", required=True, type=Path)
     parser.add_argument("--log-dir", type=Path, default=None,
                         help="rotating JSON logs here (or LAB_LOG_DIR); default is stderr")
+    parser.add_argument("--allow-unsigned", action="store_true",
+                        help="start without an operator key (dummy data only)")
     args = parser.parse_args(argv)
     log_dir = args.log_dir or os.environ.get("LAB_LOG_DIR")
     if log_dir:
@@ -695,7 +709,8 @@ def main(argv: list[str] | None = None) -> int:
                             format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
     async def run() -> None:
-        sup = Supervisor(SupervisorConfig(db_path=args.db))
+        sup = Supervisor(SupervisorConfig(db_path=args.db,
+                                          require_operator_key=not args.allow_unsigned))
         from lab import handlers
         handlers.register_all(sup)
         loop = asyncio.get_running_loop()
@@ -711,6 +726,9 @@ def main(argv: list[str] | None = None) -> int:
     except AlreadyRunning as exc:
         print(f"supervisor: {exc}", file=sys.stderr)
         return 1
+    except MissingOperatorKey as exc:
+        print(f"supervisor: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
