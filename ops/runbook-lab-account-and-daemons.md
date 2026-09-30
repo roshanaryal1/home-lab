@@ -89,6 +89,20 @@ sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
   lab, try cat operator.key"; 16 "create the lab account and
   /var/log/homelab".
 
+**A fifth check: what else `lab` can read (#225).** The four checks above test one
+file, `operator.key`, which is mode 600. But a new macOS account is put in the
+`staff` group, and the operator's home folder is usually `drwxr-x---` with group
+`staff`, so `lab` can traverse it and read whatever below it is group-readable
+(for example everything under `~/.claude`). Check, and fix if it lists:
+
+```sh
+sudo -u lab /bin/ls "$HOME"
+```
+
+The right answer is `Permission denied`. If it lists your files, run
+`chmod 700 "$HOME"` (your own folder, no `sudo`) and check again. Do this before
+the first task runs.
+
 ## Step 3. Deploy the code to /opt/homelab (sudo)
 
 The services run `/opt/homelab/.venv/bin/python`. Code and Python are

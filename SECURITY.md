@@ -581,6 +581,14 @@ absent is worse than no policy:
   been resolved from the Keychain, and no real destination has been
   called.
 
+**What the lab account can read.** It cannot read the operator's approval key (mode
+600, tested), `~/.ssh`, `Documents`, `Desktop` or `Library` (all mode 700). But it is
+a member of `staff`, and the operator's home folder is 750 with group `staff`, so by
+the permission bits it can also read anything group-readable below it (measured by
+permissions, not yet by a real read; #225). `chmod 700 "$HOME"` closes it; the
+runbook has the check. `shell.run` is not affected: Seatbelt confines it to its
+workspace. Code that runs as `lab` outside the sandbox is.
+
 **Do not connect real credentials until the separate operator account
 exists (#70), the memory ceiling has been sized on the mini (#16), and the Keychain path has
 been exercised on the mini (`ops/mac-mini-setup.md` section 6).** The
