@@ -581,6 +581,15 @@ absent is worse than no policy:
   been resolved from the Keychain, and no real destination has been
   called.
 
+**What the lab account can read.** It cannot read the operator's approval key (mode
+600, tested), `~/.ssh`, `Documents`, `Desktop` or `Library` (all mode 700). But it is
+a member of `staff`, and the operator's home folder is 750 with group `staff`, so by
+the permission bits it can also read anything group-readable below it, provided every
+folder on the way is searchable by the group (38,315 of the 38,495 files under
+`~/.claude` meet that; measured by permissions, not yet by a real read; #225). `chmod 700 "$HOME"` closes it; the
+runbook has the check. `shell.run` is not affected: Seatbelt confines it to its
+workspace. Code that runs as `lab` outside the sandbox is.
+
 **Do not connect real credentials until the separate operator account
 exists (#70), the memory ceiling has been sized on the mini (#16), and the Keychain path has
 been exercised on the mini (`ops/mac-mini-setup.md` section 6).** The
@@ -626,6 +635,28 @@ shell.
 
 **Do not describe this sandbox as preventing username or home-directory
 disclosure.** It does not.
+
+**A command can outlive its task, in two ways.** They stay inside the profile (no
+network, writes only under the workspace, no database or credentials), so this is
+about lifetime, not confinement, but it means "stop" does not always end the work.
+
+- *It leaves the process group.* The timeout kills the command's process group. A
+  process that calls `setsid()` gets a new group and survives it: measured on macOS
+  27 (#223), `perl -e 'use POSIX; POSIX::setsid(); exec q(sleep), q(N)' &` and a perl
+  daemon that forks twice and calls `setsid()` were still running after
+  `sandbox.run` returned, while same-group children were killed.
+- *Stop does not reach it at all.* An emergency stop, a lost lease and a task
+  timeout cancel the *wait* for a `shell.run` command, not the command: the broker
+  runs it in a thread, and a running thread cannot be cancelled, so the command
+  continues until it exits or reaches its own `timeout` (30 s by default, and never
+  more than 300 s, the sandbox's own ceiling). Measured with a harmless `sleep`
+  (#228).
+  An emergency stop does revoke the broker first, so no new tool call gets through;
+  only a command already running is affected. Finding survivors by environment tag does not work: macOS hides the
+environment of Apple-signed binaries from `ps`. There is no full fix short of a
+process boundary, which is why anything untrusted is meant for the container tier
+(ADR 0007, #181); until then, treat an approved `shell.run` command as able to leave
+a process behind.
 
 Known limitation: `sandbox-exec` is deprecated by Apple. It remains
 functional, macOS's own daemons use Seatbelt internally, and Apple has
