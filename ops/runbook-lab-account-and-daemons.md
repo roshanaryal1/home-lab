@@ -129,6 +129,7 @@ sudo plutil -insert EnvironmentVariables -dictionary $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_URL -string http://127.0.0.1:8080/v1 $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_NAME -string "$MODEL_ID" $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_REVISION -string "$MODEL_REV" $P/com.homelab.tick.plist
+sudo plutil -insert EnvironmentVariables.LAB_OPERATOR_PUBKEY -string /etc/homelab/operator.pub $P/com.homelab.tick.plist
 # Section 16: the supervisor needs the same three, so the daemon registers the summarizer.
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_URL -string http://127.0.0.1:8080/v1 $P/com.homelab.supervisor.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_NAME -string "$MODEL_ID" $P/com.homelab.supervisor.plist
@@ -146,8 +147,11 @@ printf '{"command": ["/usr/bin/logger", "-t", "homelab-alert"], "timeout_seconds
 sudo chown lab /etc/homelab/alert.json && sudo chmod 600 /etc/homelab/alert.json
 ```
 
-- Check: `plutil -p $P/com.homelab.supervisor.plist` shows
-  `LAB_OPERATOR_PUBKEY`; `sudo -u lab cat /etc/homelab/alert.json` works.
+- Check: `plutil -p $P/com.homelab.supervisor.plist` and
+  `plutil -p $P/com.homelab.tick.plist` both show `LAB_OPERATOR_PUBKEY`.
+  The loop needs it as well as the supervisor because it runs the queue
+  itself whenever the daemon is down; since #190 both refuse to start
+  without it, instead of running with approvals unchecked; `sudo -u lab cat /etc/homelab/alert.json` works.
 - Undo: `sudo plutil -remove EnvironmentVariables.<KEY> <file>`;
   `sudo rm /etc/homelab/alert.json`.
 - Closes: nothing on its own; 19 "alert command" becomes closable once

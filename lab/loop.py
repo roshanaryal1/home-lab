@@ -201,9 +201,15 @@ def _count(queue: TaskQueue, state: str) -> int:
 
 
 async def tick(db: str | Path, model: BoundedModel, *, repo: str | None = None,
-               min_failures: int = 3) -> TickReport:
-    """One pass of the loop. Safe to run on a timer; a second pass finds nothing new."""
-    sup = Supervisor(SupervisorConfig(db_path=db, idle_poll_seconds=0.01))
+               min_failures: int = 3, require_operator_key: bool = False) -> TickReport:
+    """One pass of the loop. Safe to run on a timer; a second pass finds nothing new.
+
+    When no supervisor daemon holds the database, this pass runs the queue
+    itself, so as a service it needs the operator key as much as the daemon
+    does: ``require_operator_key`` makes it refuse to start without one (#190).
+    """
+    sup = Supervisor(SupervisorConfig(db_path=db, idle_poll_seconds=0.01,
+                                      require_operator_key=require_operator_key))
     try:
         queue = sup.queue
         proposed = 0
