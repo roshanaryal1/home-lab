@@ -399,8 +399,8 @@ Implemented and tested:
   "running")`, and a supervisor that has the operator's public key treats an
   unsigned, forged or replayed `running` row as still paused. Pause, drain
   and stop remove authority and need no signature. Limit: without a
-  configured key the switch is unsigned, and until the lab account exists
-  (#70) the private key is only as safe as the account holding it. `lab
+  configured key the switch is unsigned; on the Mac mini the lab account
+  cannot read the private key (checked 2026-09-30, #70). `lab
   cancel` refuses running work and points to `control stop`.
   Nothing acts on it yet.
 - **Injection harness and taint on read** (`lab/attacks.py`, item 4.7,
