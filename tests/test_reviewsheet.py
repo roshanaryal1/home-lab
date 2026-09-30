@@ -80,6 +80,34 @@ def test_compare_lists_where_the_reviewer_differs_and_counts_agreement() -> None
     assert "paper -> post" in result["confusion"]
 
 
+@pytest.mark.parametrize("claims", [
+    [{}], [None], [{"text": 5}], [{"text": "x", "kind": 3}], [{"text": "x", "verified": "yes"}],
+    [{"text": "x", "evidence": "none"}], [{"text": "x", "evidence": [None]}],
+    [{"text": "x", "evidence": [{"source": "s", "type": "t"}]}],
+    [{"text": "x", "evidence": [{"source": "s", "type": "t", "text": "u", "relation": "maybe"}]}]])
+def test_malformed_claims_are_refused_with_the_line_before_rendering(
+        tmp_path: Path, claims: list) -> None:
+    path = tmp_path / "bad.jsonl"
+    path.write_text(json.dumps({"id": "x", "expected": "post", "claims": claims}) + "\n")
+    with pytest.raises(rs.ReviewError, match=r"bad\.jsonl:1"):
+        rs.load_cases(path)
+
+
+@pytest.mark.parametrize("answers", [[], None, "post", 3])
+def test_answers_that_are_not_an_object_are_refused(answers: object) -> None:
+    with pytest.raises(rs.ReviewError, match="JSON object"):
+        rs.compare(_cases(), answers, seed=3)   # type: ignore[arg-type]
+
+
+def test_the_command_line_reports_a_bad_answers_file_instead_of_crashing(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    cases = _write(tmp_path, _cases())
+    path = tmp_path / "answers.json"
+    path.write_text("[]")
+    assert rs.main(["compare", "--cases", str(cases), "--answers", str(path)]) == 1
+    assert "JSON object" in capsys.readouterr().err
+
+
 def test_compare_refuses_incomplete_or_invalid_answers() -> None:
     cases = _cases()
     blinded = rs.blind(cases, seed=3)

@@ -50,6 +50,27 @@ class ReviewError(ValueError):
     """The cases or the answers cannot be used."""
 
 
+def _check_claims(claims: list[Any], where: str) -> None:
+    """Every claim and evidence item must have what the sheet prints, as text."""
+    for n, claim in enumerate(claims, 1):
+        if not (isinstance(claim, dict) and isinstance(claim.get("text"), str)):
+            raise ReviewError(f"{where}: claim {n} needs a text")
+        if not isinstance(claim.get("kind", "finding"), str):
+            raise ReviewError(f"{where}: claim {n}: kind must be text")
+        if not isinstance(claim.get("verified", False), bool):
+            raise ReviewError(f"{where}: claim {n}: verified must be true or false")
+        evidence = claim.get("evidence", [])
+        if not isinstance(evidence, list):
+            raise ReviewError(f"{where}: claim {n}: evidence must be a list")
+        for m, item in enumerate(evidence, 1):
+            if not (isinstance(item, dict)
+                    and all(isinstance(item.get(k), str) for k in ("source", "type", "text"))):
+                raise ReviewError(f"{where}: claim {n}, evidence {m} needs source, type, text")
+            if item.get("relation", "supports") not in ("supports", "contradicts"):
+                raise ReviewError(f"{where}: claim {n}, evidence {m}: relation must be "
+                                  "supports or contradicts")
+
+
 def load_cases(path: Path) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
     for number, line in enumerate(path.read_text().splitlines(), 1):
@@ -62,6 +83,7 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
         if not (isinstance(case, dict) and isinstance(case.get("id"), str)
                 and case.get("expected") in ROUTES and isinstance(case.get("claims"), list)):
             raise ReviewError(f"{path}:{number}: needs id, a known expected route and claims")
+        _check_claims(case["claims"], f"{path}:{number}")
         cases.append(case)
     ids = [c["id"] for c in cases]
     if len(set(ids)) != len(ids):
@@ -125,6 +147,8 @@ def answers_template(blinded: list[tuple[str, dict[str, Any]]]) -> dict[str, Non
 
 def compare(cases: list[dict[str, Any]], answers: dict[str, Any], seed: int = DEFAULT_SEED,
             exclude: Sequence[str] = ()) -> dict[str, Any]:
+    if not isinstance(answers, dict):
+        raise ReviewError("the answers must be a JSON object of case id to route")
     blinded = blind(cases, seed, exclude)
     expected_ids = {neutral for neutral, _ in blinded}
     extra = set(answers) - expected_ids
