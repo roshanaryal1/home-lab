@@ -25,10 +25,12 @@ Variables used below. Replace the two `PASTE_...` values first, then paste
 the block once into the terminal:
 
 ```sh
-REPO="$HOME/Research and Development /home-lab"
+REPO="$HOME/home-lab"
 COMMIT="PASTE_THE_COMMIT_YOU_WROTE_DOWN"
+MODEL_ID="PASTE_THE_MODEL_ID"
 MODEL_REV="PASTE_THE_SERVING_MODEL_40_HEX_REVISION"   # ADR 0001, the build now served
-UV=/Users/$USER/.local/bin/uv
+BACKUP_VOLUME="/Volumes/PASTE_BACKUP_VOLUME_NAME"
+UV="$HOME/.local/bin/uv"
 ```
 
 ## Step 1. Operator key (no sudo)
@@ -59,7 +61,7 @@ there, and installs the six service definitions root-owned under
 
 ```sh
 sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
-  --operator-pubkey /Users/$USER/.lab-operator/operator.pub
+  --operator-pubkey "$HOME/.lab-operator/operator.pub"
 ```
 
 - Check: `--apply` runs the changing steps only; it prints the four checks
@@ -70,7 +72,7 @@ sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
   ```sh
   sudo -u lab /usr/bin/sudo -n -l                                  # expect a refusal
   /usr/bin/dscl . -read /Groups/admin GroupMembership              # expect no "lab"
-  sudo -u lab /bin/cat /Users/$USER/.lab-operator/operator.key      # expect Permission denied
+  sudo -u lab /bin/cat "$HOME/.lab-operator/operator.key"      # expect Permission denied
   sudo -u lab /usr/bin/touch /Library/LaunchDaemons/com.homelab.supervisor.plist  # expect Permission denied
   ```
 
@@ -80,7 +82,7 @@ sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
   `sudo sysadminctl -deleteUser lab`, and `sudo rm -r /etc/homelab`.
   Removing `/var/homelab` or `/var/log/homelab` deletes the lab's database
   and logs; that is a separate teardown, never part of an undo: first back
-  up with `sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db backup --to /Volumes/labbackup/home-lab-backups/before-teardown`,
+  up with `sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db backup --to $BACKUP_VOLUME/home-lab-backups/before-teardown`,
   confirm the manifest exists, and only then remove them.
 - Closes: 1 "dedicated non-admin account" and "lab user cannot sudo";
   11 "create the non-admin lab account", "copy only operator.pub", "as
@@ -217,7 +219,7 @@ sudo -u lab env LAB_TARGET=mac-mini /opt/homelab/.venv/bin/python -m lab.cli \
   --db /var/homelab/lab.db drill restore --log /var/log/homelab/drills
 ```
 
-Scheduling the backup to `/Volumes/labbackup/home-lab-backups` needs the
+Scheduling the backup to `$BACKUP_VOLUME/home-lab-backups` needs the
 lab account to write there (the volume is currently the operator's);
 decide ownership in the sitting.
 
