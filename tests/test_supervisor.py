@@ -438,3 +438,38 @@ async def test_oversized_result_fails_the_task_instead_of_hanging_it(
     assert task.last_error is not None and "PayloadTooLarge" in task.last_error
     assert sup.queue.counts() == {"failed": 1}
     sup.close()
+
+
+@pytest.mark.safety
+def test_a_supervisor_that_requires_the_operator_key_refuses_to_start_without_it(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # #190: a service that forgets the key must fail closed, not warn.
+    from lab.supervisor import MissingOperatorKey
+    monkeypatch.delenv("LAB_OPERATOR_PUBKEY", raising=False)
+    with pytest.raises(MissingOperatorKey):
+        Supervisor(SupervisorConfig(db_path=tmp_path / "lab.db", require_operator_key=True))
+    assert not (tmp_path / "lab.db").exists()
+
+
+@pytest.mark.safety
+def test_a_supervisor_that_requires_the_key_starts_and_enforces_it_when_set(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lab import operator as op
+    _, public = op.generate(tmp_path / "keys")
+    monkeypatch.setenv("LAB_OPERATOR_PUBKEY", str(public))
+    sup = Supervisor(SupervisorConfig(db_path=tmp_path / "lab.db", require_operator_key=True))
+    try:
+        assert sup.policy.enforces_operator_signatures
+    finally:
+        sup.close()
+
+
+@pytest.mark.safety
+def test_the_daemon_entry_point_exits_without_the_operator_key(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    from lab.supervisor import main
+    monkeypatch.delenv("LAB_OPERATOR_PUBKEY", raising=False)
+    monkeypatch.delenv("LAB_LOG_DIR", raising=False)
+    assert main(["--db", str(tmp_path / "lab.db")]) == 2
+    assert "no operator key" in capsys.readouterr().err
