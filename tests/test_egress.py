@@ -288,6 +288,34 @@ def server():
     httpd.shutdown()
 
 
+def test_outbound_tls_checks_certificates_and_names_and_starts_at_tls_1_2() -> None:
+    # #206: the floor must not depend on how the interpreter's OpenSSL is configured.
+    import ssl
+
+    from lab.egress import tls_context
+    context = tls_context()
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+    assert context.minimum_version >= ssl.TLSVersion.TLSv1_2
+
+
+def test_the_tls_floor_holds_even_if_the_default_context_allows_older_versions(
+        monkeypatch) -> None:
+    import ssl
+
+    from lab import egress
+
+    real = ssl.create_default_context
+
+    def permissive() -> ssl.SSLContext:
+        context = real()
+        context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+        return context
+
+    monkeypatch.setattr(egress.ssl, "create_default_context", permissive)
+    assert egress.tls_context().minimum_version == ssl.TLSVersion.TLSv1_2
+
+
 def test_the_socket_transport_connects_to_the_pinned_ip_and_sends_the_name(server) -> None:
     """Below the policy layer, so a local server is reachable: this checks
     the mechanics, that the connection goes to the IP given while Host
