@@ -19,9 +19,10 @@ on copies of the committed plists and pass `plutil -lint`.
 
 - Check out `main` in the operator's clone and confirm CI is green.
 - Pick the commit to deploy and write it down: `git rev-parse HEAD`.
-- The model server keeps running as the operator's LaunchAgent. After a
-  reboot it starts only once the operator logs in (FileVault, section 17),
-  so until then `tick` records model errors; that is expected.
+- The model server (`docs/INSTALL.md` section 8, or `ops/mac-mini-setup.md`
+  section 13) runs as the operator's own process; on the project's machine it is a
+  LaunchAgent. After a reboot it starts only once the operator logs in (FileVault,
+  section 17), so until then `tick` records model errors; that is expected.
 
 Variables used below. Replace the `PASTE_...` values first, then paste
 the block once into the terminal:

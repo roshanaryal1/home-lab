@@ -204,15 +204,32 @@ checks are complete.
 
 ## 8. Model server
 
-The current measured heavy-model setup is:
+The lab needs a model server on loopback before its loop can do anything (until
+then `tick` only records model errors). This is the setup measured on the project's
+32 GB Mac; it is run as **your normal user, not the lab account**. The steps are the
+ones verified in `ops/mac-mini-setup.md` section 13:
 
-- loopback address: `127.0.0.1:8080`
-- runtime: `mlx-lm`
-- model: `Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ`
-- pinned revision: `cfcade7221ccd128681961446e5f7906c08cae55`
+```sh
+uv tool install mlx-lm==0.31.3
+HF_HUB_DISABLE_XET=1 uv tool run --from mlx-lm python -c "from huggingface_hub import snapshot_download; snapshot_download('mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ', revision='cfcade7221ccd128681961446e5f7906c08cae55')"
+HF_HUB_OFFLINE=1 mlx_lm.server --host 127.0.0.1 --port 8080 --prompt-cache-size 1 --model "$HOME/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ/snapshots/$MODEL_REV"
+```
 
-The exact server invocation and cache paths are intentionally kept in the
-Mac runbook because model-server storage is machine-specific.
+- The download is about 16 GB.
+- `--prompt-cache-size 1` is required: without it the server keeps every request's
+  cache and runs out of Metal memory.
+- `HF_HUB_DISABLE_XET=1` because the default download protocol stalled twice on the
+  project's machine.
+- Close large apps first; a single browser tab held 16 GB there.
+- The last command runs in the foreground: leave that Terminal window open. Starting
+  the server automatically at login and restarting it needs a LaunchAgent; the
+  project's own is on its Mac mini and is not in this repository yet, so this guide
+  cannot give it to you (#188).
+- The runbook's step 4 reads the model's name from the running server, so start it
+  before that step.
+
+For another model, use its own repository, revision and path; nothing above has been
+tested for it.
 
 Never expose the model endpoint directly to the LAN or internet.
 

@@ -52,9 +52,11 @@ Run these in order:
    sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db audit verify
    ```
 
-7. **Model serving.** The served model is the pinned revision, the server listens
-   only on `127.0.0.1:8080`, and one local request succeeds. Do not expose it to
-   the network.
+7. **Model serving.** Start the server with the commands in guide section 8 and
+   note how long the download took and whether anything differed. The served model
+   is the pinned revision, the server listens only on `127.0.0.1:8080`, and one
+   local request succeeds. Do not expose it to the network. The guide has no
+   auto-start (LaunchAgent) for the server yet; record what you would need.
 
 8. **Recovery.** Run the two timed drills in runbook step 6 and record the
    numbers. Also do the separate startup-recovery drill (a task in flight when the
