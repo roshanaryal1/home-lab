@@ -460,15 +460,21 @@ Implemented and tested:
   account and the supervisor is configured with the public key.** On the
   Mac mini both hold since 2026-09-30: the `lab` account gets `Permission
   denied` reading the private key, and the daemon and `lab tick` refuse to
-  start without the public key (#190; `--allow-unsigned` exists for dummy
-  data). Still open: the fabricated-signature test on the machine (#70).
+  start without the public key (#190). `--allow-unsigned` and
+  `lab tick --mock-reply` exist for dummy data and are refused on any
+  machine where `/etc/homelab/operator.pub` exists, a root-owned file the lab
+  account cannot remove. Still open: the fabricated-signature test on the
+  machine (#70). **Not closed:** code running as the lab account can build
+  a `Supervisor` in its own process against the database, which the lab
+  account owns, and that supervisor would not check approvals; only
+  separating the database from the code the agent runs closes that (#70).
   A supervisor built any other way does not check approvals: tests do
   that on purpose, and so does the attack harness (`lab/attacks.py`),
   which runs only on a throwaway temporary database with a dummy secret.
   Any new code that builds a `Supervisor` against a real database must set
-  `require_operator_key`; `tests/test_supervisor_entrypoints.py` fails
-  when a new construction site appears until someone records why it is
-  safe (#200). Adds `cryptography` as the first runtime dependency.
+  `require_operator_key`; `tests/test_supervisor_entrypoints.py` counts the
+  construction sites in every file under `lab/` and fails when the count
+  changes, until someone records why the new one is safe (#200). Adds `cryptography` as the first runtime dependency.
 - **Backup and restore** (`lab/backup.py`, item 3.4, #67). `lab backup`
   snapshots the live database with SQLite's online backup API (no torn
   copy, supervisor keeps running) and copies only artifact blobs the
