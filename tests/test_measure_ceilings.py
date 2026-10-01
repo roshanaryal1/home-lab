@@ -205,3 +205,21 @@ def test_the_measurement_environment_is_restored(monkeypatch) -> None:
         assert os.environ["LAB_WEB_FETCH_HOSTS"] == "docs.example.org"
     assert os.environ["LAB_MODEL_URL"] == "http://127.0.0.1:8080/v1"
     assert "LAB_WEB_FETCH_HOSTS" not in os.environ
+
+
+@pytest.mark.parametrize("setup", [
+    {"files": {"/tmp/escape.txt": "x"}},
+    {"files": {"../escape.txt": "x"}},
+    {"files": {"a/../../escape.txt": "x"}},
+    {"files": {"": "x"}},
+    {"generate": {"dir": "../out", "count": 1}},
+    {"generate": {"dir": "/tmp/out", "count": 1}},
+    {"git": {"dir": "../repo", "commits": 1}},
+])
+def test_a_sample_cannot_write_outside_its_workspace(tmp_path: Path, setup: dict[str, Any]) -> None:
+    root = tmp_path / "ws"
+    root.mkdir()
+    with pytest.raises(ceilings.CeilingsError):
+        ceilings.seed_workspace(root, {"files": {"inside.txt": "ok"}, **setup})
+    # Every path is checked before anything is written.
+    assert sorted(p.name for p in tmp_path.rglob("*")) == ["ws"]

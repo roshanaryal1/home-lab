@@ -138,24 +138,41 @@ def load_tasks(path: Path) -> dict[str, Any]:
     return spec
 
 
+def _inside(root: Path, rel: object) -> Path:
+    """``root / rel``, refused unless it stays inside ``root``. A sample file is
+    input, so its paths may not name an absolute path or climb out with ``..``."""
+    text = str(rel)
+    parts = Path(text).parts
+    if not text or Path(text).is_absolute() or ".." in parts:
+        raise CeilingsError(f"sample path {text!r} must be relative and stay in the workspace")
+    target = root / text
+    if not target.resolve().is_relative_to(root.resolve()):
+        raise CeilingsError(f"sample path {text!r} leaves the workspace")
+    return target
+
+
 def seed_workspace(root: Path, setup: dict[str, Any]) -> None:
-    """Put a sample's files in place before its worker starts."""
-    for rel, content in (setup.get("files") or {}).items():
-        target = root / rel
+    """Put a sample's files in place before its worker starts. Every path is
+    checked before anything is written."""
+    files = setup.get("files") or {}
+    generate = setup.get("generate")
+    repo = setup.get("git")
+    targets = {rel: _inside(root, rel) for rel in files}
+    folder = _inside(root, generate.get("dir", "generated")) if generate else None
+    repo_dir = _inside(root, repo.get("dir", "repo")) if repo else None
+    for rel, content in files.items():
+        target = targets[rel]
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(str(content), encoding="utf-8")
-    generate = setup.get("generate")
-    if generate:
-        folder = root / str(generate.get("dir", "generated"))
+    if folder is not None and generate:
         folder.mkdir(parents=True, exist_ok=True)
         size = int(generate.get("bytes", 1024))
         for n in range(int(generate.get("count", 10))):
             line = f"line {n}: TODO check this value\n" if n % 7 == 0 else f"line {n}: ok\n"
             (folder / f"file{n:04d}.txt").write_text((line * (size // len(line) + 1))[:size],
                                                        encoding="utf-8")
-    repo = setup.get("git")
-    if repo:
-        _git_repository(root / str(repo.get("dir", "repo")), int(repo.get("commits", 5)),
+    if repo_dir is not None and repo:
+        _git_repository(repo_dir, int(repo.get("commits", 5)),
                         int(repo.get("lines", 50)))
 
 
