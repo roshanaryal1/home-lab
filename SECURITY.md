@@ -285,7 +285,9 @@ Implemented and tested:
   rollback is one step to the newest earlier known-good version, with the
   replaced one kept as rolled back. Everything is re-verified against the
   recorded hashes before promotion, rollback and install, and install is
-  one rename. Every step is an audit event. Limits: nothing yet loads
+  one rename. Every step is an audit event. A script of the active version
+  runs only in the container, through `skill.run` (#255, see "Untrusted
+  code: the container tier"). Limits: nothing yet loads
   skills from the install directory into an agent, so the tier is a
   recorded constraint that the loader will have to enforce; and without a
   configured operator public key promotion is unsigned (dev mode).
@@ -838,9 +840,9 @@ through.
 
 ### Untrusted code: the container tier
 
-Built as a module (`lab/container.py`, #181, ADR 0007 "Implementation"), not
-yet reachable from the broker. Each run gets one Apple container, a Linux guest
-in its own VM:
+Built as a module (`lab/container.py`, #181, ADR 0007 "Implementation"), and
+reachable from the broker only as `skill.run` (#255, below). Each run gets one
+Apple container, a Linux guest in its own VM:
 
 - **No network.** `--network none` is always passed. Apple's `container`
   gives a guest the network by default, so leaving it out would be an open
@@ -869,6 +871,40 @@ survivor) skip until they run on the M6 with `LAB_CONTAINER_IMAGE` set. Only
 `-v` and `--network none` were exercised in the ADR 0007 measurement; the other
 flags follow Apple's command reference. A busy guest costs about 2 GiB of host
 memory, and two containers beside the heavy model have not been measured.
+
+**`skill.run`: an active skill's script, only in the container (#255).** The
+broker tool takes a skill name, a script path inside the skill, optional
+arguments and an optional timeout. It is approve tier, journaled as
+non-idempotent, and holds untrusted input in the Rule of Two. The approval
+names the skill version and its content hash, so a promotion or a rollback
+after review needs a new approval.
+
+- **Only the active version.** A candidate, rejected or rolled-back version
+  never runs. The script must be an executable file in that version's
+  manifest. A path that is absolute, holds `..` or a backslash, or names
+  nothing is refused. A version whose stored files fail `verify_version` is
+  refused. These checks run before the approval is asked for and again
+  before the install, so a refusal starts nothing.
+- **Only in the container.** The verified version is installed into a fresh
+  directory inside the task's workspace and run through `ContainerExecutor`,
+  so the guest sees it under `/work`. No container runtime or no pinned image
+  means refuse. There is no fallback to Seatbelt or the host. The installed
+  copy is removed after the run, without following a link the guest may have
+  put in its place.
+- **Stops reach it.** It registers the same cancel flag `shell.run` uses, so
+  an emergency stop and a task's cancel end the run, and the container is
+  removed.
+- **Output is untrusted.** It is cleaned of control characters, capped at
+  256 KiB per stream, marked `untrusted`, and reading it taints the task.
+- **Off unless configured.** `LAB_CONTAINER_IMAGE` must name an image pinned
+  by digest. Without it the tool refuses every call. No handler is granted
+  the tool yet.
+
+The proofs are in `tests/test_skillrun.py`, with a fake runtime: each refusal,
+the command line (pinned image, `--network none`, the workspace as the only
+mount), removal after success, failure, timeout, stop and an exception, the
+signed approval, and the untrusted output. The real-container test skips
+until it runs on the M6 in the `skillrun` step of `ops/mac-session.sh`.
 
 Known limitation: `sandbox-exec` is deprecated by Apple. It remains
 functional, macOS's own daemons use Seatbelt internally, and Apple has

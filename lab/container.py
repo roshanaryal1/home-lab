@@ -41,16 +41,23 @@ nothing a caller can set removes it.
 Integration point
 -----------------
 
-Not wired into the broker yet. A broker tool would add a schema to
-``broker.TOOL_SCHEMAS``, and that table also generates the model's grammar.
-The pre-registered tool-call corpus (``evals/toolcalls-v1.jsonl``, 70 tasks)
-is pinned to its seven tools (``toolcorpus.CORPUS_TOOLS``), so a new tool
-does not change that measured artifact; it still belongs in its own change. When it lands, the tool
-is a thin wrapper over ``ContainerExecutor.run``: approve tier, journaled as
-non-idempotent, and classified in ``authority.TOOL_LEGS`` as untrusted input,
-since its output is written by untrusted code. The executor takes the same
-``cancel`` flag ``shell.run`` uses, so ``broker.revoke()`` and
-``cancel_running()`` reach it unchanged.
+Wired into the broker as ``skill.run`` (2026-10-01, #255). It runs a script
+from the active version of a named skill and nothing else: approve tier,
+journaled as non-idempotent, and classified in ``authority.TOOL_LEGS`` as
+untrusted input, since its output is written by untrusted code. The broker
+refuses before anything starts when the version is not active, the script is
+not an executable file of that version, the path escapes, or the stored files
+fail verification. It then installs the verified version into a fresh
+directory in the task's workspace and calls ``ContainerExecutor.run`` with
+the same ``cancel`` flag ``shell.run`` uses, so ``broker.revoke()`` and
+``cancel_running()`` reach it unchanged. The executor and its image come
+from trusted configuration (``LAB_CONTAINER_IMAGE`` in
+``lab.handlers.configure_skill_runner``). Without one the tool refuses.
+
+The tool has a schema in ``broker.TOOL_SCHEMAS``, so the model's grammar
+knows it. The pre-registered tool-call corpus (``evals/toolcalls-v1.jsonl``,
+70 tasks) stays pinned to its seven tools (``toolcorpus.CORPUS_TOOLS``), and
+``tests/test_skillrun.py`` checks that the new tool does not change it.
 """
 
 from __future__ import annotations

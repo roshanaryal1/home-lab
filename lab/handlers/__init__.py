@@ -22,6 +22,7 @@ import os
 from typing import Any
 
 WEB_HOSTS_ENV = "LAB_WEB_FETCH_HOSTS"
+CONTAINER_IMAGE_ENV = "LAB_CONTAINER_IMAGE"
 
 
 def web_hosts_from_env() -> frozenset[str]:
@@ -37,6 +38,34 @@ def web_hosts_from_env() -> frozenset[str]:
     return parse_allowlist(h.strip() for h in raw.split(",") if h.strip())
 
 
+def configure_skill_runner(supervisor: Any) -> bool:
+    """Turn on the broker's ``skill.run`` when an image is configured (#255).
+
+    ``LAB_CONTAINER_IMAGE`` names the guest image, pinned by sha256 digest.
+    Unset or empty means the tool stays off and refuses every call. An image
+    that is not pinned raises, so a bad setting stops the daemon at start.
+    No handler is granted the tool here: a handler that needs it says so
+    in its own registration.
+    """
+    image = os.environ.get(CONTAINER_IMAGE_ENV, "").strip()
+    if not image:
+        return False
+    from lab.container import (
+        AppleContainerRuntime,
+        ContainerConfig,
+        ContainerExecutor,
+        check_image,
+    )
+    from lab.skillstore import SkillStore
+
+    broker = supervisor.broker
+    executor = ContainerExecutor(AppleContainerRuntime(), broker.workspace_root,
+                                 ContainerConfig(image=check_image(image)))
+    broker.set_skill_runner(SkillStore(supervisor.queue._conn, supervisor.artifacts),
+                            executor)
+    return True
+
+
 def register_all(supervisor: Any) -> None:
     """Register every reviewed handler on a supervisor started as a daemon.
 
@@ -49,12 +78,14 @@ def register_all(supervisor: Any) -> None:
     database that ``lab tick`` takes too. Without a model a chat task is
     cancelled with "no handler", and the chat says so. The demo handlers exist
     for tests and are deliberately not reachable by tasks on a running lab.
-    Add a ``register_reviewed`` call here in the same change that adds a
-    handler.
+    With ``LAB_CONTAINER_IMAGE`` set, the broker's ``skill.run`` is turned
+    on (``configure_skill_runner``). Add a ``register_reviewed`` call here in
+    the same change that adds a handler.
     """
     from lab import chat, loop
     from lab.handlers import git_read, web, workspace
 
+    configure_skill_runner(supervisor)
     supervisor.register_reviewed(workspace.KIND, workspace.REF, tools=workspace.TOOLS)
     supervisor.register_reviewed(git_read.KIND, git_read.REF, tools=git_read.TOOLS)
 
