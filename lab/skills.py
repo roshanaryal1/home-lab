@@ -271,8 +271,13 @@ def _scan_one(directory: Path, real_root: Path, result: ScanResult, seen: dict[s
     if found:
         problem(*found)
     try:
-        text = skill_md.read_text(encoding="utf-8", errors="replace")
+        # Strict: a byte that is not UTF-8 would be replaced before the text
+        # checks below ever saw it.
+        text = skill_md.read_bytes().decode("utf-8")
         meta = parse_frontmatter(text)
+    except UnicodeDecodeError:
+        problem("bad-encoding", "SKILL.md is not valid UTF-8")
+        return
     except (FrontmatterError, OSError) as exc:
         problem("frontmatter", str(exc))
         return

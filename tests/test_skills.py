@@ -497,3 +497,13 @@ def test_cli_validate_takes_known_names(tmp_path: Path,
     assert cli_main(["skills", "validate", "--root", str(tmp_path),
                      "--known", "summarise"]) == 1
     assert "typosquat" in capsys.readouterr().out
+
+
+@pytest.mark.safety
+def test_a_skill_md_that_is_not_utf8_is_refused(tmp_path: Path) -> None:
+    directory = make_skill(tmp_path, "alpha")
+    # A stray byte that would decode to U+FFFD and hide whatever follows it.
+    (directory / "SKILL.md").write_bytes(GOOD.format(name="alpha").encode() + b"\xff\n")
+    result = skills.scan(tmp_path)
+    assert "bad-encoding" in {p.code for p in result.problems}
+    assert not result.skills

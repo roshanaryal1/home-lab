@@ -1222,7 +1222,6 @@ COMMANDS = {
     "emit": cmd_emit,
     "chain": cmd_chain,
     "skillstore": cmd_skillstore,
-    "skills": cmd_skills_import,
     "publish": cmd_publish,
     "memory": cmd_memory,
     "route": cmd_route,
@@ -1283,6 +1282,8 @@ def main(argv: list[str] | None = None) -> int:
 
     with TaskQueue(args.db, owner="cli") as queue:
         policy = PolicyEngine(queue._conn)
+        if args.command == "skills":            # only import gets here, see above
+            return cmd_skills_import(queue, policy, args)
         return COMMANDS[args.command](queue, policy, args)
 
 
