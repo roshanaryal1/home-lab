@@ -25,7 +25,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from lab.broker import TOOL_SCHEMAS, _is_argv, _is_json_object, _is_str, _is_timeout
+from lab.broker import (
+    TOOL_SCHEMAS,
+    _is_argv,
+    _is_json_object,
+    _is_str,
+    _is_str_list,
+    _is_timeout,
+)
 
 Schema = dict[str, Any]
 
@@ -33,6 +40,7 @@ FRAGMENTS: dict[Callable[[object], bool], Schema] = {
     _is_str: {"type": "string"},
     _is_argv: {"type": "array", "items": {"type": "string"}, "minItems": 1},
     _is_timeout: {"type": "number", "exclusiveMinimum": 0},
+    _is_str_list: {"type": "array", "items": {"type": "string"}},
     # An MCP tool's arguments (#256). Their shape is the server's input schema,
     # which the broker does not know, so the grammar says only "an object".
     _is_json_object: {"type": "object"},

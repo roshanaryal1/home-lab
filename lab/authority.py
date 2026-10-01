@@ -72,6 +72,13 @@ TOOL_LEGS: dict[str, frozenset[Leg]] = {
     "git.diff": frozenset(),
     # A fetch first, so the same legs as net.fetch; the model is on loopback.
     "net.summarize": frozenset({Leg.UNTRUSTED_INPUT, Leg.EXTERNAL_ACTION}),
+    # Writes a pending row in the lab's own database that nothing reads as
+    # memory until the owner signs it in (#253): no secret, nothing outside.
+    "memory.propose": frozenset(),
+    # Runs a skill's script in a container with no network (#255). Nothing
+    # leaves the lab, but untrusted code writes its output, so the task holds
+    # untrusted input whatever its own origin.
+    "skill.run": frozenset({Leg.UNTRUSTED_INPUT}),
     # A tool of an operator-signed MCP server (#256). Its output and its own
     # description are written by a program the lab did not write, so a task
     # that calls one holds untrusted input whatever its origin. The server

@@ -46,6 +46,8 @@ NOT_IN_CORPUS = {
     "git.log": "added after registration (#240)",
     "git.diff": "added after registration (#240)",
     "net.summarize": "added after registration (#240)",
+    "memory.propose": "added after registration (#253)",
+    "skill.run": "added after registration (#255)",
     # One generic tool for every signed MCP server (#256). The tools behind it
     # are the operator's choice and change with the config, so a call to one
     # is not a fixed prompt a held-out corpus can grade.

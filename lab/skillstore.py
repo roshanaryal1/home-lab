@@ -102,7 +102,10 @@ class SkillStore:
         if not submitted_by.strip():
             raise SkillStoreError("say who is submitting")
         directory = Path(directory)
-        scan = skills.scan(directory.parent) if directory.is_dir() else None
+        known = [str(r[0]) for r in self._conn.execute(
+            "SELECT DISTINCT name FROM skill_versions")]
+        scan = (skills.scan(directory.parent, tier=requested_tier, known_names=known)
+                if directory.is_dir() else None)
         mine = [s for s in (scan.skills if scan else []) if Path(s.path).name == directory.name]
         problems = [p for p in (scan.problems if scan else []) if p.skill == directory.name]
         if scan is None or not mine or problems:

@@ -217,6 +217,45 @@ def test_cli_selftest_exit_codes_and_alert(db: Path, tmp_path: Path,
     assert out.exists() and "audit_chain" in out.read_text()
 
 
+def test_report_ok_sends_one_short_ok_alert_inside_the_rate_limit(
+        db: Path, tmp_path: Path) -> None:
+    """#80: with --report-ok a passing run says so, once per alert window."""
+    script, out = _recorder(tmp_path)
+    cfg = _config(tmp_path, [sys.executable, str(script)], min_interval_seconds=3600)
+    args = ["--db", str(db), "selftest", "--no-safety-tests", "--alert-config", str(cfg),
+            "--report-ok"]
+    assert main(args) == 0
+    (record,) = [json.loads(line) for line in out.read_text().splitlines()]
+    count = len(selftest.run(db, run_safety_tests=False).checks)
+    assert record["stdin"] == f"selftest_ok: selftest ok: {count} checks\n"
+    assert main(args) == 0
+    assert len(out.read_text().splitlines()) == 1, "the config's rate limit still applies"
+
+
+def test_an_ok_report_never_uses_up_the_window_a_failure_needs(db: Path, tmp_path: Path) -> None:
+    script, out = _recorder(tmp_path)
+    cfg = _config(tmp_path, [sys.executable, str(script)], min_interval_seconds=3600)
+    args = ["--db", str(db), "selftest", "--no-safety-tests", "--alert-config", str(cfg),
+            "--report-ok"]
+    assert main(args) == 0
+    import sqlite3
+    conn = sqlite3.connect(db)
+    conn.execute("DROP TRIGGER events_no_update")
+    conn.execute("UPDATE events SET detail = '{}' WHERE id = 1")
+    conn.commit()
+    conn.close()
+    assert main(args) == 1
+    records = [json.loads(line)["stdin"] for line in out.read_text().splitlines()]
+    assert len(records) == 2 and records[1].startswith("selftest: ")
+    assert "audit_chain" in records[1]
+
+
+def test_report_ok_without_an_alert_config_is_a_usage_error(
+        db: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["--db", str(db), "selftest", "--no-safety-tests", "--report-ok"]) == 1
+    assert "--alert-config" in capsys.readouterr().err
+
+
 def test_cli_status_alerts_only_when_unhealthy(tmp_path: Path) -> None:
     script, out = _recorder(tmp_path)
     cfg = _config(tmp_path, [sys.executable, str(script)])
@@ -242,6 +281,9 @@ def test_the_launchd_definitions_exist_and_match_the_generator() -> None:
     cfg = "/etc/homelab/alert.json"
     assert (root / "com.homelab.selftest.plist").read_bytes() == service.selftest_plist(
         user="lab", python=py, workdir=wd, db=db, alert_config=cfg)
+    import plistlib
+    assert "--report-ok" in plistlib.loads(service.selftest_plist(
+        user="lab", python=py, workdir=wd, db=db, alert_config=cfg))["ProgramArguments"]
     assert (root / "com.homelab.statuscheck.plist").read_bytes() == service.statuscheck_plist(
         user="lab", python=py, workdir=wd, db=db, alert_config=cfg)
     assert os.access(root, os.R_OK) and stat.S_ISDIR(root.stat().st_mode)

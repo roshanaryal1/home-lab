@@ -19,10 +19,11 @@ SCRIPT = ROOT / "ops" / "mac-session.sh"
 
 STEPS = [
     ("context", "#241"), ("home", "#225"), ("caffeinate", "#235"), ("signature", "#70"),
-    ("backup", "#67"), ("alert", "#79, #80"), ("selftest", "#80"), ("mcp", "#256"),
-    ("concurrency", "#211"),
-    ("drills", "#78"), ("network", "#79"), ("power", "#77, #91"),
+    ("backup", "#67"), ("alert", "#79, #80"), ("selftest", "#80"), ("skillrun", "#255"),
+    ("mcp", "#256"), ("concurrency", "#211"), ("drills", "#78"), ("network", "#79"),
+    ("power", "#77, #91"),
 ]
+IMAGE = "docker.io/library/alpine:3.22@sha256:" + "ab" * 32
 
 STUBS = {
     "sudo": r'''
@@ -65,6 +66,9 @@ esac''',
     "ps": "exit 1",
     "sleep": "exit 0",
     "chmod": 'touch "$STUB_DIR/home-locked"',
+    "container": 'echo "container CLI version 0.9.0"',
+    "uv": 'echo "LAB_CONTAINER_IMAGE=$LAB_CONTAINER_IMAGE"\n'
+          'echo "1 passed, 40 deselected in 9.81s"',
 }
 
 
@@ -80,6 +84,7 @@ def make_stubs(directory: Path, overrides: dict[str, str] | None = None) -> Path
 
 def run(tmp_path: Path, *args: str, answers: str | None = None, home_readable: bool = False,
         stubs: dict[str, str] | None = None, mcp_config: Path | None = None,
+        extra_env: dict[str, str] | None = None,
         ) -> tuple[subprocess.CompletedProcess[str], str, list[str]]:
     bin_dir = make_stubs(tmp_path, stubs)
     home = tmp_path / "home"
@@ -92,6 +97,7 @@ def run(tmp_path: Path, *args: str, answers: str | None = None, home_readable: b
         "STUB_HOME_READABLE": "1" if home_readable else "0",
         # Never the machine's own config: absent unless a test writes one.
         "MCP_CONFIG": str(mcp_config or tmp_path / "no-mcp.json"),
+        **(extra_env or {}),
     }
     result = subprocess.run(
         ["bash", str(SCRIPT), "--report", str(report), *args], env=env, text=True,
@@ -138,7 +144,8 @@ def test_a_full_run_with_no_answers_changes_nothing(tmp_path: Path) -> None:
         assert change not in joined, f"{change!r} ran without a yes"
     expected = {"context": "PASS", "home": "PASS", "caffeinate": "PASS",
                 "signature": "PASS", "backup": "SKIPPED", "alert": "SKIPPED",
-                "selftest": "PASS", "mcp": "SKIPPED", "concurrency": "PASS",
+                "selftest": "PASS", "skillrun": "SKIPPED", "mcp": "SKIPPED",
+                "concurrency": "PASS",
                 "drills": "SKIPPED",
                 "network": "MANUAL", "power": "MANUAL"}
     for number, (name, _) in enumerate(STEPS, 1):
@@ -219,6 +226,39 @@ def test_an_alert_the_operator_did_not_see_is_a_failure(tmp_path: Path) -> None:
     result, report, calls = run(again, "--only", "alert", answers="y\ny\n")
     assert result.returncode == 0 and result_of(report, 1) == "PASS"
     assert any(" -c " in c and "/etc/homelab/alert.json" in c for c in calls)
+
+
+def test_the_skillrun_step_runs_the_real_container_test_from_the_checkout(
+        tmp_path: Path) -> None:
+    env = {"REPO": str(tmp_path), "LAB_CONTAINER_IMAGE": IMAGE}
+    result, report, calls = run(tmp_path, "--only", "skillrun", extra_env=env)
+    assert result.returncode == 0, report
+    test_run = next(c for c in calls if c.startswith("uv "))
+    assert "--locked --extra dev python -m pytest tests/test_skillrun.py -k real_container" \
+        in test_run
+    assert f"LAB_CONTAINER_IMAGE={IMAGE}" in report, "the image reaches the test"
+    assert "container --version" in calls
+    assert result_of(report, 1) == "PASS"
+
+
+def test_the_skillrun_step_fails_when_the_test_only_skipped(tmp_path: Path) -> None:
+    env = {"REPO": str(tmp_path), "LAB_CONTAINER_IMAGE": IMAGE}
+    result, report, _ = run(tmp_path, "--only", "skillrun", extra_env=env,
+                            stubs={"uv": 'echo "1 skipped, 40 deselected in 0.10s"'})
+    assert result.returncode == 1
+    assert result_of(report, 1) == "FAIL" and "was skipped" in report
+    again = tmp_path / "again"
+    again.mkdir()
+    result, report, _ = run(again, "--only", "skillrun", extra_env=env,
+                            stubs={"uv": 'echo "1 failed in 3.00s"; exit 1'})
+    assert result.returncode == 1 and result_of(report, 1) == "FAIL"
+
+
+def test_the_skillrun_step_is_skipped_without_a_pinned_image(tmp_path: Path) -> None:
+    result, report, calls = run(tmp_path, "--only", "skillrun")
+    assert result.returncode == 0, report
+    assert not any(c.startswith(("uv ", "container ")) for c in calls)
+    assert result_of(report, 1) == "SKIPPED" and "LAB_CONTAINER_IMAGE is not set" in report
 
 
 MCP_SUDO = r'''

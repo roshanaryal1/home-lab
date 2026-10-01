@@ -285,10 +285,18 @@ Implemented and tested:
   rollback is one step to the newest earlier known-good version, with the
   replaced one kept as rolled back. Everything is re-verified against the
   recorded hashes before promotion, rollback and install, and install is
-  one rename. Every step is an audit event. Limits: nothing yet loads
+  one rename. Every step is an audit event. A script of the active version
+  runs only in the container, through `skill.run` (#255, see "Untrusted
+  code: the container tier"). Limits: nothing yet loads
   skills from the install directory into an agent, so the tier is a
   recorded constraint that the loader will have to enforce; and without a
   configured operator public key promotion is unsigned (dev mode).
+  `lab skills import` (#254) is the way in for an outside skill: it runs
+  the validator, including the checks for hidden and bidi characters,
+  look-alike names, nested skills, typosquats against the store and
+  `allowed-tools` above the tier, then stores a candidate with its
+  source. Claim M6 in `docs/PREREGISTRATION-SAFETY.md` measures this path
+  on 36 frozen cases with `lab prereg m6`.
 - **Reviewed publishing with receipts** (`lab/publish.py`,
   `publications`, migration 10, item 8.6, #86). A credentialed send is
   bound, in the approval the operator reads, to the destination host and
@@ -326,6 +334,34 @@ Implemented and tested:
   keeps a tombstone with its hash; correcting replaces it and links back.
   Limits: a memory a task already copied elsewhere (a file, a prompt)
   is not recalled by revoking it, and there is no embedding retrieval yet.
+- **Memory proposals** (`lab/memory.py`, broker tool `memory.propose`,
+  migration 15, #253). A task may propose a memory, but only through the
+  broker: `memory.propose` is a granted tool with notify tier, a fixed
+  schema (text, source, reason, optional source hash; any other field is
+  refused), no Rule of Two legs, and the usual `broker_call` audit with a
+  parameter hash. The proposal is stored as pending in its own table,
+  which the search index never reads, and it has no expiry, so waiting
+  never turns it into memory. Its text is untrusted data: control and
+  bidi characters are stripped, it is bounded (4000 characters, 500 for
+  source and reason, 20 pending per task) and stored with its source id
+  and hash. Whether it came from a tainted task is read from the task's
+  own row, never from the handler, and a task the lab does not know
+  counts as tainted. The only way to active is `lab memory accept`, which
+  signs the decision with the operator private key; `Memory.accept`
+  verifies it with the operator public key over the proposal id, the hash
+  of the exact stored text, the source, the taint mark and the owner's
+  name, and has no unsigned mode. Where `/etc/homelab/operator.pub` is
+  installed it is the only key decisions verify against, so the lab
+  account cannot point the check at a key it made. The accepted memory is
+  curated, names the owner as promoter and links back to the proposal.
+  A tainted proposal is shown as UNTRUSTED and needs `--untrusted-ok`;
+  the signature covers that mark. Rejecting needs no signature, since it
+  removes nothing trusted. Proposing, accepting, refusing an unsigned
+  accept and rejecting are all audit events. Limits: the signature is
+  checked when the proposal is accepted, not again on every search, so
+  something with write access to the database can still insert a curated
+  row directly, as it always could; keeping that out of the agent's reach
+  is the separate lab account (#70). Chat does not propose memories yet.
 - **Router rubric** (`lab/rubric.py`, item 7.2, closes #33). Routes a
   research task by evidence weight alone, with no model call: a post
   needs one usable claim; a blog needs at least three distinct incident
@@ -371,8 +407,29 @@ Implemented and tested:
   same kind of alert is not repeated within an hour, decided under a lock so two
   overlapping runs cannot both send. The config is opened once without following
   a symlink and its owner and mode are read from the open descriptor. The channel itself (which
-  service, which account) is not chosen here and the dead-man switch that
-  catches the lab going silent is not built (#79).
+  service, which account) is not chosen here. With `--report-ok` (#80) a
+  passing self-test also sends one short `selftest ok: N checks`, so a result
+  arrives every morning; it is its own alert kind, so an "ok" never uses up the
+  window a failure alert needs, and both obey the config's rate limit.
+- **The dead-man switch ping** (`lab/deadman.py`, `lab heartbeat`, #79). Every
+  other alert needs the lab to be running. An outside service the operator
+  chooses expects a ping every five minutes and alerts the phone when pings
+  stop; `lab heartbeat`, run every five minutes as the lab account, sends it
+  only while `lab status` would not report unhealthy, so a stuck lab goes
+  quiet as well. The ping URL is a secret: whoever holds it can keep the switch
+  quiet while the lab is down. It lives in `/etc/homelab/heartbeat-url`, owned
+  by the lab account, mode 600; the command refuses a file group or others can
+  read or write, a symlink, a file it does not own, and any URL that is not
+  https. The file is opened once without following a symlink and checked on
+  the open descriptor. The URL is never printed or logged: messages name only
+  the host, and the gateway's audit carries the host and a hash of the URL.
+  The request goes only through `lab.egress.EgressGateway`, with an allowlist
+  of just the URL's own host, so the usual rules hold (port 443, public
+  addresses only, pinned address, bounded response), and no redirect is
+  followed. It writes nothing to the database, because a ping in the event
+  log every five minutes would hide the silent-log signal `lab status` uses
+  (`tests/test_deadman.py`). Limit: the switch says only that pings stopped,
+  not why; and anyone who can read the lab account's files can read the URL.
 - **The lab-account setup plan** (`lab/accountplan.py`, `lab setup-plan`,
   H5c). The step that makes the boundaries real (a non-admin `lab` account
   that cannot read the operator's private key, cannot edit its own
@@ -386,7 +443,8 @@ Implemented and tested:
   on the mini (#70). The account name is validated as a POSIX name, and the
   private key appears only in a check that expects "Permission denied".
 - **Which jobs run as root, and why** (#235). The supervisor, `lab tick`, the
-  status check and the self-test run as the lab account. Two jobs run as root.
+  status check, the self-test, the daily backup (#67) and the dead-man switch
+  ping (#79) run as the lab account. Two jobs run as root.
   The watchdog has to: it signals a supervisor owned by another account.
   `lab keepawake` does not have to: it only reads the database and starts
   `caffeinate`. It stays root until the operator confirms on the mini that
@@ -448,7 +506,7 @@ Implemented and tested:
   append-only event log, so a number cannot disagree with the audit trail.
   `lab status` exits 2 when unhealthy (a running task on an expired
   lease, or work waiting with no live worker and a silent log), which is
-  what the watchdog (#78) and the dead-man switch (#79) will act on.
+  what the dead-man switch ping (#79) acts on.
   It also reports the operator mode.
 - **Heartbeat and watchdog** (`lab/service.py`, `lab watchdog`, item 6.2,
   #78). The supervisor writes `<db>.heartbeat` (pid, time, process start
@@ -562,7 +620,18 @@ Implemented and tested:
   manifest, SQLite integrity check, schema version, foreign keys, the
   audit chain or its head, or any artifact blob missing or altered
   (`tests/test_backup.py`). Backups are not encrypted and are only as
-  private as the directory they are written to. Recovery drills
+  private as the directory they are written to. The daily job
+  (`com.homelab.backup`, as the lab account) runs `lab backup --keep 14`: it
+  restore-checks every new backup and fails, alerting through the alert
+  config, if the check does not pass, and only then deletes all but the
+  newest 14. Rotation deletes only what it can prove it wrote: a manifest with
+  its exact name that parses and names its own database, that database, and
+  artifact blobs that only deleted backups referenced (none at all if a kept
+  backup cannot be read). It opens the folder without following a symlink,
+  never follows a symlink inside it, and leaves every other file alone
+  (`tests/test_backup_rotation.py`). The folder is set only in the installed,
+  root-owned copy of the job (`LAB_BACKUP_DIR`); the committed copy carries
+  a placeholder the command refuses. Recovery drills
   (`lab drill`, `ops/drills/`) record every run and count as
   demonstrated only on the Mac mini; the monthly drill there is parked.
 - **Constrained decoding and shadow measurement** (`lab/grammar.py`,
@@ -696,7 +765,7 @@ absent is worse than no policy:
   has been exercised yet.** `net.fetch` (`lab/egress.py`, item 4.3, #14)
   and `net.summarize` (the same request, then the model; #240) are the
   only outbound paths for a task: see "What exists". The chat channel's
-  polls go through the same gateway, to one fixed host. Shell commands
+  polls go through the same gateway, to one fixed host, and so does the dead-man switch ping (#79). Shell commands
   still run with the sandbox's network rules, and the alert command
   (`lab/telegram_alert.py`) posts to its one fixed host directly.
 - **No approval from the phone.** The chat channel can show what waits and
@@ -713,7 +782,13 @@ absent is worse than no policy:
   `task_max_rss_mb` (default 2048), and gets `RLIMIT_CPU` from
   `task_max_cpu_seconds` (default 900). A breach fails the task without
   retry, records `resource_ceiling_exceeded` and counts in `lab status`
-  (H2, `tests/test_ceilings.py`). In-process handlers and shell commands are
+  (H2, `tests/test_ceilings.py`). The values are to be set from
+  `lab measure-ceilings` run on the M6 (#180, `ops/mac-mini-setup.md`
+  section 22), which runs each reviewed handler's sample tasks in real
+  workers and suggests the largest peak times a stated headroom. The peaks
+  there are what each worker reports about itself through `getrusage` when
+  it finishes: a measurement for a person to read, never used to enforce
+  anything. In-process handlers and shell commands are
   not covered by these, and inference memory is the model server's, bounded
   only by the admission controller. Commands get only PATH, HOME, TMPDIR
   and LANG; parameters are schema-checked; timeouts are clamped to 300 s;
@@ -810,9 +885,9 @@ through.
 
 ### Untrusted code: the container tier
 
-Built as a module (`lab/container.py`, #181, ADR 0007 "Implementation"), not
-yet reachable from the broker. Each run gets one Apple container, a Linux guest
-in its own VM:
+Built as a module (`lab/container.py`, #181, ADR 0007 "Implementation"), and
+reachable from the broker only as `skill.run` (#255, below). Each run gets one
+Apple container, a Linux guest in its own VM:
 
 - **No network.** `--network none` is always passed. Apple's `container`
   gives a guest the network by default, so leaving it out would be an open
@@ -841,6 +916,40 @@ survivor) skip until they run on the M6 with `LAB_CONTAINER_IMAGE` set. Only
 `-v` and `--network none` were exercised in the ADR 0007 measurement; the other
 flags follow Apple's command reference. A busy guest costs about 2 GiB of host
 memory, and two containers beside the heavy model have not been measured.
+
+**`skill.run`: an active skill's script, only in the container (#255).** The
+broker tool takes a skill name, a script path inside the skill, optional
+arguments and an optional timeout. It is approve tier, journaled as
+non-idempotent, and holds untrusted input in the Rule of Two. The approval
+names the skill version and its content hash, so a promotion or a rollback
+after review needs a new approval.
+
+- **Only the active version.** A candidate, rejected or rolled-back version
+  never runs. The script must be an executable file in that version's
+  manifest. A path that is absolute, holds `..` or a backslash, or names
+  nothing is refused. A version whose stored files fail `verify_version` is
+  refused. These checks run before the approval is asked for and again
+  before the install, so a refusal starts nothing.
+- **Only in the container.** The verified version is installed into a fresh
+  directory inside the task's workspace and run through `ContainerExecutor`,
+  so the guest sees it under `/work`. No container runtime or no pinned image
+  means refuse. There is no fallback to Seatbelt or the host. The installed
+  copy is removed after the run, without following a link the guest may have
+  put in its place.
+- **Stops reach it.** It registers the same cancel flag `shell.run` uses, so
+  an emergency stop and a task's cancel end the run, and the container is
+  removed.
+- **Output is untrusted.** It is cleaned of control characters, capped at
+  256 KiB per stream, marked `untrusted`, and reading it taints the task.
+- **Off unless configured.** `LAB_CONTAINER_IMAGE` must name an image pinned
+  by digest. Without it the tool refuses every call. No handler is granted
+  the tool yet.
+
+The proofs are in `tests/test_skillrun.py`, with a fake runtime: each refusal,
+the command line (pinned image, `--network none`, the workspace as the only
+mount), removal after success, failure, timeout, stop and an exception, the
+signed approval, and the untrusted output. The real-container test skips
+until it runs on the M6 in the `skillrun` step of `ops/mac-session.sh`.
 
 Known limitation: `sandbox-exec` is deprecated by Apple. It remains
 functional, macOS's own daemons use Seatbelt internally, and Apple has

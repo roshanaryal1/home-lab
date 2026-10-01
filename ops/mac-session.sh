@@ -30,6 +30,7 @@ Steps, in order:
   backup       backup to the backup volume and a restore check (#67)
   alert        a test alert reaches the phone (#79, #80)
   selftest     the nightly self-test ran and passed (#80)
+  skillrun     a skill script runs only in a real container (#255)
   mcp          signed MCP servers start under Seatbelt and match their snapshot (#256)
   concurrency  two model requests at once: timing, memory, swap (#211)
   drills       timed kill and freeze drills of the supervisor (#78)
@@ -42,6 +43,7 @@ Environment, with defaults:
   PY=/opt/homelab/.venv/bin/python
   MODEL_URL=http://127.0.0.1:8080/v1
   BACKUP_VOLUME=/Volumes/labbackup
+  LAB_CONTAINER_IMAGE=(not set, the skillrun step needs an image pinned by digest)
   MCP_CONFIG=/etc/homelab/mcp.json
 EOF
 }
@@ -51,12 +53,13 @@ DB="${DB:-/var/homelab/lab.db}"
 PY="${PY:-/opt/homelab/.venv/bin/python}"
 MODEL_URL="${MODEL_URL:-http://127.0.0.1:8080/v1}"
 BACKUP_VOLUME="${BACKUP_VOLUME:-/Volumes/labbackup}"
+CONTAINER_IMAGE="${LAB_CONTAINER_IMAGE:-}"
 MCP_CONFIG="${MCP_CONFIG:-/etc/homelab/mcp.json}"
 PUBKEY=/etc/homelab/operator.pub
 ALERT_CONFIG=/etc/homelab/alert.json
 LOG_DIR=/var/log/homelab
 
-ALL_STEPS="context home caffeinate signature backup alert selftest mcp concurrency drills network power"
+ALL_STEPS="context home caffeinate signature backup alert selftest skillrun mcp concurrency drills network power"
 
 DRY_RUN=0
 ONLY=""
@@ -439,6 +442,28 @@ Check the phone for this morning's message."
   fi
 }
 
+step_skillrun() {
+  begin skillrun "A skill script runs only in a real container" "#255" \
+    "Runs the gated real-container test of the broker tool \`skill.run\` from the checkout, \
+as the operator. An active skill's script runs in an Apple container with no network and \
+the task workspace as the only mount, its output is marked untrusted, and the container is \
+gone afterwards. The test must pass, not skip. It needs LAB_CONTAINER_IMAGE set to an image \
+pinned by digest."
+  if [ -z "$CONTAINER_IMAGE" ] && ! dry; then
+    finish SKIPPED "LAB_CONTAINER_IMAGE is not set to an image pinned by digest"
+    return
+  fi
+  run 'container --version'
+  run '(cd "$REPO" && LAB_CONTAINER_IMAGE="$CONTAINER_IMAGE" uv run --locked --extra dev python -m pytest tests/test_skillrun.py -k real_container -rs -q -p no:cacheprovider)'
+  if [ "$LAST_RC" = 0 ] && has ' passed' && ! has 'skipped'; then
+    finish PASS "the real-container test of skill.run passed"
+  elif has 'skipped'; then
+    finish FAIL "the real-container test was skipped, read the reason above"
+  else
+    finish FAIL "the real-container test of skill.run failed, read its output above"
+  fi
+}
+
 step_mcp() {
   begin mcp "Signed MCP servers run under Seatbelt and match their snapshot" "#256" \
     "As lab, starts every signed MCP server in \`$MCP_CONFIG\` under the Seatbelt profile and \
@@ -641,6 +666,7 @@ selected() {
   printf -- '- REPO=%s\n- DB=%s\n- PY=%s\n- MODEL_URL=%s\n- BACKUP_VOLUME=%s\n' \
     "$REPO" "$DB" "$PY" "$MODEL_URL" "$BACKUP_VOLUME"
   printf -- '- PUBKEY=%s\n- ALERT_CONFIG=%s\n- LOG_DIR=%s\n' "$PUBKEY" "$ALERT_CONFIG" "$LOG_DIR"
+  printf -- '- LAB_CONTAINER_IMAGE=%s\n' "${CONTAINER_IMAGE:-not set}"
   printf -- '- MCP_CONFIG=%s\n' "$MCP_CONFIG"
   printf -- '- steps: %s\n' "${ONLY:-all}"
   printf '\nWhat each step proves, and which issue to paste it into: ops/mac-session.md.\n'

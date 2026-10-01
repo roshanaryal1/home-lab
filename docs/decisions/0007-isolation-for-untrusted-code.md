@@ -199,6 +199,28 @@ That belongs in its own change. The tool will be a thin wrapper over
 classified as untrusted input in `authority.TOOL_LEGS`. Until then the
 broker still has no tool that runs untrusted code.
 
+*Update, 2026-10-01 (#255).* The tool now exists as `skill.run`. It runs a
+script from the active version of a named skill, and only that. Approve
+tier, journaled as non-idempotent, and `TOOL_LEGS` gives it untrusted
+input. The approval names the skill version and its content hash, so a
+promotion or a rollback after review needs a new approval. It refuses
+before anything starts: a skill with no active version (a candidate,
+rejected or rolled-back version never runs), a script that is not an
+executable file in that version's manifest, a path that escapes, a version
+whose stored files fail `verify_version`, and a host with no container
+runtime or no digest-pinned image. Then it installs the verified version
+into a fresh directory in the task's workspace, so the guest sees it under
+`/work`, and runs it through `ContainerExecutor` with the same cancel flag
+`shell.run` uses. There is no fallback to Seatbelt or the host. The
+installed copy is removed after the run. Output is cleaned, capped and
+marked untrusted, and the task is tainted when it reads it. The tool is
+off unless `LAB_CONTAINER_IMAGE` names a pinned image, and no handler is
+granted it yet. The grammar includes the new tool. The pre-registered
+corpus stays pinned to its seven tools (`toolcorpus.CORPUS_TOOLS`), and a
+test checks that `skill.run` is not in it. The fake-runtime tests are in
+`tests/test_skillrun.py`. Its real-container test runs in the `skillrun`
+step of `ops/mac-session.sh`.
+
 **Flags to confirm on the Mac.** The spellings follow the `container`
 command reference: `--read-only`, `--tmpfs`, `--cpus`, `--memory`,
 `--volume`, `--workdir`, `--env`, `delete --force` and `list --all
