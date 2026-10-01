@@ -57,6 +57,10 @@ a task runner:
 Build order and reasoning are in ADR 0004; the rules that limit what an
 agent may hold, and the staged rollout, are in ADR 0006.
 
+## Install on your own Mac
+
+New users should start with [docs/INSTALL.md](docs/INSTALL.md). It covers requirements, RAM-based model selection, the read-only prerequisite check, installation, first run, backup variables and uninstall. The deployment runbook is linked from there for the system-level launchd setup.
+
 ## Running on the Mac mini
 
 Since 2026-09-30 the lab's heavy model runs on the M6 itself:

@@ -7,7 +7,7 @@ step says what it changes, how to check it, how to undo it, and which
 checklist items it closes (by name).
 
 Written 2026-09-29 UTC (2026-09-30 in New Zealand). The deployment approach (Python installed under
-`/opt`, not in a home folder, which the lab account cannot read) was
+`/opt`, root-owned and not in a home folder, so the lab account depends on nothing in it) was
 rehearsed in a scratch directory without `sudo` on that date: Python
 3.13.15, SQLite 3.53.1, no reference to any home directory inside the
 environment, and `lab.cli` ran. The `plutil` edits in step 4 were tested
@@ -19,18 +19,30 @@ on copies of the committed plists and pass `plutil -lint`.
 
 - Check out `main` in the operator's clone and confirm CI is green.
 - Pick the commit to deploy and write it down: `git rev-parse HEAD`.
-- The model server keeps running as the operator's LaunchAgent. After a
-  reboot it starts only once the operator logs in (FileVault, section 17),
-  so until then `tick` records model errors; that is expected.
+- The model server (`docs/INSTALL.md` section 8, or `ops/mac-mini-setup.md`
+  section 13) runs as the operator's own process; on the project's machine it is a
+  LaunchAgent. After a reboot it starts only once the operator logs in (FileVault,
+  section 17), so until then `tick` records model errors; that is expected.
 
-Variables used below. Replace the two `PASTE_...` values first, then paste
+Variables used below. Replace the `PASTE_...` values first, then paste
 the block once into the terminal:
 
 ```sh
-REPO="$HOME/Research and Development /home-lab"
+REPO="$HOME/home-lab"
 COMMIT="PASTE_THE_COMMIT_YOU_WROTE_DOWN"
-MODEL_REV="PASTE_THE_SERVING_MODEL_40_HEX_REVISION"   # ADR 0001, the build now served
-UV=/Users/$USER/.local/bin/uv
+MODEL_REV="PASTE_THE_SERVING_MODEL_40_HEX_REVISION"
+BACKUP_VOLUME="/Volumes/PASTE_BACKUP_VOLUME_NAME"
+UV="$HOME/.local/bin/uv"
+```
+
+`MODEL_REV` is the revision of the build the model server is serving (ADR 0001).
+The model's name is not a variable: step 4 reads it from the server, which reports
+the name it accepts (a path, not the Hugging Face repository name, which it
+refuses with HTTP 404). Then check that no placeholder is left, because an unset
+check cannot see a value that still says `PASTE_`:
+
+```sh
+case "$COMMIT$MODEL_REV$BACKUP_VOLUME" in *PASTE_*) echo "STOP: a PASTE_ value is still there" ;; *) echo "variables are filled in" ;; esac
 ```
 
 ## Step 1. Operator key (no sudo)
@@ -61,7 +73,7 @@ there, and installs the six service definitions root-owned under
 
 ```sh
 sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
-  --operator-pubkey /Users/$USER/.lab-operator/operator.pub
+  --operator-pubkey "$HOME/.lab-operator/operator.pub"
 ```
 
 - Check: `--apply` runs the changing steps only; it prints the four checks
@@ -70,11 +82,14 @@ sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
   now prints the absolute path):
 
   ```sh
-  sudo -u lab /usr/bin/sudo -n -l                                  # expect a refusal
-  /usr/bin/dscl . -read /Groups/admin GroupMembership              # expect no "lab"
-  sudo -u lab /bin/cat /Users/$USER/.lab-operator/operator.key      # expect Permission denied
-  sudo -u lab /usr/bin/touch /Library/LaunchDaemons/com.homelab.supervisor.plist  # expect Permission denied
+  sudo -u lab /usr/bin/sudo -n -l
+  /usr/bin/dscl . -read /Groups/admin GroupMembership
+  sudo -u lab /bin/cat "$HOME/.lab-operator/operator.key"
+  sudo -u lab /usr/bin/touch /Library/LaunchDaemons/com.homelab.supervisor.plist
   ```
+
+  Expected, in order: a refusal ("a password is required" or "not allowed to run
+  sudo"); a group list without `lab`; `Permission denied`; `Permission denied`.
 
 - Undo, before step 7 only (no lab data exists yet):
   `sudo launchctl bootout system/com.homelab.<name>` for anything loaded,
@@ -82,7 +97,7 @@ sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
   `sudo sysadminctl -deleteUser lab`, and `sudo rm -r /etc/homelab`.
   Removing `/var/homelab` or `/var/log/homelab` deletes the lab's database
   and logs; that is a separate teardown, never part of an undo: first back
-  up with `sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db backup --to /Volumes/labbackup/home-lab-backups/before-teardown`,
+  up with `sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db backup --to "$BACKUP_VOLUME/home-lab-backups/before-teardown"`,
   confirm the manifest exists, and only then remove them.
 - Closes: 1 "dedicated non-admin account" and "lab user cannot sudo";
   11 "create the non-admin lab account", "copy only operator.pub", "as
@@ -150,13 +165,15 @@ sudo plutil -insert EnvironmentVariables.LAB_MODEL_URL -string http://127.0.0.1:
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_NAME -string "$MODEL_ID" $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_REVISION -string "$MODEL_REV" $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_OPERATOR_PUBKEY -string /etc/homelab/operator.pub $P/com.homelab.tick.plist
-# Section 16: the supervisor needs the same three, so the daemon registers the summarizer.
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_URL -string http://127.0.0.1:8080/v1 $P/com.homelab.supervisor.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_NAME -string "$MODEL_ID" $P/com.homelab.supervisor.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_REVISION -string "$MODEL_REV" $P/com.homelab.supervisor.plist
 fi
 sudo plutil -lint $P/com.homelab.*.plist
 ```
+
+The last three insert lines give the supervisor the same model settings as the
+loop, so the daemon registers the summarizer (section 16).
 
 Interim alert channel, until the Telegram bot exists: alerts go to the
 system log. Owned by `lab`, mode 600, as section 19 asks.
@@ -206,18 +223,40 @@ done
 
 ## Step 6. Drills (sudo)
 
+First, a hard kill. launchd should restart the supervisor within its 30 second
+throttle:
+
 ```sh
-OLD=$(pgrep -f lab.supervisor); sudo kill -9 "$OLD"   # launchd restarts it within ~30 s
-sleep 40; NEW=$(pgrep -f lab.supervisor)
-[ -n "$NEW" ] && [ "$NEW" != "$OLD" ] && echo "restarted as $NEW" || echo "NOT restarted"
-OLD=$NEW; sudo kill -STOP "$OLD"                     # frozen; the watchdog must kill it
-sleep 150; NEW=$(pgrep -f lab.supervisor)
-if ps -p "$OLD" >/dev/null; then echo "FAIL: frozen $OLD still exists; resuming it"; sudo kill -CONT "$OLD"; \
-elif [ -n "$NEW" ] && [ "$NEW" != "$OLD" ]; then echo "replaced: $OLD -> $NEW"; \
-else echo "FAIL: no new supervisor; kicking it"; sudo launchctl kickstart -k system/com.homelab.supervisor; \
-  sleep 10; pgrep -f lab.supervisor >/dev/null && echo "supervisor running again" || echo "STOP: supervisor still down"; fi
+sudo -v
+OLD=$(pgrep -f lab.supervisor)
+T0=$(date +%s)
+sudo kill -9 "$OLD"
+for i in $(seq 1 45); do NEW=$(pgrep -f lab.supervisor) && [ "$NEW" != "$OLD" ] && break; sleep 2; done
+echo "killed $OLD; new supervisor ${NEW:-none} after $(( $(date +%s) - T0 )) s"
+```
+
+Then a frozen one. The watchdog must kill it and launchd must start another; the
+loop times both, so this drill shows whether it happens within the two minutes
+that issue #78 asks for, not only that it happens:
+
+```sh
+sudo -v
+OLD=$(pgrep -f lab.supervisor)
+T0=$(date +%s)
+sudo kill -STOP "$OLD"
+for i in $(seq 1 90); do ps -p "$OLD" >/dev/null || break; sleep 2; done
+T1=$(date +%s)
+ps -p "$OLD" >/dev/null && { echo "FAIL: $OLD is still there after $((T1 - T0)) s; resuming it"; sudo kill -CONT "$OLD"; }
+for i in $(seq 1 30); do NEW=$(pgrep -f lab.supervisor) && [ "$NEW" != "$OLD" ] && break; sleep 2; done
+echo "frozen $OLD; gone after $((T1 - T0)) s; new supervisor ${NEW:-none} after $(( $(date +%s) - T0 )) s"
 sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db watchdog --dry-run
 ```
+
+`sudo -v` comes first so a password prompt cannot be counted in the timing.
+Read the two timings. For the first drill the new pid is expected within about 30
+seconds; for the second, `gone after` and the new supervisor should both come in
+under 120 seconds. The last line must say `healthy`. Put the numbers in the drill
+record.
 
 Log both as drills with `LAB_TARGET=mac-mini` (see `ops/drills/README.md`).
 
@@ -237,7 +276,7 @@ sudo -u lab env LAB_TARGET=mac-mini /opt/homelab/.venv/bin/python -m lab.cli \
   --db /var/homelab/lab.db drill restore --log /var/log/homelab/drills
 ```
 
-Scheduling the backup to `/Volumes/labbackup/home-lab-backups` needs the
+Scheduling the backup to `$BACKUP_VOLUME/home-lab-backups` needs the
 lab account to write there (the volume is currently the operator's);
 decide ownership in the sitting.
 
