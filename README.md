@@ -229,6 +229,7 @@ uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokeni
 uv run python -m lab.cli eval rerun <record>      # repeat a run from its record alone, then compare
 uv run python -m lab.cli bench run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # cold start, first token, decode speed, server memory
 uv run python -m lab.cli bench tune <baseline> <candidate>   # recommend a setting only on a measured gain with no task lost
+uv run python -m lab.cli measure-ceilings [--repeats 5] [--headroom 2]   # peak memory and CPU of every reviewed handler in real workers; suggests task ceilings, changes nothing
 uv run python -m lab.attacks                      # benign-plus-hostile scenarios against a stub model
 ```
 
@@ -269,6 +270,8 @@ lab/memory.py        inspectable memory: FTS5, provenance, expiry, revoke that r
 lab/rubric.py        the router's rules: evidence weight to post, blog, paper or nothing
 lab/ledger.py        research claims with statuses separate from task state, evidence snapshots
 lab/bench.py         benchmark of one endpoint and the tuning gate
+lab/ceilings.py      peak memory and CPU of each reviewed handler, and suggested task ceilings
+evals/ceilings/      the sample tasks it runs, and its reports
 lab/evals.py         fixed task set run against any endpoint, sealed provenance records
 lab/attacks.py       injection harness
 evals/tasks.jsonl    the 24 tasks (arithmetic, extraction, format, code, tool calls, injection)

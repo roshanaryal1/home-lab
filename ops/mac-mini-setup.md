@@ -613,15 +613,70 @@ expect a call either way between runs.
       peak memory, throttling and energy on the fixed task set; tune only with
       a measured gain.
 - [ ] #16: the ceiling mechanism is built (wall clock, RSS and CPU for reviewed
-      handlers). Set `task_max_rss_mb` and `task_max_cpu_seconds` from measured
-      peaks of the real handlers with headroom, and check the model server's
-      own footprint stays inside the 32 GB admission budget. 2026-09-29: no
-      real reviewed handler exists yet (`lab/handlers/` holds only the demo,
-      and the summarizer in `lab/loop.py` runs inside the supervisor, not in a
-      ceilinged worker), so there is nothing real to measure and the defaults
-      (2048 MB, 900 s) stay. The model server's half is measured (ADR 0001):
-      16 GiB idle, about +7 GiB at 37K tokens, under the 24.96 GiB Metal
-      ceiling.
+      handlers). The model server's half is measured (ADR 0001): 16 GiB idle,
+      about +7 GiB at 37K tokens, under the 24.96 GiB Metal ceiling. The
+      handler half is #180, below.
+- [ ] #180: set `task_max_rss_mb` and `task_max_cpu_seconds` from measured
+      peaks of the real reviewed handlers, with stated headroom. Until this is
+      done the defaults (2048 MB, 900 s) stay; they were chosen, not measured.
+
+### Measuring the handler ceilings (#180)
+
+`lab measure-ceilings` runs every reviewed handler that
+`lab.handlers.register_all` puts in a worker process (today `workspace.files`,
+`git.read` and `web.summary`) on the sample tasks in
+`evals/ceilings/tasks.json`, five times each, each run in its own worker
+process through a real supervisor, broker and policy engine. When a worker
+finishes it reports its own peak resident memory and CPU seconds
+(`getrusage`). The model and the web pages are local fakes, so the run needs
+no model server and no network, uses a temporary database, and does not touch
+the running lab. The summarizer in `lab/loop.py` runs inside the supervisor,
+not in a worker, so the ceilings do not cover it and it is not measured.
+
+Run it as `lab`, the account the workers run as, on the M6:
+
+```sh
+sudo -u lab -i
+cd ~/home-lab
+git pull --ff-only
+uv sync --locked
+uv run python -m lab.cli measure-ceilings
+```
+
+It prints one line per handler (runs, peak MB, peak CPU seconds, and the
+suggestion for that handler), then the overall suggestion, and writes
+`evals/ceilings/ceilings-<time>-<hash>.json`. The report holds the machine,
+macOS build, Python, lab commit and whether the tree was dirty, every run's
+peak memory, CPU seconds and wall time, each handler's peaks and the
+suggestion. The suggestion is the largest peak over every handler and sample,
+times the headroom (default 2, `--headroom` to change it), rounded up to a
+whole MB and a whole second. The ceilings are one setting for every reviewed
+handler, so the largest peak decides. Exit 0 means every run succeeded and
+the suggestion is usable; exit 1 means the report lists a problem (a failed
+sample, a handler with no sample tasks, a run killed at the ceiling it was
+measured under) and the suggestion is left out on purpose. Fix that and run
+it again.
+
+Then, from the operator's checkout, on a branch for #180:
+
+1. Copy the report out of the lab account's checkout (`sudo cp`, then
+   `chown` it to yourself) into `evals/ceilings/` and commit it.
+2. In `lab/supervisor.py`, set `SupervisorConfig.task_max_rss_mb` and
+   `task_max_cpu_seconds` to the suggested values, with a comment naming the
+   report file and the headroom.
+3. In `SECURITY.md` ("Memory and CPU ceilings"), replace "their values are
+   unmeasured" with the measured peaks, the headroom and the report name, and
+   tick #180 here, in `docs/ARCHITECTURE.md` and in the README.
+4. In the PR, quote the printed table. That covers the three acceptance
+   criteria of #180: peaks measured for each real handler on the M6 (the
+   table and the report), the ceilings set from them with stated headroom
+   (the diff to `SupervisorConfig`), and the docs updated.
+
+If you know of a real input larger than the samples (a bigger repository, a
+longer page), add it as a sample in `evals/ceilings/tasks.json` and measure
+again rather than raising the headroom by guess. A new reviewed handler needs
+its own entry there: the run reports a handler without samples as a problem,
+and `tests/test_measure_ceilings.py` fails if `register_all` registers one.
 
 ## 23. Chat through the broker, and retiring the raw-shell bot (#239)
 

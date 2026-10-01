@@ -713,7 +713,13 @@ absent is worse than no policy:
   `task_max_rss_mb` (default 2048), and gets `RLIMIT_CPU` from
   `task_max_cpu_seconds` (default 900). A breach fails the task without
   retry, records `resource_ceiling_exceeded` and counts in `lab status`
-  (H2, `tests/test_ceilings.py`). In-process handlers and shell commands are
+  (H2, `tests/test_ceilings.py`). The values are to be set from
+  `lab measure-ceilings` run on the M6 (#180, `ops/mac-mini-setup.md`
+  section 22), which runs each reviewed handler's sample tasks in real
+  workers and suggests the largest peak times a stated headroom. The peaks
+  there are what each worker reports about itself through `getrusage` when
+  it finishes: a measurement for a person to read, never used to enforce
+  anything. In-process handlers and shell commands are
   not covered by these, and inference memory is the model server's, bounded
   only by the admission controller. Commands get only PATH, HOME, TMPDIR
   and LANG; parameters are schema-checked; timeouts are clamped to 300 s;
