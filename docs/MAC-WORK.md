@@ -21,7 +21,7 @@ Do them in the order below. Each later step assumes the earlier ones.
 Why: every check below tests the deployed build, not the repository.
 
 ```sh
-cd "$HOME/home-lab" && git pull
+cd "$HOME/home-lab" && git checkout main && git pull --ff-only origin main
 ```
 
 Then deploy as in `ops/mac-mini-setup.md` section 8 and reload the daemons
@@ -33,9 +33,15 @@ Why: these are checks of the machine's own behaviour (file permissions, power
 assertions, launchd restarts, the alert path). The script runs them in order and
 writes one report. See `ops/mac-session.md`.
 
+Two steps need setup from section 2 first: `skillrun` needs the pinned
+container image in `LAB_CONTAINER_IMAGE`, and `mcp` needs at least one signed
+server in `/etc/homelab/mcp.json`. Without them those steps report SKIPPED. Do
+that setup first, or rerun just those two afterwards with
+`./ops/mac-session.sh --only skillrun,mcp`.
+
 ```sh
 ./ops/mac-session.sh --dry-run
-./ops/mac-session.sh
+LAB_CONTAINER_IMAGE='<name@sha256:...>' ./ops/mac-session.sh
 ```
 
 | Step | Issue | Why it needs the Mac |
