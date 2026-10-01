@@ -23,6 +23,8 @@ What is missing for daily use:
 
 - **No chat path through the broker.** The Telegram bot is a TOTP-gated raw
   shell outside the repository; it bypasses the broker and the audit log.
+  Update: the chat channel is built (`lab/chat.py`, #239); installing it and
+  retiring the raw-shell bot are operator steps on the Mac.
 - **No real handlers.** `lab/handlers/` holds one demo.
 - No tools a person wants (calendar, mail, richer web, code editing), no
   agent-proposed memory, no skill import, and no install path for other

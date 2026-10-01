@@ -41,16 +41,18 @@ def register_all(supervisor: Any) -> None:
     """Register every reviewed handler on a supervisor started as a daemon.
 
     The workspace and git handlers are always registered. The proposal
-    summarizer (``lab.loop``) is registered when a loopback model is
-    configured through ``LAB_MODEL_URL``, ``LAB_MODEL_NAME`` and
-    ``LAB_MODEL_REVISION``; the web handler needs that model and a host
-    list in ``LAB_WEB_FETCH_HOSTS`` as well. The model's heavy slot is a
-    lock file beside the database, the same one ``lab tick`` takes. The demo
-    handlers exist for tests and are deliberately not reachable by tasks on a
-    running lab. Add a ``register_reviewed`` call here in the same change that
-    adds a handler.
+    summarizer (``lab.loop``) and the chat answerer (``lab.chat``, no tools)
+    are registered when a loopback model is configured through
+    ``LAB_MODEL_URL``, ``LAB_MODEL_NAME`` and ``LAB_MODEL_REVISION``; the web
+    handler needs that model and a host list in ``LAB_WEB_FETCH_HOSTS`` as
+    well. They share one model and its heavy slot, a lock file beside the
+    database that ``lab tick`` takes too. Without a model a chat task is
+    cancelled with "no handler", and the chat says so. The demo handlers exist
+    for tests and are deliberately not reachable by tasks on a running lab.
+    Add a ``register_reviewed`` call here in the same change that adds a
+    handler.
     """
-    from lab import loop
+    from lab import chat, loop
     from lab.handlers import git_read, web, workspace
 
     supervisor.register_reviewed(workspace.KIND, workspace.REF, tools=workspace.TOOLS)
@@ -59,6 +61,7 @@ def register_all(supervisor: Any) -> None:
     model = loop.model_from_env(supervisor.config.db_path)
     if model is not None:
         loop.register(supervisor, model)
+        chat.register(supervisor, model)
         hosts = web_hosts_from_env()
         if hosts:
             supervisor.broker.set_summarizer(loop.evidence_summarizer(model))

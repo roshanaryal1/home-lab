@@ -589,6 +589,60 @@ Implemented and tested:
   should be a private tunnel, not a wider bind
   (`tests/test_dashboard.py`).
 
+- **Chat through the broker** (`lab/chat.py`, `lab chat`, #239). A message
+  from the one paired Telegram chat becomes a queued task; the reply comes
+  from the task's result. The rules, each tested in `tests/test_chat.py`:
+  - Only the paired chat id is answered, and only from a private chat whose
+    sender is that same id. Every other update creates nothing, gets no reply
+    and is audited (`chat_update`, action `unpaired`) by hash and length, never
+    by content. The pairing is `LAB_CHAT_ID` in the installed, root-owned
+    service definition, out of the lab account's write reach; without it
+    `lab chat` refuses to start.
+  - Chat text is data. It is stored as fixed-schema evidence with origin
+    `chat`, so the task is tainted and the Rule of Two applies. It never
+    becomes a command line, never picks the handler, the task tier or a tool,
+    and never grants anything. A chat task runs the `chat` handler, which in
+    this phase is a model answer with no tools.
+  - No approval from chat. `/approve` shows the exact intent (credential-like
+    values redacted) and prints the `lab approve ... --expect-hash` command to
+    run on the Mac with the operator key. There is no path from a chat message
+    to a granted approval, and an approval the lab account writes itself is
+    still ignored by a supervisor that holds the operator's public key. The
+    test sends a message that a worst-case handler turns into `shell.run`: it
+    waits for approval through `/approve`, injected "approve all" text and an
+    unsigned grant, and runs only after the operator's signed grant. There is
+    no safe way yet to sign from the phone; the owner runs the printed command
+    on the Mac (at the keyboard or over SSH on the tailnet).
+  - Only less authority from chat. `/pause`, `/stop`, `/cancel` and `/deny`
+    act directly for the paired chat because they only remove authority; each
+    is audited with the chat as the actor. `/stop` is the emergency stop: the
+    supervisor revokes broker authority and ends running work. Resume adds
+    authority and stays operator-signed (`lab control resume --key`), so the
+    chat only prints that command. While the lab is stopped no new chat task is
+    queued. `/cancel`, `/deny` and `/approvals` reach only tasks that came from
+    the chat.
+  - Once only. The next update id lives in the database and moves in the same
+    transaction that records the update, so a replayed or re-sent update is
+    not handled twice, and a task created just before a crash is found again by
+    its origin id. One poller per database (a lock file).
+  - Bounded. Messages over 2,000 characters are refused; each chat may send 30
+    messages per 10 minutes; replies are cleaned plain text (no markup), at most
+    3,500 characters, and go only to the paired chat. A result marked secret is
+    not sent.
+  - Through the egress gateway. Polls and replies go only to
+    `api.telegram.org`, https on port 443, public addresses only, no redirects.
+    Refused requests are audited; routine polls are not, so the hash chain is
+    not filled with them. The bot token comes from `lab.vault` (secret
+    `telegram-chat-bot`) and never appears in an event, a log line or an error.
+  - Limits, stated plainly. The poller runs as the lab account, so that account
+    can read the chat bot's token. Whoever holds the token can read the owner's
+    messages to the bot and send the owner messages that look like the bot's,
+    including a fake approval prompt. It cannot approve anything: approving
+    needs the operator key on the Mac, and `lab show` there is the copy to
+    trust. Use a bot of its own for chat, never the alert bot or the old
+    shell bot. Telegram bot chats are not end-to-end encrypted, so send no
+    secrets through it.
+
 ## Known gaps in what exists
 
 Reproduced by an independent review on 2026-09-28 and tracked, not fixed
@@ -618,7 +672,10 @@ every draft by hand.
   values measured on real work. Setting them from measured peaks is #180,
   and it waits for the handlers to run real tasks on the Mac mini.
 - An owner-only Telegram bot gives the owner a shell on the Mac mini
-  from the phone (#184). It lives outside this repository on purpose and
+  from the phone (#184). The chat channel above replaces it (#239), but
+  retiring it is an operator step on the Mac that has not been done yet
+  (`ops/mac-mini-setup.md` section 23): stop its service and revoke its token.
+  Until then it lives outside this repository and
   bypasses the lab's broker, approvals and audit log: a command sent
   through it runs as the owner's macOS user, not as the lab account. It
   answers one paired chat id only, needs a fresh TOTP code to open the
@@ -638,9 +695,18 @@ absent is worse than no policy:
 - **Network egress exists only through one gateway, and no real host
   has been exercised yet.** `net.fetch` (`lab/egress.py`, item 4.3, #14)
   and `net.summarize` (the same request, then the model; #240) are the
-  only outbound paths: see "What exists". Shell commands still run
-  with the sandbox's network rules, and nothing else in the lab opens
-  sockets.
+  only outbound paths for a task: see "What exists". The chat channel's
+  polls go through the same gateway, to one fixed host. Shell commands
+  still run with the sandbox's network rules, and the alert command
+  (`lab/telegram_alert.py`) posts to its one fixed host directly.
+- **No approval from the phone.** The chat channel can show what waits and
+  print the signed command, but signing needs the operator key, which lives on
+  the Mac outside the lab account's reach. A way to sign from the phone without
+  moving that key is not designed yet; no new cryptography was added for it.
+- **The chat channel has not run against the real Telegram API.** It is tested
+  against a fake Bot API behind the real egress gateway (`tests/test_chat.py`).
+  Installing it, pairing the chat id and retiring the raw-shell bot are operator
+  steps on the Mac (`ops/mac-mini-setup.md` section 23).
 - **Memory and CPU ceilings cover reviewed handlers only, and their values
   are unmeasured.** A reviewed handler's worker process is sampled every
   half second (`ps` over its process group) and killed with the group above
