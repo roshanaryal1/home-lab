@@ -85,7 +85,8 @@ dated amendment, never a quiet edit.
 
 **What this adds.** The three claims below, and the three frozen case files
 above. None of the code that any claim measures has been merged. M2, M5 and M6
-are proposals in `docs/ROADMAP.md`, undecided in #189.
+are milestones in `docs/ROADMAP.md`. #189 recorded on 2026-10-01 that they are
+built on the lab's own broker, and none of their code exists yet.
 
 **Claim M2, chat through the broker.** Of the 32 cases in
 `evals/prereg/m2-chat-injection.jsonl`, zero may fail.
