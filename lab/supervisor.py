@@ -41,7 +41,7 @@ from lab.broker import (
 from lab.connectors import load_connectors
 from lab.egress import EgressGateway, parse_allowlist, socket_transport, system_resolver
 from lab.journal import OperationJournal
-from lab.mcp import McpRegistry, load_servers
+from lab.mcp import McpError, McpRegistry, load_servers
 from lab.operator import load_public
 from lab.policy import Decision, PolicyEngine
 from lab.queue import LeaseLost, LeaseToken, PayloadTooLarge, Task, TaskQueue
@@ -754,10 +754,15 @@ def main(argv: list[str] | None = None) -> int:
     async def run() -> None:
         if args.allow_unsigned:
             refuse_unsigned_when_deployed()
-        sup = Supervisor(SupervisorConfig(db_path=args.db,
-                                          require_operator_key=not args.allow_unsigned))
         from lab import handlers
-        handlers.register_all(sup)
+        sup = Supervisor(SupervisorConfig(db_path=args.db,
+                                          require_operator_key=not args.allow_unsigned,
+                                          mcp_servers_file=handlers.mcp_servers_file_from_env()))
+        try:
+            handlers.register_all(sup)
+        except BaseException:
+            sup.close()
+            raise
         loop = asyncio.get_running_loop()
         loop.add_signal_handler(signal.SIGTERM, sup.stop)
         loop.add_signal_handler(signal.SIGINT, sup.stop)
@@ -772,6 +777,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"supervisor: {exc}", file=sys.stderr)
         return 1
     except MissingOperatorKey as exc:
+        print(f"supervisor: {exc}", file=sys.stderr)
+        return 2
+    except McpError as exc:
+        # A malformed or unsigned MCP servers file stops the daemon at start.
         print(f"supervisor: {exc}", file=sys.stderr)
         return 2
     return 0
