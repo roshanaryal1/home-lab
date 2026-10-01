@@ -30,7 +30,8 @@ Usage:
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
-    python3 -m lab.cli backup --to DIR [--artifacts DIR]
+    python3 -m lab.cli backup [--to DIR] [--artifacts DIR] [--keep N] [--alert-config FILE]
+    python3 -m lab.cli heartbeat --url-file FILE
     python3 -m lab.cli restore-check MANIFEST --into DIR
     python3 -m lab.cli drill crash|restore [--log DIR]
     python3 -m lab.cli chat [--once] [--chat-id N]
@@ -45,6 +46,7 @@ import os
 import re
 import sqlite3
 import sys
+import tempfile
 import time
 import unicodedata
 from dataclasses import asdict
@@ -58,6 +60,7 @@ from lab import (
     audit,
     backup,
     control,
+    deadman,
     drills,
     emitter,
     keepawake,
@@ -384,9 +387,15 @@ def build_parser() -> argparse.ArgumentParser:
     art_sub.add_parser("verify", help="re-hash every stored artifact; exit 1 on any problem")
 
     bak = sub.add_parser("backup", help="snapshot the database and artifacts (online, consistent)")
-    bak.add_argument("--to", type=Path, required=True, help="destination directory")
+    bak.add_argument("--to", type=Path, default=None,
+                     help="destination directory (default: $LAB_BACKUP_DIR)")
     bak.add_argument("--artifacts", type=Path, default=None,
                      help="artifact store to copy (default: 'artifacts' next to the database)")
+    bak.add_argument("--keep", type=int, default=None, metavar="N",
+                     help="restore-check the new backup, then delete all but the newest N "
+                     "backups in the folder (only its own files)")
+    bak.add_argument("--alert-config", type=Path, default=None,
+                     help="operator-owned JSON naming a command to run when the backup fails")
     rc = sub.add_parser("restore-check",
                         help="restore a backup into a fresh directory and verify it")
     rc.add_argument("manifest", type=Path)
@@ -483,6 +492,9 @@ def build_parser() -> argparse.ArgumentParser:
     stc.add_argument("--tests-dir", type=Path, default=None)
     stc.add_argument("--alert-config", type=Path, default=None,
                      help="operator-owned JSON naming the alert command")
+    stc.add_argument("--report-ok", action="store_true",
+                     help="with --alert-config, also send one short alert when every check "
+                     "passes, so a result arrives every morning")
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
@@ -504,6 +516,11 @@ def build_parser() -> argparse.ArgumentParser:
     tk.add_argument("--min-failures", type=int, default=3)
     tk.add_argument("--allow-unsigned", action="store_true",
                     help="run without an operator key (dummy data only)")
+
+    hb = sub.add_parser("heartbeat", help="ping the operator's dead-man switch, only while "
+                        "the lab is healthy")
+    hb.add_argument("--url-file", type=Path, required=True,
+                    help="file holding the ping URL; owned by this user, mode 600")
 
     wd = sub.add_parser("watchdog", help="kill a supervisor whose heartbeat has gone stale")
     wd.add_argument("--max-age", type=float, default=service.DEFAULT_MAX_AGE,
@@ -736,6 +753,14 @@ def cmd_watchdog(args: argparse.Namespace) -> int:
     return 2 if verdict.action in ("killed", "would_kill") else 0
 
 
+def cmd_heartbeat(args: argparse.Namespace) -> int:
+    """Read-only on the database. Exit 0 pinged, 2 unhealthy so not pinged, 1 failed.
+    The URL is a secret: nothing printed here ever contains it."""
+    outcome = deadman.run(args.db, args.url_file)
+    print(f"heartbeat: {outcome.message}", file=sys.stdout if outcome.code == 0 else sys.stderr)
+    return outcome.code
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Read-only. Exit 0 ok, idle or attention; 2 unhealthy (for a watchdog)."""
     if not args.db.exists():
@@ -771,6 +796,9 @@ def _send_alert(args: argparse.Namespace, kind: str, message: str) -> None:
 
 
 def cmd_selftest(args: argparse.Namespace) -> int:
+    if args.report_ok and args.alert_config is None:
+        print("selftest: --report-ok needs --alert-config", file=sys.stderr)
+        return 1
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1
@@ -778,20 +806,71 @@ def cmd_selftest(args: argparse.Namespace) -> int:
                           run_safety_tests=not args.no_safety_tests)
     for check in report.checks:
         print(f"{'ok  ' if check.ok else 'FAIL'} {check.name:<15} {_escape(check.detail)}")
-    if not report.ok and args.alert_config is not None:
-        _send_alert(args, "selftest", "; ".join(f"{c.name}: {c.detail}"
-                                                 for c in report.failures()))
+    if args.alert_config is not None:
+        if not report.ok:
+            _send_alert(args, "selftest", "; ".join(f"{c.name}: {c.detail}"
+                                                     for c in report.failures()))
+        elif args.report_ok:
+            # Its own kind, so a morning "ok" never uses up the window a
+            # failure alert needs, and the config's rate limit still applies.
+            _send_alert(args, "selftest_ok", f"selftest ok: {len(report.checks)} checks")
     return 0 if report.ok else 1
+
+
+def _backup_destination(args: argparse.Namespace) -> Path:
+    if args.to is not None:
+        return Path(args.to)
+    env = os.environ.get("LAB_BACKUP_DIR", "")
+    if not env:
+        raise backup.BackupError("no destination: pass --to or set LAB_BACKUP_DIR")
+    if "PASTE_" in env or not os.path.isabs(env):
+        raise backup.BackupError("LAB_BACKUP_DIR is still the placeholder or not absolute; "
+                                 "set it in the installed service definition")
+    return Path(env)
+
+
+def cmd_scheduled_backup(args: argparse.Namespace) -> int:
+    """Back up, prove the new backup restores, then rotate. Alerts on any failure."""
+    def failed(message: str) -> int:
+        print(f"backup: {message}", file=sys.stderr)
+        if args.alert_config is not None:
+            _send_alert(args, "backup", message)
+        return 1
+
+    if args.keep is not None and args.keep < 1:
+        return failed("--keep must be at least 1")
+    try:
+        dest = _backup_destination(args)
+        if args.keep is not None and dest.is_symlink():
+            # Rotation deletes files, so it only works in the folder it was given.
+            return failed(f"{dest} is a symlink; give the real directory")
+        store = args.artifacts if args.artifacts is not None else args.db.parent / "artifacts"
+        path = backup.backup(args.db, dest, store if store.exists() else None)
+        print(f"wrote {path}")
+        if args.keep is None:
+            return 0
+        with tempfile.TemporaryDirectory(prefix="lab-backup-check-") as tmp:
+            report = backup.restore_check(path, Path(tmp) / "restore")
+        if not report.ok:
+            return failed(f"the new backup {path.name} failed its restore check: "
+                          + "; ".join(report.problems))
+        print(f"restore check ok: {report.events} audit events, "
+              f"{report.artifacts_checked} artifact blobs")
+        rotated = backup.rotate(dest, args.keep, protect=path)
+    except (backup.BackupError, OSError, sqlite3.DatabaseError) as exc:
+        return failed(str(exc))
+    print(f"kept {len(rotated.kept)}, removed {len(rotated.removed)} backups and "
+          f"{rotated.blobs_removed} artifact blobs")
+    for note in rotated.left_alone:
+        print(f"left alone: {_escape(note)}")
+    return 0
 
 
 def cmd_backup(args: argparse.Namespace) -> int:
     """Read-only on the source database; opens no queue and applies no migration."""
+    if args.command == "backup":
+        return cmd_scheduled_backup(args)
     try:
-        if args.command == "backup":
-            store = args.artifacts if args.artifacts is not None else args.db.parent / "artifacts"
-            path = backup.backup(args.db, args.to, store if store.exists() else None)
-            print(f"wrote {path}")
-            return 0
         report = backup.restore_check(args.manifest, args.into)
     except backup.BackupError as exc:
         print(f"backup: {exc}", file=sys.stderr)
@@ -1209,6 +1288,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_status(args)
     if args.command == "watchdog":
         return cmd_watchdog(args)
+    if args.command == "heartbeat":
+        return cmd_heartbeat(args)
     if args.command == "chat":
         return cmd_chat(args)
     if args.command == "tick":

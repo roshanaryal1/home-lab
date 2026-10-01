@@ -371,8 +371,29 @@ Implemented and tested:
   same kind of alert is not repeated within an hour, decided under a lock so two
   overlapping runs cannot both send. The config is opened once without following
   a symlink and its owner and mode are read from the open descriptor. The channel itself (which
-  service, which account) is not chosen here and the dead-man switch that
-  catches the lab going silent is not built (#79).
+  service, which account) is not chosen here. With `--report-ok` (#80) a
+  passing self-test also sends one short `selftest ok: N checks`, so a result
+  arrives every morning; it is its own alert kind, so an "ok" never uses up the
+  window a failure alert needs, and both obey the config's rate limit.
+- **The dead-man switch ping** (`lab/deadman.py`, `lab heartbeat`, #79). Every
+  other alert needs the lab to be running. An outside service the operator
+  chooses expects a ping every five minutes and alerts the phone when pings
+  stop; `lab heartbeat`, run every five minutes as the lab account, sends it
+  only while `lab status` would not report unhealthy, so a stuck lab goes
+  quiet as well. The ping URL is a secret: whoever holds it can keep the switch
+  quiet while the lab is down. It lives in `/etc/homelab/heartbeat-url`, owned
+  by the lab account, mode 600; the command refuses a file group or others can
+  read or write, a symlink, a file it does not own, and any URL that is not
+  https. The file is opened once without following a symlink and checked on
+  the open descriptor. The URL is never printed or logged: messages name only
+  the host, and the gateway's audit carries the host and a hash of the URL.
+  The request goes only through `lab.egress.EgressGateway`, with an allowlist
+  of just the URL's own host, so the usual rules hold (port 443, public
+  addresses only, pinned address, bounded response), and no redirect is
+  followed. It writes nothing to the database, because a ping in the event
+  log every five minutes would hide the silent-log signal `lab status` uses
+  (`tests/test_deadman.py`). Limit: the switch says only that pings stopped,
+  not why; and anyone who can read the lab account's files can read the URL.
 - **The lab-account setup plan** (`lab/accountplan.py`, `lab setup-plan`,
   H5c). The step that makes the boundaries real (a non-admin `lab` account
   that cannot read the operator's private key, cannot edit its own
@@ -386,7 +407,8 @@ Implemented and tested:
   on the mini (#70). The account name is validated as a POSIX name, and the
   private key appears only in a check that expects "Permission denied".
 - **Which jobs run as root, and why** (#235). The supervisor, `lab tick`, the
-  status check and the self-test run as the lab account. Two jobs run as root.
+  status check, the self-test, the daily backup (#67) and the dead-man switch
+  ping (#79) run as the lab account. Two jobs run as root.
   The watchdog has to: it signals a supervisor owned by another account.
   `lab keepawake` does not have to: it only reads the database and starts
   `caffeinate`. It stays root until the operator confirms on the mini that
@@ -448,7 +470,7 @@ Implemented and tested:
   append-only event log, so a number cannot disagree with the audit trail.
   `lab status` exits 2 when unhealthy (a running task on an expired
   lease, or work waiting with no live worker and a silent log), which is
-  what the watchdog (#78) and the dead-man switch (#79) will act on.
+  what the dead-man switch ping (#79) acts on.
   It also reports the operator mode.
 - **Heartbeat and watchdog** (`lab/service.py`, `lab watchdog`, item 6.2,
   #78). The supervisor writes `<db>.heartbeat` (pid, time, process start
@@ -562,7 +584,18 @@ Implemented and tested:
   manifest, SQLite integrity check, schema version, foreign keys, the
   audit chain or its head, or any artifact blob missing or altered
   (`tests/test_backup.py`). Backups are not encrypted and are only as
-  private as the directory they are written to. Recovery drills
+  private as the directory they are written to. The daily job
+  (`com.homelab.backup`, as the lab account) runs `lab backup --keep 14`: it
+  restore-checks every new backup and fails, alerting through the alert
+  config, if the check does not pass, and only then deletes all but the
+  newest 14. Rotation deletes only what it can prove it wrote: a manifest with
+  its exact name that parses and names its own database, that database, and
+  artifact blobs that only deleted backups referenced (none at all if a kept
+  backup cannot be read). It opens the folder without following a symlink,
+  never follows a symlink inside it, and leaves every other file alone
+  (`tests/test_backup_rotation.py`). The folder is set only in the installed,
+  root-owned copy of the job (`LAB_BACKUP_DIR`); the committed copy carries
+  a placeholder the command refuses. Recovery drills
   (`lab drill`, `ops/drills/`) record every run and count as
   demonstrated only on the Mac mini; the monthly drill there is parked.
 - **Constrained decoding and shadow measurement** (`lab/grammar.py`,
@@ -696,7 +729,7 @@ absent is worse than no policy:
   has been exercised yet.** `net.fetch` (`lab/egress.py`, item 4.3, #14)
   and `net.summarize` (the same request, then the model; #240) are the
   only outbound paths for a task: see "What exists". The chat channel's
-  polls go through the same gateway, to one fixed host. Shell commands
+  polls go through the same gateway, to one fixed host, and so does the dead-man switch ping (#79). Shell commands
   still run with the sandbox's network rules, and the alert command
   (`lab/telegram_alert.py`) posts to its one fixed host directly.
 - **No approval from the phone.** The chat channel can show what waits and
