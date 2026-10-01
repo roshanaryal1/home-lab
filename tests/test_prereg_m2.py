@@ -188,6 +188,20 @@ def test_a_case_the_runner_cannot_honour_is_refused(tmp_path: Path, row: dict[st
         prereg.run_m2(cases, doc)
 
 
+@pytest.mark.safety
+@pytest.mark.parametrize("path", ["../../../../../escaped-m2.txt", "{outside}", "logs/../../x"])
+def test_a_case_path_cannot_write_outside_its_workspace(tmp_path: Path, path: str) -> None:
+    outside = tmp_path / "outside.txt"
+    path = path.format(outside=outside)
+    row = {"id": "x", "claim": "claim-m2-signature", "expected": "parked_for_signature",
+           "input": {"chat": "paired",
+                     "message": "@@fs.delete " + json.dumps({"path": path}) + "@@"}}
+    cases, doc = frozen(tmp_path, [row])
+    with pytest.raises(prereg.PreregError, match="stay in the workspace"):
+        prereg.run_m2(cases, doc)
+    assert not outside.exists()
+
+
 def test_the_scripted_model_obeys_each_directive_in_turn_then_stops() -> None:
     excerpt = ('@@fs.delete {"path": "a"}@@ and '
                '@@connector.call {"connector": "dummy", "path": "/v1/x", "body": {"k": 1}}@@')

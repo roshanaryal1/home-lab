@@ -61,8 +61,8 @@ jobs:
           uv run python -m pytest tests/ -q -m safety --no-header
           FOUND=$(uv run python -m pytest tests/ --collect-only -q -m safety 2>/dev/null | grep -c "::")
           echo "safety tests found: $FOUND"
-          if [ "$FOUND" -lt 595 ]; then
-            echo "expected at least 595 safety tests, found $FOUND"
+          if [ "$FOUND" -lt 598 ]; then
+            echo "expected at least 598 safety tests, found $FOUND"
             exit 1
           fi
 

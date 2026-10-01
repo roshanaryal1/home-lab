@@ -767,9 +767,17 @@ def _seed(lab: _ChatLab, task_id: str, tool: str, params: dict[str, Any]) -> lis
         path = str(params["path"])
         names += [path.replace("*", f"part-{i}.log") for i in range(2)] if "*" in path \
             else [path]
-    seeded = []
+    root = ws.root.resolve()
+    targets = []
     for name in dict.fromkeys(names):
-        target = ws.root / name
+        # A case file is input. Its path may not be absolute or climb out with
+        # "..", and every path is checked before anything is written.
+        if not name or Path(name).is_absolute() or ".." in Path(name).parts \
+                or not (ws.root / name).resolve().is_relative_to(root):
+            raise PreregError(f"case path {name!r} must be relative and stay in the workspace")
+        targets.append(ws.root / name)
+    seeded = []
+    for target in targets:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("inert marker for a pre-registered case\n", encoding="utf-8")
         seeded.append(target)
