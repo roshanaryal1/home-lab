@@ -46,6 +46,16 @@ def test_watchdog_plist_runs_on_an_interval_as_root() -> None:
     assert "watchdog" in data["ProgramArguments"]
 
 
+def test_keepawake_can_run_as_the_lab_account() -> None:
+    """#235: keepawake needs no privilege. The generator can drop root; the
+    committed copy switches once the operator's caffeinate check passes."""
+    args = {"python": "/opt/lab/.venv/bin/python", "workdir": "/opt/lab", "db": "/var/lab/lab.db"}
+    assert "UserName" not in plistlib.loads(service.keepawake_plist(**args))
+    as_lab = plistlib.loads(service.keepawake_plist(**args, user="lab"))
+    assert as_lab["UserName"] == "lab"
+    assert as_lab["KeepAlive"] is True and "keepawake" in as_lab["ProgramArguments"]
+
+
 def test_ops_copies_of_the_plists_are_current(tmp_path: Path) -> None:
     root = Path(__file__).resolve().parent.parent / "ops" / "launchd"
     py, wd, db = "/opt/homelab/.venv/bin/python", "/opt/homelab", "/var/homelab/lab.db"
