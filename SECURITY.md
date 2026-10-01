@@ -82,6 +82,61 @@ Implemented and tested:
   profile is passed inline and never written into the workspace (R10);
   default-deny tool allowlists per task, byte and file-count ceilings,
   and an artifact manifest per execution.
+- **The first three local tools** (`lab/handlers/workspace.py`,
+  `lab/handlers/git_read.py`, `lab/handlers/web.py`, #240). Each is a
+  reviewed handler run in a worker process, registered in `register_all`
+  with only the broker tools it needs, and its policy tier is the highest
+  tier among them. None holds `fs.delete`, `shell.run`, `connector.call`
+  or a secret. Each does all its I/O through the broker; none opens a
+  file, a socket or a process itself. Tested with hostile input in
+  `tests/test_local_tools.py`.
+  - *Workspace files* (notify): `fs.read`, `fs.list`, `fs.write` and a
+    new `fs.search`. `fs.search` is autonomous like `fs.read`: it finds
+    a literal string (not a regular expression, so no pattern can run
+    for ever), walks by descriptor without following any symlink, skips
+    `.git`, opens only regular files, and caps files, bytes per file,
+    bytes in total, matches and the length of each returned line. All
+    file tools now check a file's type before opening it and again by
+    descriptor after, so a FIFO cannot hang a call and a device is never
+    opened or truncated.
+  - *Git read-only* (autonomous): new `git.status`, `git.log` and
+    `git.diff`. They take only a repository directory; the broker builds
+    the whole argument list, never a shell string. They are autonomous
+    because nothing a repository holds can make them run code, write,
+    or reach outside the workspace. Before git runs, the repository must
+    be inside the workspace and reached without a symlink; a `.git` file
+    must point inside the workspace; the git directory must contain no
+    symlink, no special file, and no `commondir`, `config.worktree` or
+    `objects/info/alternates`; its config may set only reviewed keys
+    (core basics, remote URLs, branch tracking, user name), and a config
+    line the strict parser does not understand is a refusal; and for
+    status and diff, the index may name no path outside the work tree.
+    Git then runs with `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`,
+    `HOME` set to the workspace, `GIT_OPTIONAL_LOCKS=0` (status does not
+    rewrite the index), and `-c core.fsmonitor=false -c
+    core.hooksPath=/dev/null -c protocol.allow=never`, pager, attributes
+    and excludes files off, `--no-ext-diff --no-textconv`, submodules
+    ignored. Output is capped at 256 KiB per stream, cleaned of control
+    characters, and the command is killed after 30 s or on a stop.
+    Measured while building it: the `-c` overrides alone stop a hostile
+    fsmonitor, pager and external diff, but not a clean filter that
+    `git status` runs on a changed file. The config check is what stops
+    that, so it is the load-bearing control, and the overrides are the
+    second layer.
+  - *Web fetch with summary* (notify): one new tool, `net.summarize`.
+    The broker makes the same request as `net.fetch`, through the egress
+    gateway, to a host on the list fixed at registration
+    (`LAB_WEB_FETCH_HOSTS`, DNS names only; an IP address stops the daemon
+    at start). The page becomes fixed-schema `Evidence` (bounded,
+    cleaned), and the bounded model sees only that record, inside a JSON
+    object, under a system prompt that calls it data. The reply must be
+    exactly one `{"summary": ...}` object or it is refused, never
+    repaired. The handler never sees the raw page and holds no other
+    tool, so a page that tells the model to write a file or fetch another
+    URL has nothing to steer: the tests run a model that obeys the page
+    and one whose summary repeats the instructions, and in both cases
+    the only call made is the one fetch. The task is tainted on read, and
+    the summary is returned as data for a person, never as instructions.
 - **Durable task state** with bounded dispatch, lease renewal, atomic
   state transitions (#44), lease tokens checked in the same transaction
   as each write with a generation per claim and a host singleton lock
@@ -536,6 +591,22 @@ every draft by hand.
   the same OS user, so a hostile handler that found the database file
   could open it; the separate lab account closes that (#70). Only code
   under `lab.handlers` can be loaded into a worker.
+- The read-only git tools run git outside the Seatbelt sandbox, because
+  their safety must not depend on a sandbox Linux does not have. What
+  stops a hostile repository is the check before git runs and the fixed
+  command line, described under "What exists". Two limits remain. The
+  check and git's own reads are not atomic, so a process already able to
+  write the workspace at the same moment could change the repository in
+  between; nothing but the task's own sequential tool calls writes there
+  today. And a git object store can be made expensive to read: the 30 s
+  deadline and the output cap bound it, the worker memory ceiling does
+  not, since git runs under the supervisor (#16).
+- Neither `fs.read` nor `fs.search` refuses a hard link. A hard link to a
+  file outside the workspace cannot be made by the file tools; only a
+  command could make one, and `shell.run` is confined by Seatbelt.
+- The worker ceilings for the three new handlers are the defaults, not
+  values measured on real work. Setting them from measured peaks is #180,
+  and it waits for the handlers to run real tasks on the Mac mini.
 - An owner-only Telegram bot gives the owner a shell on the Mac mini
   from the phone (#184). It lives outside this repository on purpose and
   bypasses the lab's broker, approvals and audit log: a command sent
@@ -556,7 +627,8 @@ absent is worse than no policy:
 
 - **Network egress exists only through one gateway, and no real host
   has been exercised yet.** `net.fetch` (`lab/egress.py`, item 4.3, #14)
-  is the only outbound path: see "What exists". Shell commands still run
+  and `net.summarize` (the same request, then the model; #240) are the
+  only outbound paths: see "What exists". Shell commands still run
   with the sandbox's network rules, and nothing else in the lab opens
   sockets.
 - **Memory and CPU ceilings cover reviewed handlers only, and their values

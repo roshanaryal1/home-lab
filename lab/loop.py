@@ -108,14 +108,29 @@ def source_text(payload: dict[str, Any]) -> str:
             f"failed with: {payload.get('signature', '?')}")
 
 
+def summarize_evidence(model: BoundedModel, evidence: Evidence) -> str:
+    """One summary of fixed-schema evidence, or ``SummaryError``.
+
+    The text reaches the model only as the ``excerpt`` of a JSON record
+    under a system prompt that calls it data. The reply is parsed strictly
+    and never repaired. Also what the broker's net.summarize uses (#240).
+    """
+    messages = [{"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps({"record": evidence.as_payload()})}]
+    return parse_summary(model.generate(messages, seed=0).text)
+
+
+def evidence_summarizer(model: BoundedModel) -> Callable[[Evidence], str]:
+    """The callable ``ExecutionBroker.set_summarizer`` takes."""
+    return lambda evidence: summarize_evidence(model, evidence)
+
+
 def make_summarizer(model: BoundedModel) -> Handler:
     async def summarize(task: Task, tools: ToolSession) -> dict[str, Any]:
         evidence = extract_evidence(source_text(task.payload), source_type="event",
                                     source_id=task.id)
-        messages = [{"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": json.dumps({"record": evidence.as_payload()})}]
-        completion = await asyncio.to_thread(model.generate, messages, seed=0)
-        return {"summary": parse_summary(completion.text), "evidence": evidence.as_payload(),
+        summary = await asyncio.to_thread(summarize_evidence, model, evidence)
+        return {"summary": summary, "evidence": evidence.as_payload(),
                 "model": model.spec.name, "revision": model.spec.revision}
     return summarize
 
