@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.homelab.selftest</string>
+	<string>com.homelab.heartbeat</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/opt/homelab/.venv/bin/python</string>
@@ -11,22 +11,18 @@
 		<string>lab.cli</string>
 		<string>--db</string>
 		<string>/var/homelab/lab.db</string>
-		<string>selftest</string>
-		<string>--alert-config</string>
-		<string>/etc/homelab/alert.json</string>
-		<string>--report-ok</string>
+		<string>heartbeat</string>
+		<string>--url-file</string>
+		<string>/etc/homelab/heartbeat-url</string>
 	</array>
+	<key>RunAtLoad</key>
+	<true/>
 	<key>StandardErrorPath</key>
-	<string>/var/log/homelab/selftest.err</string>
+	<string>/var/log/homelab/heartbeat.err</string>
 	<key>StandardOutPath</key>
-	<string>/var/log/homelab/selftest.log</string>
-	<key>StartCalendarInterval</key>
-	<dict>
-		<key>Hour</key>
-		<integer>3</integer>
-		<key>Minute</key>
-		<integer>17</integer>
-	</dict>
+	<string>/var/log/homelab/heartbeat.log</string>
+	<key>StartInterval</key>
+	<integer>300</integer>
 	<key>UserName</key>
 	<string>lab</string>
 	<key>WorkingDirectory</key>
