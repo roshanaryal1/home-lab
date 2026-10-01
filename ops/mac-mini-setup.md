@@ -493,6 +493,19 @@ the paths, then:
       `ops/runbook-lab-account-and-daemons.md`). Use a **new, alert-only bot**
       from BotFather, never the token of the shell bot: the `lab` account has to
       read this one. Press Start on the new bot once so it may message you.
+
+      Both this step and the chat in section 23 read your numeric Telegram chat
+      id from the Keychain item `homelab-telegram-chat`. If it is not there yet,
+      store it once. Your id is the number `@userinfobot` replies with in
+      Telegram. The last line must print the number, not an error:
+
+      ```sh
+      read "CHAT_ID?Your numeric Telegram chat id: "
+      security add-generic-password -U -a "$USER" -s homelab-telegram-chat -w "$CHAT_ID"
+      unset CHAT_ID
+      security find-generic-password -a "$USER" -s homelab-telegram-chat -w
+      ```
+
       Then, in a Terminal on the mini (the token is typed at a hidden prompt,
       never pasted into a command line):
 
