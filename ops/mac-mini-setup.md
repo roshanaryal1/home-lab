@@ -553,7 +553,7 @@ the paths, then:
       command never prints it. Any service with a ping URL works
       (healthchecks.io is one). Steps:
       1. At the service, create a check with a 5 minute period and a
-         10 minute grace, and point its alert at your phone (its app, or the
+         5 minute grace, and point its alert at your phone (its app, or the
          same Telegram chat). Copy the check's ping URL. It must start with
          `https://`.
       2. Put the URL in the file. The file is created empty with the right
@@ -580,11 +580,12 @@ the paths, then:
          `/var/log/homelab/heartbeat.log` has one `pinged` line per run.
       4. The unplug test: unplug the network cable (and turn off Wi-Fi).
          The service alerts once the period plus the grace has passed since
-         the last ping, so with a 5 minute period and a 10 minute grace the
-         alert must reach the phone within 15 minutes of the unplug. This
-         item first asked for ten minutes; that needs a 5 minute grace, at
-         the cost of an alert whenever one ping is late. Pick one and note
-         it here. Plug the network back in; the check must go green again by
+         the last ping, so with a 5 minute period and a 5 minute grace the
+         service detects the outage within 10 minutes of the unplug. Phone
+         delivery can take a little longer than that. Record both times. The
+         owner chose the 5 minute grace on 2026-10-01: the ten-minute target
+         holds, at the cost of an alert whenever one ping is late. Plug the
+         network back in; the check must go green again by
          itself. Write the times here.
       5. Optional, the unhealthy case: on a scratch database whose task has
          an expired lease (see the alert command item above),
