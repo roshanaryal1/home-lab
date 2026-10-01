@@ -46,21 +46,23 @@ jobs:
         # Each module must reach the floor on its own, so a well-covered
         # module cannot hide a neglected one.
         run: |
-          for module in queue policy broker sandbox container audit artifacts memory; do
+          for module in queue policy broker sandbox container chat audit artifacts memory handlers/workspace handlers/web handlers/git_read; do
             uv run coverage report --include="lab/$module.py" --fail-under=90 --skip-empty || exit 1
           done
       - name: Safety properties must still be covered
         # Tests carrying the safety marker prove the load-bearing
         # guarantees: a crash never blindly replays a non-idempotent task,
         # the heavy inference slot is never breached, and the reproduced
-        # defects R01 to R11 stay fixed. Deleting them would otherwise be a
-        # silent green build, so assert the marked set has not shrunk.
+        # defects R01 to R11 stay fixed, and a chat message cannot reach an
+        # approve-tier tool or act for any chat but the paired one. Deleting
+        # them would otherwise be a silent green build, so assert the marked
+        # set has not shrunk.
         run: |
           uv run python -m pytest tests/ -q -m safety --no-header
           FOUND=$(uv run python -m pytest tests/ --collect-only -q -m safety 2>/dev/null | grep -c "::")
           echo "safety tests found: $FOUND"
-          if [ "$FOUND" -lt 334 ]; then
-            echo "expected at least 334 safety tests, found $FOUND"
+          if [ "$FOUND" -lt 433 ]; then
+            echo "expected at least 433 safety tests, found $FOUND"
             exit 1
           fi
 

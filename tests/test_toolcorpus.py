@@ -13,7 +13,7 @@ from lab.evals import ROOT, grade, load_tasks
 def test_the_corpus_is_deterministic_and_balanced() -> None:
     first, second = toolcorpus.build(), toolcorpus.build()
     assert first == second
-    assert len(first) == 10 * len(toolcorpus.CORPUS_TOOLS) == 70
+    assert len(first) == 10 * len(toolcorpus.CORPUS_TOOLS)
     per_tool = collections.Counter(t["check"]["tool"] for t in first)
     assert set(per_tool) == set(toolcorpus.CORPUS_TOOLS) and set(per_tool.values()) == {10}
     assert len({t["id"] for t in first}) == len(first)

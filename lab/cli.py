@@ -34,6 +34,7 @@ Usage:
     python3 -m lab.cli backup --to DIR [--artifacts DIR]
     python3 -m lab.cli restore-check MANIFEST --into DIR
     python3 -m lab.cli drill crash|restore [--log DIR]
+    python3 -m lab.cli chat [--once] [--chat-id N]
 """
 
 from __future__ import annotations
@@ -542,6 +543,13 @@ def build_parser() -> argparse.ArgumentParser:
     cn.add_argument("--by", default="operator")
     cn.add_argument("--reason", default="cancelled by operator")
 
+    cht = sub.add_parser("chat", help="poll the paired Telegram chat; messages become tasks")
+    cht.add_argument("--chat-id", default=None,
+                     help="the paired private chat id (or LAB_CHAT_ID); nothing else is answered")
+    cht.add_argument("--once", action="store_true", help="one poll, print what it did, exit")
+    cht.add_argument("--interval", type=float, default=1.0,
+                     help="seconds between polls, on top of Telegram's long poll")
+
     em = sub.add_parser("emit", help="queue proposals from patterns in the event log")
     em.add_argument("--min-failures", type=int, default=3,
                     help="failures of one kind and reason before it is proposed")
@@ -685,6 +693,59 @@ def cmd_tick(args: argparse.Namespace) -> int:
     print(f"{report.proposed} proposed, {report.summarized} summarized, {report.routed} routed"
           + ("" if report.ran else " (queue left to the running supervisor)"))
     return 0
+
+
+def cmd_chat(args: argparse.Namespace) -> int:
+    """Exit 2 when it cannot start (no pairing, no token, another poller), 0 otherwise."""
+    from lab import chat
+    from lab.vault import SecretUnavailable
+
+    if not args.db.exists():
+        print(f"No database at {args.db}", file=sys.stderr)
+        return 1
+    raw = args.chat_id or os.environ.get("LAB_CHAT_ID") or ""
+    if not re.fullmatch(r"[1-9]\d{0,19}", raw.strip()):
+        print("chat: no paired chat; pass --chat-id or set LAB_CHAT_ID to the owner's "
+              "private chat id (a positive number)", file=sys.stderr)
+        return 2
+    try:
+        token = Vault().resolve(chat.BOT_SECRET)
+    except SecretUnavailable as exc:
+        print(f"chat: {exc}; store the chat bot's token as described in SECURITY.md",
+              file=sys.stderr)
+        return 2
+    try:
+        with chat.single_poller(args.db), TaskQueue(args.db, owner="chat") as queue:
+            def audit_denials(kind: str, detail: dict[str, Any]) -> None:
+                # Polls are routine and would flood the chain; refusals are not.
+                if kind != "egress_allow":
+                    queue.record_event(None, kind, detail)
+
+            channel = chat.ChatChannel(queue, int(raw),
+                                       cli=f"python -m lab.cli --db {args.db}")
+            transport = chat.TelegramTransport(token, EgressGateway(), audit=audit_denials)
+            poller = chat.ChatPoller(channel, transport)
+            while True:
+                try:
+                    outcomes = poller.poll_once()
+                except chat.ChatError as exc:
+                    print(f"chat: {exc}", file=sys.stderr, flush=True)
+                    if args.once:
+                        return 1
+                    time.sleep(max(args.interval, 5.0))
+                    continue
+                for outcome in outcomes:
+                    print(f"update {outcome.update_id}: {outcome.action.value}"
+                          + (f" task {outcome.task_id[:12]}" if outcome.task_id else ""),
+                          flush=True)
+                if args.once:
+                    return 0
+                time.sleep(args.interval)
+    except chat.ChatError as exc:
+        print(f"chat: {exc}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        return 0
 
 
 def cmd_watchdog(args: argparse.Namespace) -> int:
@@ -1245,6 +1306,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_status(args)
     if args.command == "watchdog":
         return cmd_watchdog(args)
+    if args.command == "chat":
+        return cmd_chat(args)
     if args.command == "tick":
         return cmd_tick(args)
     if args.command == "selftest":

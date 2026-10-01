@@ -375,26 +375,71 @@ def test_oversized_result_is_refused_and_the_task_stays_running(tmp_path: Path) 
         q.succeed(task.lease, {"ok": True})
 
 
-# --------------------------------------- migration 15: memory proposals (#253)
+# ------------------------------------------------ migration 14: chat origin
 
 
-def _migrated_upto(tmp_path: Path, version: int) -> Path:
-    """A database taken only to ``version`` by the real runner."""
-    directory = tmp_path / f"upto_{version}"
+def _at_version(tmp_path: Path, version: int) -> Path:
+    """A database migrated only up to ``version``, through the real runner."""
+    directory = tmp_path / f"migrations_upto_{version}"
     directory.mkdir()
     for found in discover():
         if found.version <= version:
             shutil.copy(found.path, directory / found.path.name)
-    db = tmp_path / "upto.db"
+    db = tmp_path / "v.db"
     conn = raw(db)
+    conn.execute("PRAGMA journal_mode = WAL")
     assert migrate(conn, directory) == version
     conn.close()
     return db
 
 
+@pytest.mark.safety
+def test_migration_14_keeps_every_origin_and_taint_as_it_was(tmp_path: Path) -> None:
+    db = _at_version(tmp_path, 13)
+    conn = raw(db)
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("INSERT INTO tasks (id, title, origin_type) VALUES ('c', 't', 'chat')")
+    for n, (origin, tainted, sensitivity) in enumerate(
+            [("operator", 0, "internal"), ("web", 1, "public"), ("event", 1, "secret"),
+             ("unknown", 1, "internal")]):
+        conn.execute(
+            "INSERT INTO tasks (id, title, origin_type, origin_id, tainted, sensitivity, "
+            "payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (f"t{n}", f"title {n}", origin, f"src-{n}", tainted, sensitivity, '{"k": 1}'))
+    before = [tuple(r) for r in conn.execute("SELECT * FROM tasks ORDER BY id")]
+    conn.close()
+
+    with TaskQueue(db) as q:
+        assert current_version(q._conn) == latest_version()
+        after = [tuple(r) for r in q._conn.execute(
+            "SELECT id, parent_id, title, payload, state, priority, agent_kind, weight, "
+            "capability_tier, idempotent, attempts, executions, max_attempts, last_error, "
+            "result, created_at, updated_at, available_at, origin_type, origin_id, "
+            "origin_sha256, acquired_at, sensitivity, delegated_by, tainted "
+            "FROM tasks ORDER BY id")]
+        assert after == before
+        assert q._conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        # 'chat' is now a known origin, and it is tainted like any outside input.
+        q._conn.execute("INSERT INTO tasks (id, title, origin_type) VALUES ('c', 't', 'chat')")
+        assert q._conn.execute("SELECT tainted FROM tasks WHERE id = 'c'").fetchone()[0] == 1
+        with pytest.raises(sqlite3.IntegrityError):
+            q._conn.execute("INSERT INTO tasks (id, title, origin_type) VALUES ('x', 't', 'phone')")
+        assert q._conn.execute("SELECT next_update_id FROM chat_state").fetchone()[0] == 0
+        with pytest.raises(sqlite3.IntegrityError):
+            q._conn.execute("INSERT INTO chat_state (id) VALUES (2)")
+        with pytest.raises(sqlite3.IntegrityError):
+            q._conn.execute("UPDATE chat_state SET next_update_id = -1")
+        with pytest.raises(sqlite3.IntegrityError):
+            q._conn.execute("INSERT INTO chat_updates (update_id, chat_id, action, task_id) "
+                            "VALUES (1, 2, 'task_created', 'no-such-task')")
+
+
+# --------------------------------------- migration 15: memory proposals (#253)
+
+
 def test_migration_15_keeps_memories_and_adds_an_unsearchable_proposal_table(
         tmp_path: Path) -> None:
-    db = _migrated_upto(tmp_path, 14)
+    db = _at_version(tmp_path, 14)
     conn = raw(db)
     conn.execute("INSERT INTO memories (kind, text, text_sha256, source_id, trust, created_by) "
                  "VALUES ('curated', 'kept fact', ?, 's', 'trusted', 'roshan')", ("a" * 64,))

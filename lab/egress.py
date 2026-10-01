@@ -222,6 +222,33 @@ class EgressGateway:
         """One bounded request. ``headers`` may carry a credential, so a
         request with headers or a body never follows a redirect: the
         credential must not leave the host it was meant for."""
+        response, hops = self._exchange(url, allowed, task_id, method=method, headers=headers,
+                                        body=body, follow_redirects=follow_redirects,
+                                        audit=audit)
+        text = response.body.decode("utf-8", errors="replace")
+        evidence = extract_evidence(text, source_type="web", source_id=url)
+        return FetchResult(url, response.status, evidence,
+                           response.headers.get("content-type", ""), hops)
+
+    def request(self, url: str, allowed: frozenset[str], *, method: str = "GET",
+                headers: dict[str, str] | None = None, body: bytes | None = None,
+                audit: Callable[[str, dict[str, Any]], None] | None = None) -> Response:
+        """The same checks as ``fetch``, returning the raw response.
+
+        For trusted transport code with a fixed host and a fixed response
+        schema (the chat channel, ``lab.chat``), never for a task: a task
+        gets ``fetch`` and its fixed-schema evidence. Redirects are never
+        followed here, because the URL may carry a credential in its path.
+        """
+        response, _hops = self._exchange(url, allowed, "", method=method, headers=headers,
+                                         body=body, follow_redirects=False, audit=audit)
+        return response
+
+    def _exchange(self, url: str, allowed: frozenset[str], task_id: str, *,
+                  method: str, headers: dict[str, str] | None, body: bytes | None,
+                  follow_redirects: bool,
+                  audit: Callable[[str, dict[str, Any]], None] | None,
+                  ) -> tuple[Response, int]:
         if headers or body is not None:
             follow_redirects = False
         sink = audit or self._audit
@@ -246,10 +273,7 @@ class EgressGateway:
                     raise EgressDenied("redirect without a location")
                 current = urllib.parse.urljoin(current, location)
                 continue
-            text = response.body.decode("utf-8", errors="replace")
-            evidence = extract_evidence(text, source_type="web", source_id=url)
-            return FetchResult(url, response.status, evidence,
-                               response.headers.get("content-type", ""), hop)
+            return response, hop
         self._record(sink, "egress_deny", current, task_id, "too many redirects",
                      MAX_REDIRECTS)
         raise EgressDenied(f"more than {MAX_REDIRECTS} redirects")

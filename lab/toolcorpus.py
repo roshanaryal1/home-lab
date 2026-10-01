@@ -32,12 +32,12 @@ from lab import grammar
 from lab.broker import TOOL_SCHEMAS
 
 SEED = 20260930
-PER_TOOL = 10
-# The tools the frozen corpus covers, and the only ones its schema prefix
-# names. Pinned rather than read from the broker, so adding a broker tool
-# (memory.propose, #253) does not change a measured artifact.
+# The broker tools that existed when the corpus was registered. Fixed here,
+# not read from the broker, so a tool added later (#240) does not change
+# the frozen prompts or the schema prefix.
 CORPUS_TOOLS = ("fs.read", "fs.write", "fs.delete", "fs.list", "shell.run", "net.fetch",
                 "connector.call")
+PER_TOOL = 10
 PLAIN = "toolcalls-v1.jsonl"
 SCHEMA = "toolcalls-v1-schema.jsonl"
 FORMAT = ' Format: {"tool": ..., "arguments": {...}}'
@@ -132,7 +132,7 @@ def build(*, schema_in_prompt: bool = False, seed: int = SEED) -> list[dict[str,
 
 
 def schema_prefix() -> str:
-    schema = grammar.response_format(frozenset(CORPUS_TOOLS))["json_schema"]["schema"]
+    schema = grammar.response_format(set(CORPUS_TOOLS))["json_schema"]["schema"]
     return ("Reply with one JSON object that validates against this JSON Schema, "
             f"with no other keys: {json.dumps(schema, sort_keys=True)}\n\n")
 
