@@ -71,6 +71,7 @@ from lab import sandbox
 from lab.connectors import Connector, ConnectorError
 from lab.egress import EgressDenied, EgressGateway, parse_allowlist
 from lab.journal import OperationJournal, operation_id
+from lab.memory import MemoryRefused
 from lab.policy import Decision, PolicyEngine, Tier, canonical
 from lab.queue import LeaseToken
 from lab.vault import Redactor, SecretUnavailable, Vault
@@ -157,6 +158,10 @@ TOOL_TIERS: dict[str, Tier] = {
     # One destination, one credential, injected by the broker (item 4.4).
     # Approve tier: a person sees the exact destination, path and body.
     "connector.call": Tier.APPROVE,
+    # Stores a pending proposal and nothing else (#253). Notify tier: the
+    # proposal grants nothing; the owner's signed decision does, later,
+    # outside the broker.
+    "memory.propose": Tier.NOTIFY,
 }
 
 
@@ -173,7 +178,12 @@ TOOL_EFFECTS: dict[str, str] = {
     "shell.run": NON_IDEMPOTENT,
     "net.fetch": IDEMPOTENT,        # a GET; retried freely, and gated by the host list
     "connector.call": NON_IDEMPOTENT,   # may change the outside world: journaled
+    "memory.propose": IDEMPOTENT,   # the same text from the same task is one proposal
 }
+
+# Tools that work on the database. SQLite's one connection lives on the
+# event loop's thread, so these run there rather than in a worker thread.
+_ON_LOOP = frozenset({"memory.propose"})
 
 # Per-task and per-call ceilings (item 1.10). A request can lower these
 # where a parameter allows it, never raise them.
@@ -209,6 +219,8 @@ TOOL_SCHEMAS: dict[str, dict[str, tuple[_Validator, bool]]] = {
     "net.fetch": {"url": (_is_str, True)},
     "connector.call": {"connector": (_is_str, True), "path": (_is_str, True),
                        "method": (_is_str, False), "body": (_is_str, False)},
+    "memory.propose": {"text": (_is_str, True), "source": (_is_str, True),
+                       "reason": (_is_str, True), "source_sha256": (_is_str, False)},
 }
 
 
@@ -500,6 +512,7 @@ class ExecutionBroker:
             "shell.run": self._tool_shell_run,
             "net.fetch": lambda req, ws: self._run_job_sync(self._job_net_fetch(req)),
             "connector.call": lambda req, ws: self._run_job_sync(self._job_connector_call(req)),
+            "memory.propose": self._tool_memory_propose,
         }
 
     def session(self, ctx: ExecutionContext) -> ToolSession:
@@ -658,6 +671,8 @@ class ExecutionBroker:
                     finally:
                         self._flush_job(job)
                     result = job.finish(outcome)           # database work, on the loop
+                elif request.tool in _ON_LOOP:
+                    result = handler(request, ws)
                 else:
                     result = await asyncio.to_thread(handler, request, ws)
             except BaseException as exc:
@@ -1022,6 +1037,23 @@ class ExecutionBroker:
                     "truncated": result.truncated},
             error=None if result.ok else result.stderr.strip() or "failed",
         )
+
+    def _tool_memory_propose(self, request: ToolRequest, ws: Workspace) -> ToolResult:
+        """Store a pending proposal (#253). It is never searched and never
+        active; only the owner's signed decision, outside the broker, can
+        make it curated memory. The taint mark is read from the task's row,
+        so nothing the handler says can clear it."""
+        assert self.policy is not None, "_authorize refuses every call without policy"
+        params = request.params
+        try:
+            row = self.policy.propose_memory(request.task_id, params["text"],
+                                             params["source"], params["reason"],
+                                             params.get("source_sha256"))
+        except MemoryRefused as exc:
+            raise InvalidParams(f"memory.propose: {exc}") from None
+        return ToolResult(True, request.tool, {
+            "proposal": row["id"], "state": row["state"], "tainted": bool(row["tainted"]),
+            "text_sha256": row["text_sha256"]})
 
     def _tool_fs_delete(self, request: ToolRequest, ws: Workspace) -> ToolResult:
         # No resolve() here: it follows a final symlink, which would refuse

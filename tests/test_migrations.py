@@ -93,7 +93,7 @@ def dir_with(tmp_path: Path, name: str, sql: str) -> Path:
 
 def test_fresh_database_is_at_the_latest_version(tmp_path: Path) -> None:
     with TaskQueue(tmp_path / "lab.db") as q:
-        assert current_version(q._conn) == latest_version() == 13
+        assert current_version(q._conn) == latest_version() == 15
         names = {r["name"] for r in q._conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'")}
         assert set(TABLES) <= names
@@ -373,3 +373,48 @@ def test_oversized_result_is_refused_and_the_task_stays_running(tmp_path: Path) 
         got = q.get(task.id)
         assert got is not None and got.state == "running"
         q.succeed(task.lease, {"ok": True})
+
+
+# --------------------------------------- migration 15: memory proposals (#253)
+
+
+def _migrated_upto(tmp_path: Path, version: int) -> Path:
+    """A database taken only to ``version`` by the real runner."""
+    directory = tmp_path / f"upto_{version}"
+    directory.mkdir()
+    for found in discover():
+        if found.version <= version:
+            shutil.copy(found.path, directory / found.path.name)
+    db = tmp_path / "upto.db"
+    conn = raw(db)
+    assert migrate(conn, directory) == version
+    conn.close()
+    return db
+
+
+def test_migration_15_keeps_memories_and_adds_an_unsearchable_proposal_table(
+        tmp_path: Path) -> None:
+    db = _migrated_upto(tmp_path, 14)
+    conn = raw(db)
+    conn.execute("INSERT INTO memories (kind, text, text_sha256, source_id, trust, created_by) "
+                 "VALUES ('curated', 'kept fact', ?, 's', 'trusted', 'roshan')", ("a" * 64,))
+    conn.close()
+    with TaskQueue(db) as q:
+        assert current_version(q._conn) == 15
+        row = q._conn.execute("SELECT text, proposal_id FROM memories").fetchone()
+        assert tuple(row) == ("kept fact", None)
+        assert q._conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        insert = ("INSERT INTO memory_proposals (task_id, text, text_sha256, source_id, reason, "
+                  "tainted, state, signature, decided_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        q._conn.execute(insert, ("t", "x", "b" * 64, "s", "r", 1, "pending", None, None))
+        for bad in [("t", "", "c" * 64, "s", "r", 0, "pending", None, None),        # no text
+                    ("t", "y", "short", "s", "r", 0, "pending", None, None),        # bad hash
+                    ("t", "y", "d" * 64, "s", "r", 2, "pending", None, None),       # taint 0/1
+                    ("t", "y", "e" * 64, "s", "r", 0, "active", None, None),        # no 'active'
+                    ("t", "y", "f" * 64, "s", "r", 0, "accepted", None, "x"),       # unsigned
+                    ("t", "x", "b" * 64, "s", "r", 1, "pending", None, None)]:      # duplicate
+            with pytest.raises(sqlite3.IntegrityError):
+                q._conn.execute(insert, bad)
+        # The full-text index covers memories only, so a proposal is not in it.
+        assert q._conn.execute(
+            "SELECT COUNT(*) FROM memories_fts WHERE memories_fts MATCH 'x'").fetchone()[0] == 0

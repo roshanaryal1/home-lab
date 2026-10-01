@@ -65,6 +65,9 @@ TOOL_LEGS: dict[str, frozenset[Leg]] = {
     # A credentialed outside effect: sees a secret and acts externally, so
     # it may only run for trusted input (ADR 0006, the publish plane).
     "connector.call": frozenset({Leg.SENSITIVE_DATA, Leg.EXTERNAL_ACTION}),
+    # Writes a pending row in the lab's own database that nothing reads as
+    # memory until the owner signs it in (#253): no secret, nothing outside.
+    "memory.propose": frozenset(),
 }
 
 

@@ -42,6 +42,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 
 from lab import operator as operator_keys
 from lab.audit import append_event
+from lab.memory import Memory
 from lab.queue import NOW_MS, Task, _ts, _utcnow
 
 
@@ -166,6 +167,13 @@ class PolicyEngine:
         append_event(self._conn, None, "publication_confirmed", detail={
             "idempotency_key": key, "status": status_code, "provider_id": provider_id,
             "via": via})
+
+    def propose_memory(self, task_id: str, text: str, source_id: str, reason: str,
+                       source_sha256: str | None = None) -> sqlite3.Row:
+        """Store a task's memory proposal as pending (#253). The broker's
+        ``memory.propose`` comes here; the owner decides later, elsewhere."""
+        return Memory(self._conn).propose(task_id, text, source_id, reason,
+                                          source_sha256=source_sha256)
 
     def audit(self, task_id: str | None, kind: str, detail: dict[str, Any]) -> None:
         """Append a non-transition event to the hash-chained audit log."""

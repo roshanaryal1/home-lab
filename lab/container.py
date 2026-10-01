@@ -42,10 +42,10 @@ Integration point
 -----------------
 
 Not wired into the broker yet. A broker tool would add a schema to
-``broker.TOOL_SCHEMAS``, and that table also generates the model's grammar
-and the pre-registered tool-call corpus (``evals/toolcalls-v1.jsonl``, 70
-tasks over the current seven tools). Adding an eighth tool would change a
-measured artifact, so it belongs in its own change. When it lands, the tool
+``broker.TOOL_SCHEMAS``, and that table also generates the model's grammar.
+The pre-registered tool-call corpus (``evals/toolcalls-v1.jsonl``, 70 tasks)
+is pinned to its seven tools (``toolcorpus.CORPUS_TOOLS``), so a new tool
+does not change that measured artifact; it still belongs in its own change. When it lands, the tool
 is a thin wrapper over ``ContainerExecutor.run``: approve tier, journaled as
 non-idempotent, and classified in ``authority.TOOL_LEGS`` as untrusted input,
 since its output is written by untrusted code. The executor takes the same

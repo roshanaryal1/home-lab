@@ -13,9 +13,9 @@ from lab.evals import ROOT, grade, load_tasks
 def test_the_corpus_is_deterministic_and_balanced() -> None:
     first, second = toolcorpus.build(), toolcorpus.build()
     assert first == second
-    assert len(first) == 10 * len(TOOL_SCHEMAS)
+    assert len(first) == 10 * len(toolcorpus.CORPUS_TOOLS) == 70
     per_tool = collections.Counter(t["check"]["tool"] for t in first)
-    assert set(per_tool) == set(TOOL_SCHEMAS) and set(per_tool.values()) == {10}
+    assert set(per_tool) == set(toolcorpus.CORPUS_TOOLS) and set(per_tool.values()) == {10}
     assert len({t["id"] for t in first}) == len(first)
     assert len({t["prompt"] for t in first}) == len(first)
 
@@ -48,3 +48,11 @@ def test_the_committed_files_are_what_the_generator_writes() -> None:
         expected = toolcorpus.build(schema_in_prompt=schema_in_prompt)
         assert [t.id for t in tasks] == [t["id"] for t in expected]
         assert path.read_text(encoding="utf-8") == toolcorpus.render(expected)
+
+
+def test_a_new_broker_tool_does_not_change_the_frozen_corpus() -> None:
+    """The corpus and its schema prefix name the seven measured tools, even
+    though the broker now holds more (memory.propose, #253)."""
+    assert "memory.propose" in TOOL_SCHEMAS
+    assert set(toolcorpus.CORPUS_TOOLS) < set(TOOL_SCHEMAS)
+    assert "memory.propose" not in toolcorpus.schema_prefix()
