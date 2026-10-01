@@ -41,9 +41,11 @@ but it is audited like proposing and accepting.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import re
 import sqlite3
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -107,6 +109,22 @@ class Memory:
         self._conn = conn
 
     # -------------------------------------------------------------- writing
+
+    @contextlib.contextmanager
+    def _atomic(self) -> Iterator[None]:
+        """One transaction for a row and its audit event, unless the caller
+        already holds one. Either both are written or neither is."""
+        own_tx = not self._conn.in_transaction
+        if own_tx:
+            self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+        except BaseException:
+            if own_tx:
+                self._conn.execute("ROLLBACK")
+            raise
+        if own_tx:
+            self._conn.execute("COMMIT")
 
     def _insert(self, kind: str, text: str, source_id: str, source_sha256: str | None,
                 trust: str, created_by: str, expires_at: datetime | None,
@@ -286,14 +304,15 @@ class Memory:
         task = self._conn.execute("SELECT tainted FROM tasks WHERE id = ?",
                                   (task_id,)).fetchone()
         tainted = task is None or bool(task["tainted"])
-        cur = self._conn.execute(
-            "INSERT INTO memory_proposals (task_id, text, text_sha256, source_id, "
-            "source_sha256, reason, tainted) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (task_id, text, digest, source_id, source_sha256, reason, int(tainted)))
-        proposal_id = int(cur.lastrowid or 0)
-        append_event(self._conn, task_id, "memory_proposed", detail={
-            "proposal": proposal_id, "text_sha256": digest, "source_id": source_id,
-            "tainted": tainted})
+        with self._atomic():
+            cur = self._conn.execute(
+                "INSERT INTO memory_proposals (task_id, text, text_sha256, source_id, "
+                "source_sha256, reason, tainted) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (task_id, text, digest, source_id, source_sha256, reason, int(tainted)))
+            proposal_id = int(cur.lastrowid or 0)
+            append_event(self._conn, task_id, "memory_proposed", detail={
+                "proposal": proposal_id, "text_sha256": digest, "source_id": source_id,
+                "tainted": tainted})
         return self.proposal(proposal_id)
 
     def proposal(self, proposal_id: int) -> sqlite3.Row:
@@ -330,10 +349,7 @@ class Memory:
                 "proposal": proposal_id, "by": by, "reason": "no valid operator signature"})
             raise MemoryRefused(f"accepting proposal {proposal_id} needs a valid "
                                 "operator signature")
-        own_tx = not self._conn.in_transaction
-        if own_tx:
-            self._conn.execute("BEGIN IMMEDIATE")
-        try:
+        with self._atomic():
             cur = self._conn.execute(
                 "UPDATE memory_proposals SET state = 'accepted', decided_by = ?, "
                 "decided_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), signature = ? "
@@ -348,12 +364,6 @@ class Memory:
             append_event(self._conn, row["task_id"], "memory_proposal_accepted", detail={
                 "proposal": proposal_id, "memory": memory_id, "by": by,
                 "tainted": bool(row["tainted"]), "text_sha256": row["text_sha256"]})
-        except BaseException:
-            if own_tx:
-                self._conn.execute("ROLLBACK")
-            raise
-        if own_tx:
-            self._conn.execute("COMMIT")
         return memory_id
 
     def reject(self, proposal_id: int, by: str, reason: str) -> None:
@@ -361,14 +371,16 @@ class Memory:
         if not by.strip() or not reason.strip():
             raise MemoryRefused("rejecting a proposal needs a name and a reason")
         row = self.proposal(proposal_id)
-        cur = self._conn.execute(
-            "UPDATE memory_proposals SET state = 'rejected', decided_by = ?, "
-            "decided_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), decision_reason = ? "
-            "WHERE id = ? AND state = 'pending'", (by.strip(), reason.strip(), proposal_id))
-        if cur.rowcount != 1:
-            raise MemoryRefused(f"proposal {proposal_id} is already {row['state']}")
-        append_event(self._conn, row["task_id"], "memory_proposal_rejected", detail={
-            "proposal": proposal_id, "by": by, "reason": reason})
+        with self._atomic():
+            cur = self._conn.execute(
+                "UPDATE memory_proposals SET state = 'rejected', decided_by = ?, "
+                "decided_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), decision_reason = ? "
+                "WHERE id = ? AND state = 'pending'",
+                (by.strip(), reason.strip(), proposal_id))
+            if cur.rowcount != 1:
+                raise MemoryRefused(f"proposal {proposal_id} is already {row['state']}")
+            append_event(self._conn, row["task_id"], "memory_proposal_rejected", detail={
+                "proposal": proposal_id, "by": by, "reason": reason})
 
 
 def acceptance_fields(row: sqlite3.Row, by: str) -> dict[str, object]:
