@@ -142,7 +142,8 @@ def test_a_hostile_script_gets_no_network_and_no_other_mount(workspace, root) ->
     volumes = [value for name, value in pairs if name in ("--volume", "-v")]
     assert volumes == [f"{workspace.resolve()}:/work"]
     assert set(names) <= {"--name", "--network", "--read-only", "--tmpfs", "--cpus",
-                          "--memory", "--volume", "--workdir", "--env"}
+                          "--memory", "--user", "--volume", "--workdir", "--env"}
+    assert ("--user", "65534:65534") in pairs     # never root in the guest
     for forbidden in ("--mount", "-v", "--ssh", "--rosetta", "--publish", "-p",
                       "--dns", "--rm", "--detach", "-d", "--privileged"):
         assert forbidden not in names
@@ -162,6 +163,17 @@ def test_network_none_is_always_present_whatever_the_caller_passes(workspace, ro
     pairs, _image, command = options(runtime.run_argv())
     assert [v for n, v in pairs if n == "--network"] == ["none"]
     assert command == ["--network", "default", "x"]   # after the image: the guest's argv
+
+
+@pytest.mark.safety
+@pytest.mark.parametrize("user", ["0:0", "0:1000", "1000:0", "root", "nobody", "1000",
+                                  "1000:1000:1", "", None, 1000])
+def test_the_guest_never_runs_as_root_or_a_named_user(workspace, root, user) -> None:
+    runtime = FakeRuntime()
+    with pytest.raises(ContainerUnavailable):
+        ContainerExecutor(runtime, root, ContainerConfig(image=IMAGE, user=user)).run(
+            workspace, ["true"])
+    assert runtime.calls == []
 
 
 def test_limits_and_workdir_are_on_the_command_line(workspace, root) -> None:

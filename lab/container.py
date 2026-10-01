@@ -99,6 +99,11 @@ DEFAULT_CPUS = 2
 MAX_CPUS = 4
 DEFAULT_MEMORY_MB = 1024
 MAX_MEMORY_MB = 2048
+# The guest runs as an unprivileged user, never root (owner's decision,
+# 2026-10-01). 65534 is "nobody" in common Linux images, so it needs no
+# account in the image. The VM is still the boundary; this is one more layer.
+DEFAULT_USER = "65534:65534"
+_USER = re.compile(r"^([0-9]{1,10}):([0-9]{1,10})$")
 
 # The only variables a caller may set in the guest. Nothing is inherited from
 # the host: the CLI does not pass its own environment through, and only what
@@ -191,6 +196,7 @@ class ContainerConfig:
     image: str
     cpus: int = DEFAULT_CPUS
     memory_mb: int = DEFAULT_MEMORY_MB
+    user: str = DEFAULT_USER
 
 
 @dataclass(frozen=True)
@@ -217,6 +223,18 @@ def check_limits(config: ContainerConfig) -> None:
                                   ("memory_mb", config.memory_mb, MAX_MEMORY_MB)):
         if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= ceiling:
             raise ContainerUnavailable(f"{label} must be between 1 and {ceiling}: {value!r}")
+    check_user(config.user)
+
+
+def check_user(user: object) -> str:
+    """A numeric ``uid:gid`` that is not root. A name is refused: it would be
+    looked up inside an image we did not write."""
+    match = _USER.match(user) if isinstance(user, str) else None
+    if match is None:
+        raise ContainerUnavailable(f"the container user must be a numeric uid:gid: {user!r}")
+    if int(match.group(1)) == 0 or int(match.group(2)) == 0:
+        raise ContainerUnavailable("the container must not run as root (uid or gid 0)")
+    return str(user)
 
 
 def check_workspace(workspace: Path, root: Path) -> Path:
@@ -291,6 +309,8 @@ def build_run_argv(cli: str, name: str, workspace: Path, command: Sequence[str],
         "--tmpfs", "/tmp",
         "--cpus", str(config.cpus),
         "--memory", f"{config.memory_mb}M",
+        # Never root in the guest. check_limits has already refused uid 0.
+        "--user", config.user,
         # The only host-backed mount.
         "--volume", f"{workspace}:{GUEST_WORKDIR}",
         "--workdir", GUEST_WORKDIR,

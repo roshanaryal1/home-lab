@@ -221,9 +221,19 @@ test checks that `skill.run` is not in it. The fake-runtime tests are in
 `tests/test_skillrun.py`. Its real-container test runs in the `skillrun`
 step of `ops/mac-session.sh`.
 
+**Never root in the guest (2026-10-01).** The owner chose to run the guest
+as an unprivileged user. Every run passes `--user 65534:65534` ("nobody" in
+common Linux images, so the image needs no account for it). The user is set
+by trusted configuration, must be a numeric `uid:gid`, and uid or gid 0 is
+refused before anything starts. The VM stays the boundary; this is one more
+layer if the VM ever has a flaw. On the Mac, check that the guest can still
+write to `/work` as that user. If the shared folder maps ownership so that it
+cannot, the fix belongs in how the workspace is shared, not in going back to
+root.
+
 **Flags to confirm on the Mac.** The spellings follow the `container`
 command reference: `--read-only`, `--tmpfs`, `--cpus`, `--memory`,
-`--volume`, `--workdir`, `--env`, `delete --force` and `list --all
+`--user`, `--volume`, `--workdir`, `--env`, `delete --force` and `list --all
 --quiet`. Only `-v` and `--network none` were exercised in the
 measurement above. The real-container tests are the check.
 
