@@ -36,8 +36,8 @@ writes one report. See `ops/mac-session.md`.
 Two steps need setup from section 2 first: `skillrun` needs the pinned
 container image in `LAB_CONTAINER_IMAGE`, and `mcp` needs at least one signed
 server in `/etc/homelab/mcp.json`. Without them those steps report SKIPPED. Do
-that setup first, or rerun just those two afterwards with
-`./ops/mac-session.sh --only skillrun,mcp`.
+that setup first, or rerun them afterwards with `./ops/mac-session.sh --only skillrun`, and
+`--only mcp` once the MCP change (#256) is in.
 
 ```sh
 ./ops/mac-session.sh --dry-run
