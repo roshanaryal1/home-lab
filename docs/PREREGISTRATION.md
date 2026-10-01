@@ -11,6 +11,13 @@ so that no result can shape the plan. The checklist item is section 21 of
 exists and is tested against a scripted model; only the real-model numbers are
 missing.
 
+This plan covers the H1 to H4 model-evaluation hypotheses. The roadmap's
+"measure in public" safety claims for the chat, container and skill milestones
+(M2, M5, M6) are pre-registered the same way in a companion file,
+[PREREGISTRATION-SAFETY.md](PREREGISTRATION-SAFETY.md), with their own dated
+amendment and frozen case files. Those claims are about the lab's controls, not
+a model, so they are not part of the OSF registration above.
+
 ## What is frozen at registration
 
 - The evaluation task file `evals/tasks.jsonl` (24 tasks) and the shadow case

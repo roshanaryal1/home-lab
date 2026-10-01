@@ -107,6 +107,10 @@ dated before the run. The claims for M2, M5 and M6 still need their dated
 pre-registration, tracked in [#242](https://github.com/roshanaryal1/home-lab/issues/242),
 and it must land before their code merges.
 
+The claims for M2, M5 and M6 are pre-registered in
+[docs/PREREGISTRATION-SAFETY.md](PREREGISTRATION-SAFETY.md), with their case
+sets frozen by SHA-256 in `evals/prereg/` before any of that code is built.
+
 ## What this does not try to do
 
 - Match the features or the community of OpenClaw or Hermes Agent

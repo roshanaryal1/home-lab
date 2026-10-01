@@ -318,3 +318,85 @@ def test_a_dead_server_is_a_clean_error() -> None:
 def test_the_client_refuses_anything_but_loopback_http(url: str) -> None:
     with pytest.raises(ValueError, match="loopback"):
         OpenAICompatibleAdapter(url)
+
+
+@pytest.mark.safety
+def test_the_heavy_slot_spans_controllers_that_share_a_lock_file(tmp_path) -> None:
+    """Two processes sharing one model server each build their own controller
+    (#211). With the same lock file only one heavy request runs at a time."""
+    lock = tmp_path / "lab.db.model.lock"
+    first, second = AdmissionController(slot_lock=lock), AdmissionController(slot_lock=lock)
+    with (first.admit(spec(), msgs(), 16),
+          pytest.raises(AdmissionRefused, match="another process"),
+          second.admit(spec(), msgs(), 16)):
+        pass
+    with second.admit(spec(), msgs(), 16):
+        pass
+    alone = AdmissionController()
+    with first.admit(spec(), msgs(), 16), alone.admit(spec(), msgs(), 16):
+        pass        # without the shared file the slot is per controller, as before
+
+
+@pytest.mark.safety
+def test_the_heavy_slot_is_held_against_another_os_process(tmp_path) -> None:
+    import subprocess
+    import sys
+    lock = tmp_path / "slot.lock"
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         "import fcntl, os, sys, time\n"
+         f"fd = os.open({str(lock)!r}, os.O_RDWR | os.O_CREAT, 0o600)\n"
+         "fcntl.flock(fd, fcntl.LOCK_EX)\n"
+         "print('held', flush=True)\n"
+         "sys.stdin.read()\n"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout is not None and holder.stdout.readline().strip() == "held"
+        ctrl = AdmissionController(slot_lock=lock)
+        with pytest.raises(AdmissionRefused, match="another process"), \
+                ctrl.admit(spec(), msgs(), 16):
+            pass
+    finally:
+        holder.communicate("", timeout=5)
+    with AdmissionController(slot_lock=lock).admit(spec(), msgs(), 16):
+        pass        # the kernel released the lock when the holder exited
+
+
+def test_a_heavy_request_waits_for_the_slot_up_to_its_bound(tmp_path) -> None:
+    import time
+    lock = tmp_path / "slot.lock"
+    holder = AdmissionController(slot_lock=lock)
+    waiter = AdmissionController(slot_lock=lock, slot_wait_seconds=5)
+    got: list[float] = []
+    entered, release = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        with holder.admit(spec(), msgs(), 16):
+            entered.set()
+            release.wait(5)
+
+    t = threading.Thread(target=hold)
+    t.start()
+    assert entered.wait(5)
+    threading.Timer(0.3, release.set).start()
+    started = time.monotonic()
+    with waiter.admit(spec(), msgs(), 16):
+        got.append(time.monotonic() - started)
+    t.join(5)
+    assert 0.2 < got[0] < 5, "it waited for the holder, then ran"
+
+    short = AdmissionController(slot_lock=lock, slot_wait_seconds=0.2)
+    with holder.admit(spec(), msgs(), 16):
+        started = time.monotonic()
+        with pytest.raises(AdmissionRefused), short.admit(spec(), msgs(), 16):
+            pass
+        assert time.monotonic() - started < 2
+
+
+def test_a_refused_admission_leaves_the_slot_free(tmp_path) -> None:
+    lock = tmp_path / "slot.lock"
+    ctrl = AdmissionController(slot_lock=lock)
+    with pytest.raises(AdmissionRefused), ctrl.admit(spec(), msgs("x" * 90_000), 16):
+        pass
+    with AdmissionController(slot_lock=lock).admit(spec(), msgs(), 16):
+        pass
