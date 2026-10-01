@@ -148,11 +148,18 @@ def tick_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
                   UserName=user, RunAtLoad=False, StartInterval=TICK_INTERVAL_SECONDS)
 
 
-def keepawake_plist(*, python: str, workdir: str, db: str) -> bytes:
+def keepawake_plist(*, python: str, workdir: str, db: str, user: str | None = None) -> bytes:
     """``lab keepawake`` as a daemon: read-only on the database, holds
-    ``caffeinate`` only while work is pending."""
+    ``caffeinate`` only while work is pending.
+
+    It needs no privilege, so it should run as the lab account (#235). The
+    committed copy still runs as root until the operator confirms on the
+    mini that ``caffeinate`` under the lab account holds a power assertion
+    from a LaunchDaemon with no login session.
+    """
+    extra: dict[str, object] = {} if user is None else {"UserName": user}
     return _plist(KEEPAWAKE_LABEL, [python, "-m", "lab.cli", "--db", db, "keepawake"], workdir,
-                  RunAtLoad=True, KeepAlive=True, ThrottleInterval=30)
+                  RunAtLoad=True, KeepAlive=True, ThrottleInterval=30, **extra)
 
 
 def selftest_plist(*, user: str, python: str, workdir: str, db: str,

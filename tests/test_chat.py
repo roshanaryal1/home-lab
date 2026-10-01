@@ -712,7 +712,7 @@ def test_register_all_adds_the_chat_answerer_when_a_model_is_configured(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from lab import handlers, loop
     monkeypatch.setattr(loop, "model_from_env",
-                        lambda: BoundedModel(SPEC, MockAdapter(['{"reply": "x"}'])))
+                        lambda db=None: BoundedModel(SPEC, MockAdapter(['{"reply": "x"}'])))
     sup = Supervisor(SupervisorConfig(db_path=tmp_path / "lab.db"))
     handlers.register_all(sup)
     assert chat.CHAT_KIND in sup._handlers and sup._tools[chat.CHAT_KIND] == frozenset()

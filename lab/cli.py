@@ -654,7 +654,7 @@ def cmd_tick(args: argparse.Namespace) -> int:
         model: model_mod.BoundedModel | None = model_mod.BoundedModel(
             spec, model_mod.MockAdapter([args.mock_reply]))
     else:
-        model = loop.model_from_env()
+        model = loop.model_from_env(args.db)
     if model is None:
         print("tick: no model configured; set LAB_MODEL_URL, LAB_MODEL_NAME and "
               "LAB_MODEL_REVISION (a loopback server), or pass --mock-reply", file=sys.stderr)

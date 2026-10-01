@@ -104,6 +104,10 @@ without a signature (the target is 0); M6, how many of a fixed set of
 malicious skills become active without a signed promotion. Any amendment is
 dated before the run.
 
+The claims for M2, M5 and M6 are pre-registered in
+[docs/PREREGISTRATION-SAFETY.md](PREREGISTRATION-SAFETY.md), with their case
+sets frozen by SHA-256 in `evals/prereg/` before any of that code is built.
+
 ## What this does not try to do
 
 - Match the features or the community of OpenClaw or Hermes Agent
