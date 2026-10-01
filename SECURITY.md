@@ -701,8 +701,9 @@ These reach `opendirectoryd` over a mach port, not through
 runtime, so it stays open deliberately, a decision recorded in
 [ADR 0007](docs/decisions/0007-isolation-for-untrusted-code.md) (#27).
 Untrusted code is not executed under Seatbelt at all; when it must be, it
-goes in a disposable Apple container (Linux guest, VM boundary), which is
-not built yet.
+goes in a disposable Apple container (Linux guest, VM boundary), where the
+host's directory service is not reachable. See "Untrusted code: the
+container tier" below.
 
 Filesystem confinement itself is intact: `ls /Users` is refused. A
 sandboxed agent cannot walk home directories, but it **can** enumerate
@@ -721,9 +722,9 @@ process that calls `setsid()` gets a new group and survives that: measured on ma
 that forks twice and calls `setsid()` were still running after `sandbox.run` returned,
 while same-group children were killed. Finding such survivors by environment tag does
 not work: macOS hides the environment of Apple-signed binaries from `ps`. There is no
-full fix short of a process boundary, which is why anything untrusted is meant for the
-container tier (ADR 0007, #181); until then, treat an approved `shell.run` command as
-able to leave a process behind.
+full fix short of a process boundary, which is why anything untrusted goes to the
+container tier (ADR 0007, #181), where removing the container ends every process in it.
+Treat an approved `shell.run` command as able to leave a process behind.
 
 **A stop reaches a command that is already running (#228).** An emergency stop, a
 lost lease and the task's wall-clock ceiling set a cancel flag on every `shell.run`
@@ -734,6 +735,40 @@ command carried on until it exited or reached its own timeout (30 s by default, 
 more than 300 s, the sandbox's ceiling); a `sleep` was still alive 2 s after the
 cancel. An emergency stop also revokes the broker first, so no new tool call gets
 through.
+
+### Untrusted code: the container tier
+
+Built as a module (`lab/container.py`, #181, ADR 0007 "Implementation"), not
+yet reachable from the broker. Each run gets one Apple container, a Linux guest
+in its own VM:
+
+- **No network.** `--network none` is always passed. Apple's `container`
+  gives a guest the network by default, so leaving it out would be an open
+  door; no caller input reaches the option list.
+- **One mount.** The task workspace, read-write at `/work`. The root file
+  system is read-only and `/tmp` is a tmpfs in the guest's memory. Nothing
+  else on the host is visible.
+- **Pinned image, small environment, bounded size.** The image must be pinned
+  by `sha256` digest. The guest gets `HOME`, `PATH`, `TMPDIR` and a short
+  allowlist; any other variable is refused. CPU and memory are capped (4 CPUs,
+  2048 MB), and the timeout has the same 300 s ceiling as `shell.run`.
+- **Fails closed.** A workspace that is a symlink or outside the lab's
+  workspace root, an unpinned image, or a missing CLI stops the run before
+  anything starts. There is no fallback to Seatbelt or the host.
+- **Destroyed on every path.** `container delete --force` runs in a `finally`
+  block after a normal exit, a failure, a timeout, a stop and an exception.
+  Killing the CLI client does not stop the guest; the forced delete does, and
+  it ends every process in the VM, including one that left its process group
+  with `setsid()`. **This is what closes the #223 gap for untrusted code.** A
+  delete that cannot be confirmed is reported in the result and logged.
+
+What is not proven yet: the fake-runtime tests (`tests/test_container.py`)
+prove the command line and the removal on every path. The tests that run a
+hostile script in a real container (network, `/Users`, `/etc`, a `setsid`
+survivor) skip until they run on the M6 with `LAB_CONTAINER_IMAGE` set. Only
+`-v` and `--network none` were exercised in the ADR 0007 measurement; the other
+flags follow Apple's command reference. A busy guest costs about 2 GiB of host
+memory, and two containers beside the heavy model have not been measured.
 
 Known limitation: `sandbox-exec` is deprecated by Apple. It remains
 functional, macOS's own daemons use Seatbelt internally, and Apple has
