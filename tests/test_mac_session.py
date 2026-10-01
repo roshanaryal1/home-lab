@@ -67,19 +67,20 @@ esac''',
 }
 
 
-def make_stubs(directory: Path) -> Path:
+def make_stubs(directory: Path, overrides: dict[str, str] | None = None) -> Path:
     bin_dir = directory / "bin"
     bin_dir.mkdir()
-    for name, body in STUBS.items():
+    for name, body in {**STUBS, **(overrides or {})}.items():
         path = bin_dir / name
         path.write_text(f'#!/bin/sh\necho "{name} $*" >>"$CALLS"\n{body}\n')
         path.chmod(path.stat().st_mode | stat.S_IXUSR)
     return bin_dir
 
 
-def run(tmp_path: Path, *args: str, answers: str | None = None,
-        home_readable: bool = False) -> tuple[subprocess.CompletedProcess[str], str, list[str]]:
-    bin_dir = make_stubs(tmp_path)
+def run(tmp_path: Path, *args: str, answers: str | None = None, home_readable: bool = False,
+        stubs: dict[str, str] | None = None,
+        ) -> tuple[subprocess.CompletedProcess[str], str, list[str]]:
+    bin_dir = make_stubs(tmp_path, stubs)
     home = tmp_path / "home"
     home.mkdir()
     report = tmp_path / "report.md"
@@ -178,6 +179,21 @@ def test_the_drills_run_only_after_a_yes_and_are_timed(tmp_path: Path) -> None:
     assert re.search(r"killed \d+; new supervisor \d+ after \d+ s", report)
     assert re.search(r"frozen \d+; gone after \d+ s; new supervisor \d+ after \d+ s", report)
     assert result_of(report, 1) == "PASS"
+
+
+def test_a_ctrl_c_during_the_freeze_drill_resumes_the_supervisor(tmp_path: Path) -> None:
+    """The supervisor is stopped with SIGSTOP. If the operator interrupts the
+    wait, the script must resume it: a lab left frozen is what the drill guards
+    against when the watchdog is the thing that failed."""
+    result, report, calls = run(
+        tmp_path, "--only", "drills", answers="y\n",
+        stubs={"ps": "exit 0",
+               "sleep": 'grep -q "kill -STOP" "$CALLS" && kill -INT "$PPID"; exit 0'})
+    assert result.returncode == 130, report
+    stopped = next(c for c in calls if c.startswith("sudo kill -STOP "))
+    pid = stopped.split()[-1]
+    assert f"sudo kill -CONT {pid}" in calls, calls
+    assert "resumed the frozen supervisor" in report
 
 
 def test_a_backup_runs_after_a_yes_and_cleans_its_restore_folder(tmp_path: Path) -> None:

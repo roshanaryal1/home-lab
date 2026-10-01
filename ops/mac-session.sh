@@ -536,10 +536,13 @@ supervisor within about 30 seconds; a frozen supervisor must be gone and replace
   run 'sudo -v'
   run 'OLD=$(pgrep -f lab.supervisor)'
   run 'T0=$(date +%s)'
+  # Set before the stop so a Ctrl-C during the wait still resumes it.
+  dry || FROZEN="$OLD"
   run 'sudo kill -STOP "$OLD"'
   run 'for i in $(seq 1 90); do ps -p "$OLD" >/dev/null || break; sleep 2; done'
   run 'T1=$(date +%s)'
   run 'ps -p "$OLD" >/dev/null && { echo "FAIL: $OLD is still there after $((T1 - T0)) s; resuming it"; sudo kill -CONT "$OLD"; }'
+  FROZEN=""
   run 'for i in $(seq 1 30); do NEW=$(pgrep -f lab.supervisor) && [ "$NEW" != "$OLD" ] && break; sleep 2; done'
   run 'echo "frozen $OLD; gone after $((T1 - T0)) s; new supervisor ${NEW:-none} after $(( $(date +%s) - T0 )) s"'
   local freeze_line="$LAST_OUT" gone new_after freeze_ok=0
@@ -631,6 +634,13 @@ if ! dry; then
 fi
 
 interrupted() {
+  # A frozen supervisor left stopped would freeze the lab if the watchdog
+  # is what failed, so resume it before anything else.
+  if [ -n "${FROZEN:-}" ]; then
+    sudo kill -CONT "$FROZEN" 2>/dev/null
+    rep "- resumed the frozen supervisor $FROZEN after the interrupt"
+    FROZEN=""
+  fi
   rep ""
   rep "**The session was interrupted during step $STEP_N.**"
   say ""
