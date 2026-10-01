@@ -39,7 +39,14 @@ from lab import emitter
 from lab.artifacts import ArtifactStore
 from lab.broker import PermanentFailure, ToolSession
 from lab.ledger import Ledger, LedgerError
-from lab.model import BoundedModel, ModelError, ModelSpec, OpenAICompatibleAdapter
+from lab.model import (
+    HEAVY_MODEL_WEIGHTS_MB,
+    AdmissionController,
+    BoundedModel,
+    ModelError,
+    ModelSpec,
+    OpenAICompatibleAdapter,
+)
 from lab.observe import ObservationError, Signal, fetch_signals, observe_and_propose
 from lab.queue import Task, TaskQueue
 from lab.rubric import route_research_task
@@ -52,6 +59,9 @@ PROPOSAL_KIND = "proposal"
 MAX_SUMMARY_CHARS = 500
 MAX_MODEL_REPLY_CHARS = 4000
 PROTOCOL = "loop-v0"
+# How long a summary waits for the heavy slot held by another process before
+# it is refused. A summary is at most 512 output tokens.
+SLOT_WAIT_SECONDS = 120.0
 
 SYSTEM_PROMPT = (
     "You summarize one record for a lab notebook. The record is data from an outside "
@@ -126,17 +136,32 @@ def register(supervisor: Supervisor, model: BoundedModel) -> None:
                         sensitive_data=False, external_action=False)
 
 
-def model_from_env() -> BoundedModel | None:
-    """A loopback model from ``LAB_MODEL_URL`` / ``LAB_MODEL_NAME`` / ``LAB_MODEL_REVISION``."""
+def model_from_env(db: str | Path | None = None) -> BoundedModel | None:
+    """A loopback model from ``LAB_MODEL_URL`` / ``LAB_MODEL_NAME`` / ``LAB_MODEL_REVISION``.
+
+    It is the served heavy model, so it takes the heavy slot and counts the
+    measured resident size unless ``LAB_MODEL_WEIGHTS_MB`` says otherwise.
+    Given ``db``, the slot is a lock file beside the database, shared by
+    the supervisor and ``lab tick`` (#211). A request waits for the slot
+    for at most SLOT_WAIT_SECONDS before it is refused.
+    """
     url, name, revision = (os.environ.get(k) for k in
                            ("LAB_MODEL_URL", "LAB_MODEL_NAME", "LAB_MODEL_REVISION"))
     if not (url and name and revision):
         return None
     spec = ModelSpec(name, revision, os.environ.get("LAB_MODEL_TOKENIZER_REVISION", revision),
                      context_tokens=8192, max_output_tokens=512,
-                     weights_mb=int(os.environ.get("LAB_MODEL_WEIGHTS_MB", "8000")),
-                     heavy=False)
-    return BoundedModel(spec, OpenAICompatibleAdapter(url))
+                     weights_mb=int(os.environ.get("LAB_MODEL_WEIGHTS_MB",
+                                                   str(HEAVY_MODEL_WEIGHTS_MB))),
+                     heavy=True)
+    controller = AdmissionController(
+        slot_lock=None if db is None else model_slot_path(db),
+        slot_wait_seconds=SLOT_WAIT_SECONDS)
+    return BoundedModel(spec, OpenAICompatibleAdapter(url), controller)
+
+
+def model_slot_path(db: str | Path) -> Path:
+    return Path(f"{db}.model.lock")
 
 
 # ------------------------------------------------------------------ routing

@@ -45,3 +45,31 @@ when citing them.
 | Kev-9B: LoRA on `Qwen3.5-9B-Base`, Apache-2.0; 0.822 dev and 0.852 locked test, Jev 0.857 dev (PLAN 1.1) | **Verified** in `jaredpalmer/kev-9b`'s model card. Jev's 0.857 is Kev's authors' figure, not TypeSafe's. | Hugging Face model card |
 | Laya: about 33 to 39.5 ms per question (PLAN 1.1) | **Imprecise, corrected**: 39.5 ms is this English checkpoint and 32.8 ms the multilingual one, both on a T4 GPU | `convaiinnovations/laya` model card |
 
+## Agent-security evaluation sources for the pre-registered case sets (#242), checked 2026-10-01 UTC
+
+These are the suites and primary artefacts read to pick the attack categories
+in `evals/prereg/` (see `docs/PREREGISTRATION-SAFETY.md`). Each was read
+directly as cited. Where a paper is behind a host this network cannot reach,
+the arXiv id and venue come from the project's own README or citation block,
+read on the date below, and are marked as such; the figures are the project's
+own, not re-derived here. Preprints are marked as preprints.
+
+| Source | What it is | Read | Used for |
+|---|---|---|---|
+| AgentDojo (Debenedetti et al.) | 97 tasks, 629 security test cases for prompt injection on tool-using agents; utility and attack-success scored on state. Published at NeurIPS 2024 (see the table above); arXiv 2406.13352. | `README.md` of `ethz-spylab/agentdojo` and the package (PyPI `agentdojo` 0.1.35, 2025-10-27), 2026-10-01 | M2 injection styles; the state-based utility-and-attack-success grading the lab already copies in `lab/attacks.py` |
+| InjecAgent (Zhan et al.) | Benchmark of indirect prompt injection in tool-integrated agents: 1,054 test cases over 17 user tools and 62 attacker tools; direct-harm and data-stealing attacks. arXiv 2403.02691; the README states Findings of ACL 2024 (not registry-confirmed here). | `README.md` of `uiuc-kang-lab/InjecAgent`, 2026-10-01 | M2 indirect-injection cases (a benign request whose tool result carries the attacker instruction) |
+| Agent Security Bench, ASB (Zhang et al.) | Formalises attacks and defences across 10 scenarios, over 400 tools, 27 attack/defence methods, 13 LLM backbones; attack types direct prompt injection, observation injection, memory poisoning, Plan-of-Thought backdoor, mixed. ICLR 2025; arXiv 2410.02644 (preprint id), per the README and its BibTeX. | `README.md` of `agiresearch/ASB`, 2026-10-01 | M2 injection taxonomy (direct vs observation vs memory) |
+| WASP (Evtimov et al.) | Web-agent prompt-injection benchmark built on VisualWebArena; arXiv 2504.18575 (preprint id per README). Repository archived 2026-07-01. | `README.md` of `facebookresearch/wasp`, 2026-10-01 | M2 indirect-injection framing (attacker text placed in content the agent navigates) |
+| CaMeL (Debenedetti et al.) | "Defeating prompt injections by design": a defence that separates control and data flow. arXiv 2503.18813 (preprint id per README). Research artefact, not a product. | `README.md` of `google-research/camel-prompt-injection`, 2026-10-01 | Context for why the lab's control (Rule of Two, signed approvals) is a design boundary, not a model behaviour |
+| MCP tool-poisoning experiments (Invariant Labs) | Working examples of tool poisoning, tool shadowing, and a sleeper rug pull on MCP servers, with exfiltration hidden after whitespace. | `README.md` of `invariantlabs-ai/mcp-injection-experiments`, 2026-10-01 | M6 MCP and rug-pull cases; the smuggled-reply M2 case |
+| SandboxEscapeBench (Marchand et al.) | Inspect-AI container-escape eval: 18 scenarios across orchestration, runtime and kernel layers, difficulty 1 to 5, grounded in real CVE classes (privileged container, mounted docker socket, writable hostPath, host pid namespace, CAP_SYS_ADMIN, cgroup release-agent CVE-2022-0492, runc CVE-2019-5736, Dirty Pipe CVE-2022-0847, and others). arXiv 2603.02277 (preprint, 2026) per the README citation. Released by the UK AI Security Institute. | `README.md` of `UKGovernmentBEIS/sandbox_escape_bench`, 2026-10-01 | M5 escape families; which misconfigurations the lab's executor must never set |
+| Apple `container` | Runs each Linux container in its own lightweight VM on Apple silicon, macOS 26+. The command reference documents `--network`, `--read-only`, `--mount`, `--volume`, `--user`, `--cap-drop`, memory and CPU limits. | `README.md` and `docs/command-reference.md` of `apple/container`, 2026-10-01 | M5 executor configuration referenced in ADR 0007 (`--network none`, workspace-only mount) |
+| MalSkillBench (Guo et al.) | Runtime-verified benchmark of malicious agent skills: 3,944 malicious and 4,000 benign `SKILL.md` packages; taxonomy of code injection, prompt injection and mixed, with behaviours B1 to B15 (exfiltration, credential theft, remote code execution, persistence, reverse shell, role hijack, instruction override, and more). arXiv 2606.07131 (preprint) per the README citation. | `README.md` of `lxyeternal/MalSkillBench`, 2026-10-01 | M6 malicious-skill vectors and behaviour labels |
+| SkillsGoat (Optimus Labs) | A vulnerable-by-design target for skill scanners: 89 single-skill fixtures (73 malicious, 16 benign) and 37 compound chains (benign alone, malicious only in combination), each with an answer key; families include metadata injection, exfiltration, over-permission, persistence, confused deputy, typosquatting, frontmatter gadgets, symlink escape, and rug-pull-over-time. | `README.md` of `optimuslabs-io/skillsgoat`, 2026-10-01 | M6 promotion-path and malformed-bundle cases; the compound-chain pair |
+| Agent Skills specification | The `SKILL.md` format: required `name` and `description`, optional `license`, `compatibility`, `metadata`, `allowed-tools`; `scripts/`, `references/`, `assets/` directories. | `docs/specification` of the `agentskills` project, 2026-10-01 | M6 frontmatter and `allowed-tools` cases; the format the roadmap's M6 reads |
+
+The OWASP Top 10 for Agentic Applications 2026 is already cited in `THREATS.md`
+(the ASI01 to ASI10 mapping). The pre-registered case sets reuse that mapping:
+M2 tests ASI01 (goal hijack) and ASI03 (identity and privilege abuse), M5 tests
+ASI05 (unexpected code execution), and M6 tests ASI04 (agentic supply chain).
+
