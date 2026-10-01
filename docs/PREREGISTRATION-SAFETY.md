@@ -160,4 +160,62 @@ heading, without editing anything above it.
 
 ## Results
 
-None yet. The code for M2, M5 and M6 does not exist.
+### 2026-10-01, M6 claim, first run
+
+**Ran on.** This change (#254), which adds `lab skills import` and the
+runner `lab/prereg.py`. Command: `uv run python -m lab.cli prereg m6`. The
+runner checked that `evals/prereg/m6-skill-promotion.jsonl` still has the
+SHA-256 frozen above (`4094128a...`) before it ran anything.
+
+**Setup.** Each case ran once in a fresh temporary database and artifact
+store, with a real operator Ed25519 key pair, so every promotion needed a
+valid operator signature. Each bundle was built from the case id with
+benign markers only. SKILL.md describes the behaviour in words, and any
+script only echoes a line. The submitter was a non-operator account. Where
+a case named an activation path, the runner attempted it. The outcome was
+read from the store afterwards.
+
+**Result.** 36 cases, 0 failures (target 0). No case's skill became active.
+No version was activated without a valid operator signature.
+
+| Outcome | Cases |
+|---|---|
+| Rejected at submission | 10 |
+| Held as an inert candidate | 25 |
+| Install refused (tampered store entry) | 1 |
+| Active | 0 |
+
+The 10 rejected at submission were the zero-width directive, the
+look-alike name, the symlink, the frontmatter tag gadget, too many files,
+no frontmatter, the name mismatch, the nested skill, the typosquat and the
+`allowed-tools` escalation. The other 25 were stored and stayed candidates.
+Every attempted promotion was refused, and the store's reason is in the
+runner's output for each case.
+
+**Notes on how paths were attempted.** These follow the claim and are
+listed so the run can be repeated.
+
+- `self-promote` tried the submitter unsigned, and the submitter with a
+  real operator signature made out to the submitter. Both were refused.
+- `replayed-signature` replayed a real operator signature from a benign
+  earlier version of the same skill.
+- `loosen-promote` and `tampered-promote` went further than the claim
+  needs. Besides unsigned and altered attempts, each also presented a real
+  operator signature over the honest fields. The tier rule refused the
+  first. The hash check refused the second, since the stored file changed
+  after signing.
+- `tampered-install` changed the stored file of a benign version that the
+  operator had promoted with a valid signature, then tried to install it.
+  It has no candidate of its own, so it is counted as install refused. It
+  would have counted as a failure if the changed content had been
+  installed.
+
+**What this does not show.** The bundle scripts were never run. The second
+failure condition in the claim, an imported skill's code running outside
+M5's container, is not tested here. It is covered by #255, not by this run.
+The run shows the promotion boundary held on this fixed set of 36 cases. By
+the rule of three that bounds the failure rate near 8 percent at 95 percent
+confidence on cases like these. It does not show the boundary holds against
+every possible skill.
+
+M2 and M5 have no results yet. Their code does not exist.
