@@ -37,6 +37,22 @@ SEED = 20260930
 # the frozen prompts or the schema prefix.
 CORPUS_TOOLS = ("fs.read", "fs.write", "fs.delete", "fs.list", "shell.run", "net.fetch",
                 "connector.call")
+# Every broker tool that is not in the corpus, and why. A test fails when a
+# broker tool is in neither list, so a new tool cannot reach a measured
+# artifact, or stay out of one, without someone saying so here.
+NOT_IN_CORPUS = {
+    "fs.search": "added after registration (#240)",
+    "git.status": "added after registration (#240)",
+    "git.log": "added after registration (#240)",
+    "git.diff": "added after registration (#240)",
+    "net.summarize": "added after registration (#240)",
+    "memory.propose": "added after registration (#253)",
+    "skill.run": "added after registration (#255)",
+    # One generic tool for every signed MCP server (#256). The tools behind it
+    # are the operator's choice and change with the config, so a call to one
+    # is not a fixed prompt a held-out corpus can grade.
+    "mcp.call": "added after registration, and its tools come from the signed config (#256)",
+}
 PER_TOOL = 10
 PLAIN = "toolcalls-v1.jsonl"
 SCHEMA = "toolcalls-v1-schema.jsonl"

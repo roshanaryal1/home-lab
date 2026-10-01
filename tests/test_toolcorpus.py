@@ -41,6 +41,20 @@ def test_the_schema_variant_differs_only_by_its_prefix() -> None:
         assert b["prompt"] == toolcorpus.schema_prefix() + a["prompt"]
 
 
+def test_every_broker_tool_is_in_the_corpus_or_excluded_by_name() -> None:
+    """A tool added to the broker never changes the frozen corpus silently (#256)."""
+    corpus, excluded = set(toolcorpus.CORPUS_TOOLS), set(toolcorpus.NOT_IN_CORPUS)
+    assert not corpus & excluded
+    assert corpus | excluded == set(TOOL_SCHEMAS)
+
+
+def test_mcp_call_stays_out_of_the_corpus_and_its_schema_prefix() -> None:
+    assert "mcp.call" in toolcorpus.NOT_IN_CORPUS
+    assert "mcp.call" not in toolcorpus.CORPUS_TOOLS
+    assert "mcp.call" not in toolcorpus.schema_prefix()
+    assert all(t["check"]["tool"] != "mcp.call" for t in toolcorpus.build())
+
+
 def test_the_committed_files_are_what_the_generator_writes() -> None:
     for schema_in_prompt, name in ((False, toolcorpus.PLAIN), (True, toolcorpus.SCHEMA)):
         path = ROOT / "evals" / name

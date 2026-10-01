@@ -79,6 +79,12 @@ TOOL_LEGS: dict[str, frozenset[Leg]] = {
     # leaves the lab, but untrusted code writes its output, so the task holds
     # untrusted input whatever its own origin.
     "skill.run": frozenset({Leg.UNTRUSTED_INPUT}),
+    # A tool of an operator-signed MCP server (#256). Its output and its own
+    # description are written by a program the lab did not write, so a task
+    # that calls one holds untrusted input whatever its origin. The server
+    # runs with the task's workspace, a minimal environment and no network
+    # unless the signed entry and the task's egress list both allow it.
+    "mcp.call": frozenset({Leg.UNTRUSTED_INPUT}),
 }
 
 
