@@ -708,6 +708,8 @@ def test_a_json_rpc_error_passes_on_the_code_but_never_the_servers_words(
     ("garbage", mcp.McpOutcomeUnknown, r"McpProtocolError: .*not JSON"),
     ("exit", mcp.McpOutcomeUnknown, r"McpProtocolError: .*closed its output"),
     ("noversion", mcp.McpProtocolError, "protocol version"),
+    # NaN in a tool list arrives before tools/call: an ordinary refusal.
+    ("nan", mcp.McpProtocolError, "not JSON"),
     ("dupe", mcp.McpRefused, "twice"),
     ("many", mcp.McpRefused, "more than"),
     ("endless", mcp.McpRefused, "pages"),

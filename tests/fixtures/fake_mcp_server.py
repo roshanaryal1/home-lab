@@ -38,6 +38,9 @@ def tools() -> list[dict[str, object]]:
         listed.append(dict(TOOLS[0]))
     if MODE == "many":
         listed += [{"name": f"t{i}", "inputSchema": {"type": "object"}} for i in range(300)]
+    if MODE == "nan":
+        # json.dumps writes this as the bare token NaN, which is not JSON.
+        listed[0] = {**listed[0], "inputSchema": {"type": "object", "maximum": float("nan")}}
     return listed
 
 

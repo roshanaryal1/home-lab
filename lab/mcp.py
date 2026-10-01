@@ -290,6 +290,12 @@ def seatbelt_launcher(argv: Sequence[str], workspace: Path, allow_network: bool,
     return start_process([sandbox.SANDBOX_EXEC, "-p", profile, *argv], root)
 
 
+
+def _reject_constant(name: str) -> object:
+    """NaN and Infinity are not JSON. Refuse them where the message is parsed,
+    so they never reach a fingerprint or a result."""
+    raise ValueError(f"non-standard JSON constant {name}")
+
 class StdioClient:
     """Newline-delimited JSON-RPC 2.0 over a child's stdin and stdout.
 
@@ -353,7 +359,7 @@ class StdioClient:
                 if not line.strip():
                     continue
                 try:
-                    message = json.loads(line)
+                    message = json.loads(line, parse_constant=_reject_constant)
                 except (ValueError, RecursionError):
                     raise McpProtocolError("the server sent a line that is not JSON") from None
                 if not isinstance(message, dict):
