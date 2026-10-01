@@ -221,6 +221,14 @@ test checks that `skill.run` is not in it. The fake-runtime tests are in
 `tests/test_skillrun.py`. Its real-container test runs in the `skillrun`
 step of `ops/mac-session.sh`.
 
+*Update, 2026-10-01 (#255).* The owner decided on 2026-10-01 to grant
+`skill.run` to a reviewed handler now, still at the approve tier. The
+`skill.run` handler (`lab/handlers/skill_run.py`) takes a skill, a script
+and optional arguments, holds that one tool and nothing else, and returns
+the output marked untrusted. `register_all` registers it only when
+`LAB_CONTAINER_IMAGE` names a pinned image. Every call still parks the task
+until the operator signs. The tests are in `tests/test_grant_skill_mcp.py`.
+
 **Never root in the guest (2026-10-01).** The owner chose to run the guest
 as an unprivileged user. Every run passes `--user 65534:65534` ("nobody" in
 common Linux images, so the image needs no account for it). The user is set

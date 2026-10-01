@@ -36,8 +36,8 @@ writes one report. See `ops/mac-session.md`.
 Two steps need setup from section 2 first: `skillrun` needs the pinned
 container image in `LAB_CONTAINER_IMAGE`, and `mcp` needs at least one signed
 server in `/etc/homelab/mcp.json`. Without them those steps report SKIPPED. Do
-that setup first, or rerun them afterwards with `./ops/mac-session.sh --only skillrun`, and
-`./ops/mac-session.sh --only mcp` once the MCP change (#256) is in.
+that setup first, or rerun them afterwards with `./ops/mac-session.sh --only skillrun` and
+`./ops/mac-session.sh --only mcp`.
 
 The `selftest` step reads the nightly self-test log, which only exists once the
 self-test job from section 2 has run. On a first session it reports FAIL for
@@ -58,7 +58,7 @@ LAB_CONTAINER_IMAGE='<name@sha256:...>' ./ops/mac-session.sh
 | `alert` | #79, #80 | A real alert must reach your phone. |
 | `selftest` | #80 | Reads the nightly self-test log launchd wrote. |
 | `skillrun` | #255 | Runs a skill script through `skill.run` in a real Apple container. Needs `LAB_CONTAINER_IMAGE`. |
-| `mcp` | #256 | Starts each signed MCP server under real Seatbelt and compares its tools with the signed snapshot. Skipped when no server is configured. This step arrives with the MCP change (#256). |
+| `mcp` | #256 | Starts each signed MCP server under real Seatbelt and compares its tools with the signed snapshot. Skipped when no server is configured. |
 | `concurrency` | #211 | Two real model requests at once: time, memory, swap. |
 | `drills` | #78 | `kill -9` and `kill -STOP` of the real supervisor under launchd. |
 | `network` | #79 | Manual: unplug the network and time the dead-man alert. |
@@ -89,6 +89,13 @@ keyboard so no secret travels through the repository.
   `lab mcp snapshot <server> --allow <tools> --key <operator key> --by <you>`
   and add the signed entry to `/etc/homelab/mcp.json`. Nothing runs from an
   unsigned entry.
+- **Turn on the two granted handlers, if you want them.** The supervisor only
+  registers the `skill.run` handler when `LAB_CONTAINER_IMAGE` is set, and the
+  `mcp.call` handler when `LAB_MCP_SERVERS` names the signed server file. Add
+  both to the `EnvironmentVariables` of the installed
+  `com.homelab.supervisor.plist`, then reload it. If any entry in the server
+  file is unsigned, the supervisor exits with code 2 and does not start. Check
+  `lab.cli status` says `IDLE` afterwards.
 
 ## 3. Real-container and real-sandbox checks
 

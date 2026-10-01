@@ -260,7 +260,10 @@ def measurement_environment(port: int, web_hosts: list[str]) -> Iterator[None]:
     """Point ``register_all`` at the mock model and the sample hosts, then restore."""
     values = {"LAB_MODEL_URL": f"http://127.0.0.1:{port}/v1", "LAB_MODEL_NAME": MOCK_MODEL,
               "LAB_MODEL_REVISION": MOCK_REVISION, "LAB_MODEL_TOKENIZER_REVISION": MOCK_REVISION,
-              "LAB_MODEL_WEIGHTS_MB": "1", "LAB_WEB_FETCH_HOSTS": ",".join(web_hosts)}
+              "LAB_MODEL_WEIGHTS_MB": "1", "LAB_WEB_FETCH_HOSTS": ",".join(web_hosts),
+              # The approve-tier handlers park on every call until a person
+              # signs, so a sample would measure only the wait. They stay off.
+              "LAB_CONTAINER_IMAGE": ""}
     saved = {k: os.environ.get(k) for k in values}
     os.environ.update(values)
     try:
