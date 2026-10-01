@@ -330,6 +330,24 @@ def cmd_resolve(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace
     return 0
 
 
+def cmd_measure_ceilings(args: argparse.Namespace) -> int:
+    """Measure every reviewed handler; write the report; exit 1 on any problem."""
+    from lab import ceilings
+    try:
+        extra = [ceilings.parse_handler(h) for h in args.handler]
+        report = ceilings.measure(
+            args.tasks or ceilings.DEFAULT_TASKS, repeats=args.repeats, headroom=args.headroom,
+            extra=extra, include_registered=not args.only_named, max_rss_mb=args.max_rss_mb,
+            max_cpu_seconds=args.max_cpu_seconds)
+        path = ceilings.save(report, args.out or ceilings.DEFAULT_OUT)
+    except (ValueError, OSError) as exc:
+        print(f"measure-ceilings: {exc}", file=sys.stderr)
+        return 1
+    print(ceilings.render(report))
+    print(f"wrote {path}")
+    return 1 if report.problems else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lab", description="Operate the home lab."
@@ -587,6 +605,25 @@ def build_parser() -> argparse.ArgumentParser:
     bn = sub.add_parser("bench", add_help=False,
                         help="benchmark a model endpoint; compare two runs for a tuning gain")
     bn.add_argument("bench_args", nargs=argparse.REMAINDER)
+
+    mc = sub.add_parser("measure-ceilings",
+                        help="measure peak memory and CPU of every reviewed handler and "
+                             "suggest task ceilings (#180)")
+    mc.add_argument("--tasks", type=Path, default=None,
+                    help="sample task file (default: evals/ceilings/tasks.json)")
+    mc.add_argument("--repeats", type=int, default=5, help="runs of each sample (default 5)")
+    mc.add_argument("--headroom", type=float, default=2.0,
+                    help="suggested ceiling = largest peak times this (default 2)")
+    mc.add_argument("--handler", action="append", default=[], metavar="KIND=REF",
+                    help="also measure lab.handlers.module:function as KIND; repeatable")
+    mc.add_argument("--only-named", action="store_true",
+                    help="measure only --handler handlers, not those register_all registers")
+    mc.add_argument("--max-rss-mb", type=int, default=None,
+                    help="memory ceiling to measure under (default: the current default)")
+    mc.add_argument("--max-cpu-seconds", type=float, default=None,
+                    help="CPU ceiling to measure under (default: the current default)")
+    mc.add_argument("--out", type=Path, default=None,
+                    help="report directory (default: evals/ceilings)")
 
     st = sub.add_parser("status", help="queue, worker health and counters, from the event log")
     st.add_argument("--json", action="store_true")
@@ -1304,6 +1341,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_dashboard(args)
     if args.command == "setup-plan":
         return cmd_setup_plan(args)
+    if args.command == "measure-ceilings":
+        return cmd_measure_ceilings(args)
     if args.command == "bench":
         from lab import bench
         return bench.main(args.bench_args)

@@ -240,6 +240,10 @@ class Supervisor:
         self._running: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._interrupted: dict[str, str] = {}
         self.unhealthy_reason: str | None = None
+        # Called with each reviewed handler's own report of its peak memory
+        # and CPU when its worker finishes. Unset in a running lab; the
+        # ceiling measurement (lab.ceilings) sets it. Never a control.
+        self.worker_usage: Callable[[Task, dict[str, float]], None] | None = None
 
     @property
     def healthy(self) -> bool:
@@ -286,11 +290,18 @@ class Supervisor:
 
         async def in_worker(task: Task, session: ToolSession) -> dict[str, Any]:
             workspace = broker._workspace_for(task.id).root
+            sink = self.worker_usage
+
+            def report(usage: dict[str, float]) -> None:
+                if sink is not None:
+                    sink(task, usage)
+
             return await run_in_worker(
                 ref, task, session, workspace=workspace,
                 max_rss_mb=self.config.task_max_rss_mb,
                 max_cpu_seconds=self.config.task_max_cpu_seconds,
-                poll_seconds=self.config.ceiling_poll_seconds)
+                poll_seconds=self.config.ceiling_poll_seconds,
+                on_usage=report if sink is not None else None)
 
         self.register(agent_kind, in_worker, tools, sensitive_data=sensitive_data,
                       external_action=external_action, egress_hosts=egress_hosts,
