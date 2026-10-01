@@ -75,6 +75,10 @@ TOOL_LEGS: dict[str, frozenset[Leg]] = {
     # Writes a pending row in the lab's own database that nothing reads as
     # memory until the owner signs it in (#253): no secret, nothing outside.
     "memory.propose": frozenset(),
+    # Runs a skill's script in a container with no network (#255). Nothing
+    # leaves the lab, but untrusted code writes its output, so the task holds
+    # untrusted input whatever its own origin.
+    "skill.run": frozenset({Leg.UNTRUSTED_INPUT}),
 }
 
 
