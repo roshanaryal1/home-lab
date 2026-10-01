@@ -234,7 +234,7 @@ uv run python -m lab.cli backup --to DIR [--keep N] [--alert-config F]   # onlin
 uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything
 uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
 uv run python -m lab.cli skillstore submit|promote|known-good|rollback|history|install   # versioned skills, operator-promoted, one-step rollback
-uv run python -m lab.cli prereg m6 [--json]      # run pre-registered Claim M6 on its frozen cases, refused if the case file changed
+uv run python -m lab.cli prereg m2|m6 [--json]   # run pre-registered Claim M2 or M6 on its frozen cases, refused if the case file changed
 uv run python -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE   # receipts for credentialed sends; ask the provider about a lost response
 uv run python -m lab.cli mcp snapshot <server> [--allow a,b] [--key K --by you]   # what the operator signs for an MCP server. `mcp list [--check]` shows each server's state
 uv run python -m lab.cli memory search|inspect|add-evidence|correct|revoke|delete   # inspectable FTS5 memory
@@ -298,7 +298,7 @@ docs/PREREGISTRATION.md    evaluation plan, registered at osf.io/jfp74, with res
 docs/REFERENCES.md         every cited paper: published or preprint, and how checked
 lab/skills.py        read-only skill validator and inventory
 lab/skillstore.py    skills as versioned artifacts: candidate, promote, known good, rollback
-lab/prereg.py        runner for the pre-registered Claim M6 over its frozen case file
+lab/prereg.py        runners for the pre-registered Claims M2 and M6 over their frozen case files
 THREATS.md           OWASP agentic top 10 mapped to controls and tests
 docs/decisions/      ADRs 0001 to 0007
 ops/mac-mini-setup.md  setup and parked-hardware checklists for the mini itself
