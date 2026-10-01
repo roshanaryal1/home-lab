@@ -895,6 +895,10 @@ Apple container, a Linux guest in its own VM:
 - **One mount.** The task workspace, read-write at `/work`. The root file
   system is read-only and `/tmp` is a tmpfs in the guest's memory. Nothing
   else on the host is visible.
+- **Never root.** The guest runs as `65534:65534` (`--user`), a numeric
+  uid and gid that is not 0. The user comes from trusted configuration, and
+  root or a named user is refused before anything starts (owner's decision,
+  2026-10-01).
 - **Pinned image, small environment, bounded size.** The image must be pinned
   by `sha256` digest. The guest gets `HOME`, `PATH`, `TMPDIR` and a short
   allowlist; any other variable is refused. CPU and memory are capped (4 CPUs,
@@ -987,7 +991,12 @@ tools. `lab/mcp.py` reaches one only through the broker tool `mcp.call`:
   allow it.
 - **Bounded.** A message over 1 MiB is refused. A task makes at most 20 MCP
   calls. One deadline covers each call. The process group is killed at the
-  deadline, on a stop and after every call.
+  deadline, on a stop and after every call. The 20 counts executions, so a
+  resumed task still gets its recorded results back from the journal.
+- **Uncertain outcomes held.** A failure before `tools/call` is sent is an
+  ordinary refusal. A timeout, cancel, revoke, dead server or broken reply
+  after it is sent leaves the journal entry uncertain and holds the task for
+  reconciliation, so the call is never retried blindly.
 
 **One handler holds it.** The owner decided on 2026-10-01 to grant
 `mcp.call` to a reviewed handler now, still at the approve tier. The

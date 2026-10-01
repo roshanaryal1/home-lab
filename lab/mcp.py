@@ -35,6 +35,9 @@ How the process runs
   message over ``MAX_MESSAGE_BYTES`` is refused, and the broker caps calls
   per task. At the deadline, on cancel and at the end of every call, the
   whole process group is killed.
+* Uncertain after sending: a failure before ``tools/call`` is written is a
+  refusal. A failure after it (a timeout, a cancel, a dead server, a broken
+  reply) is ``McpOutcomeUnknown``, because the tool may have run.
 
 The client is newline-delimited JSON-RPC 2.0 over stdin and stdout, written
 here by hand: ``initialize``, ``tools/list`` and ``tools/call`` are all the
@@ -115,6 +118,19 @@ class McpCancelled(McpError):
 
 class McpProtocolError(McpError):
     """The server did not speak the protocol, or closed its pipes."""
+
+
+class McpRpcError(McpProtocolError):
+    """The server answered a request with a JSON-RPC error. An answer, so known."""
+
+
+class McpOutcomeUnknown(McpError):
+    """The call failed after ``tools/call`` was sent, so the tool may have run.
+
+    A timeout, a cancel, a dead server or a broken reply after the request went
+    out all land here. The broker holds the task for reconciliation instead of
+    reporting an ordinary failure that a retry could repeat.
+    """
 
 
 def canonical(obj: object) -> bytes:
@@ -274,6 +290,12 @@ def seatbelt_launcher(argv: Sequence[str], workspace: Path, allow_network: bool,
     return start_process([sandbox.SANDBOX_EXEC, "-p", profile, *argv], root)
 
 
+
+def _reject_constant(name: str) -> object:
+    """NaN and Infinity are not JSON. Refuse them where the message is parsed,
+    so they never reach a fingerprint or a result."""
+    raise ValueError(f"non-standard JSON constant {name}")
+
 class StdioClient:
     """Newline-delimited JSON-RPC 2.0 over a child's stdin and stdout.
 
@@ -295,6 +317,7 @@ class StdioClient:
         os.set_blocking(self._in, False)
         self._buffer = bytearray()
         self._next_id = 0
+        self.bytes_sent = 0      # how much reached the server's input so far
         self._reader = selectors.DefaultSelector()
         self._reader.register(self._out, selectors.EVENT_READ)
 
@@ -322,6 +345,7 @@ class StdioClient:
                     continue
                 except (BrokenPipeError, ConnectionResetError):
                     raise McpProtocolError("the server closed its input") from None
+                self.bytes_sent += written
                 view = view[written:]
 
     def receive(self) -> dict[str, Any]:
@@ -335,7 +359,7 @@ class StdioClient:
                 if not line.strip():
                     continue
                 try:
-                    message = json.loads(line)
+                    message = json.loads(line, parse_constant=_reject_constant)
                 except (ValueError, RecursionError):
                     raise McpProtocolError("the server sent a line that is not JSON") from None
                 if not isinstance(message, dict):
@@ -360,7 +384,7 @@ class StdioClient:
                     error = message["error"]
                     code = error.get("code") if isinstance(error, dict) else None
                     code = code if isinstance(code, int) and not isinstance(code, bool) else None
-                    raise McpProtocolError(f"{method} failed with JSON-RPC error {code}")
+                    raise McpRpcError(f"{method} failed with JSON-RPC error {code}")
                 result = message.get("result")
                 if not isinstance(result, dict):
                     raise McpProtocolError(f"{method} returned no result object")
@@ -541,7 +565,19 @@ class McpRegistry:
             if tool_fingerprint(offered) != spec.tools[tool]:
                 raise McpRefused(f"{name}/{tool} changed since the operator signed it. It is "
                                  "refused until the operator signs again")
-            result = client.request("tools/call", {"name": tool, "arguments": dict(arguments)})
+            sent = client.bytes_sent
+            try:
+                result = client.request("tools/call",
+                                        {"name": tool, "arguments": dict(arguments)})
+            except McpRpcError:
+                raise                    # the server answered: the outcome is known
+            except (McpError, OSError) as exc:
+                if client.bytes_sent == sent:
+                    raise                # nothing reached the server: a refusal
+                reason = str(exc) if isinstance(exc, McpError) else type(exc).__name__
+                raise McpOutcomeUnknown(
+                    f"{name}/{tool} was sent and then failed ({type(exc).__name__}: "
+                    f"{reason}). It may have run") from exc
         description = offered.get("description", "")
         return CallOutcome(name, tool, result_text(result), result.get("isError") is True,
                            description if isinstance(description, str) else "")
