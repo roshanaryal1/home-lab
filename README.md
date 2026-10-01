@@ -38,6 +38,7 @@ than quietly resolved.
 | 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status`, `lab control` (pause, drain, stop), `lab cancel` and a read-only `lab dashboard` on loopback exist; alerts and the dead-man switch are parked, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
 | 11. sqlite-vec / FTS retrieval | FTS5 baseline built with inspect, correct, revoke and delete ([#85](https://github.com/roshanaryal1/home-lab/issues/85)); embeddings must beat it on a measured task first |
 | 12. Benchmark and tune before adding anything else | benchmarked on the M6 (`evals/bench/`, setup section 14); first tuning test run as pre-registered H3 (prompt cache 1 against 4: no gain, not adopted, `docs/PREREGISTRATION.md`) |
+| M3. Three real tools ([#240](https://github.com/roshanaryal1/home-lab/issues/240)) | workspace files (notify), read-only git (autonomous) and web fetch with summary (notify) built as reviewed handlers in `lab/handlers/`, each with only the broker tools it needs, and tested with hostile input on Linux (`tests/test_local_tools.py`); not yet run on the M6. Task ceilings from measured peaks wait for these to run real work there, [#180](https://github.com/roshanaryal1/home-lab/issues/180) |
 
 Steps 1, 2 and 4 are machine-independent and run anywhere. Everything
 touching model residency needs the 32 GB machine to mean anything, and
@@ -244,6 +245,7 @@ lab/policy.py        capability tiers, approvals (operator-signed), the gate
 lab/authority.py     the Rule of Two, enforced per task (ADR 0006)
 lab/origin.py        where a task's input came from, and the taint that follows it
 lab/broker.py        typed tools, workspaces, per-call audit
+lab/handlers/        reviewed handlers, the only code a worker loads: workspace files, read-only git, web summary
 lab/egress.py        the only outbound path: default-deny, resolve-then-pin
 lab/vault.py, connectors.py, publish.py   secrets injected per call, one destination each, receipts and reconciliation
 lab/audit.py         append-only hash chain and signed checkpoints

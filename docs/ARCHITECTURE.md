@@ -21,7 +21,10 @@ flowchart TB
         supervisor["Supervisor<br/>lab/supervisor.py<br/>bounded worker pool"]
         gate["Capability gate<br/>lab/policy.py, lab/broker.py<br/>4 tiers, per task and per tool call"]
         sandbox["Seatbelt sandbox<br/>lab/sandbox.py<br/>verified macOS 26.5.1 + 27"]
+        handlers["Reviewed handlers, one worker process each<br/>lab/handlers/<br/>workspace files, read-only git, web summary"]
         queue --> supervisor --> gate --> sandbox
+        supervisor -->|"runs"| handlers
+        handlers -->|"every tool call"| gate
     end
 
     subgraph model["Model layer: ADR 0001, measured on the M6"]
@@ -50,7 +53,7 @@ flowchart TB
     classDef built fill:#d4edda,stroke:#2d6a4f,color:#1b4332
     classDef missing fill:#f8d7da,stroke:#842029,color:#58151c
     classDef designonly fill:#fff3cd,stroke:#997404,color:#664d03
-    class queue,supervisor,gate,sandbox built
+    class queue,supervisor,gate,sandbox,handlers built
     class obs,router,publish missing
     class heavy,mem designonly
 ```
@@ -76,6 +79,7 @@ re-losing.
 | Supervisor | `lab/supervisor.py` | Built, tested | n/a |
 | Capability gate | `lab/policy.py`, `lab/broker.py` | Rule of Two enforced before the gate, `lab/authority.py` (item 4.1). Approvals are operator-signed (Ed25519) and verified by the supervisor, `lab/operator.py` (item 4.5). Every task carries a derived origin and taint through lineage, `lab/origin.py`, `lab/untrusted.py` (item 4.2). Task-level and per-tool-call: built, tested (item 1.1). Handlers call through a session bound to their task and lease (1.2); reviewed handlers run in a worker process (`lab/worker.py`); separate OS account pending, [#70](https://github.com/roshanaryal1/home-lab/issues/70) | n/a |
 | Sandbox | `lab/sandbox.py` | Built, tested on macOS 26.5.1 and 27 | n/a |
+| Local tools (M3) | `lab/handlers/workspace.py`, `lab/handlers/git_read.py`, `lab/handlers/web.py`, `lab/broker.py` | Built and tested with hostile input on Linux (#240). Three reviewed handlers run in worker processes, each granted only its broker tools: workspace files (`fs.read`, `fs.list`, `fs.write`, new `fs.search`; notify), read-only git (new `git.status`, `git.log`, `git.diff`; autonomous) and web fetch with summary (new `net.summarize`: the egress gateway, then the bounded model over fixed-schema evidence; notify). Registered by `register_all`; the web handler only when a model and `LAB_WEB_FETCH_HOSTS` are set. Git runs outside the sandbox, made safe by a repository check and a fixed command line (`SECURITY.md`). Not yet run on the M6; ceilings from measured peaks wait for that | [#180](https://github.com/roshanaryal1/home-lab/issues/180) |
 | Model adapter | `lab/model.py` | Built against a mock and a stub loopback server: pinned revisions, admission control (tokens, time, residency, one heavy slot; the slot spans processes through `<db>.model.lock`, #211), strict tool-call parsing. Run against the real model on the M6 (2026-09-30): pinned revision, admission refusal and measured budget verified; `kv_bytes_per_token` defaults to the measured 200,000 | [#74](https://github.com/roshanaryal1/home-lab/issues/74) |
 | Heavy model | Qwen3-Coder-30B-A3B, MLX 4-bit DWQ build | Chosen and running on the M6 (always-on LaunchAgent, loopback only). The plain 4-bit build corrupted copied text, so the DWQ build is served since 2026-09-30; memory, speed and tool calls **measured**; a second model family not yet compared | [ADR 0001](decisions/0001-heavy-model.md) |
 | Python runtime | uv-managed | Chosen; mini needs patch-version pin | [ADR 0002](decisions/0002-python-runtime.md) |
