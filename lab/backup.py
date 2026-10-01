@@ -360,6 +360,10 @@ def rotate(dest: Path, keep: int, *, protect: Path | None = None) -> RotateRepor
     report = RotateReport()
     try:
         own = _own_backups(dir_fd, report)
+        # A manifest whose database is gone is not a backup, so it never takes
+        # a keep slot from a complete one. It still goes once it falls outside.
+        own = [b for b in own if b.database is not None] + \
+            [b for b in own if b.database is None]
         protected = protect.name if protect is not None else None
         kept = [b for i, b in enumerate(own) if i < keep or b.manifest == protected]
         doomed = [b for b in own if b not in kept]

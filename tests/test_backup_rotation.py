@@ -106,6 +106,18 @@ def test_the_new_backup_is_kept_even_if_older_ones_look_newer(tmp_path: Path, li
     assert set(report.kept) == {future.name, new.name}
 
 
+
+def test_a_manifest_without_its_database_never_takes_a_keep_slot(tmp_path: Path, live) -> None:
+    db, store = live
+    dest = tmp_path / "bk"
+    manifests = _series(db, store, dest, 3)
+    broken = backup.backup(db, dest, store.root, now=T0 + timedelta(days=30))
+    (dest / broken.name.replace(".manifest.json", ".db")).unlink()
+    report = backup.rotate(dest, 2, protect=manifests[-1])
+    assert sorted(report.kept) == sorted(m.name for m in manifests[-2:])
+    assert broken.name in report.removed and not broken.exists()
+    assert manifests[1].exists() and backup.restore_check(manifests[1], tmp_path / "r").ok
+
 @pytest.mark.safety
 def test_rotation_never_touches_foreign_files(tmp_path: Path, live) -> None:
     db, store = live
