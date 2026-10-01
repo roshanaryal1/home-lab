@@ -2,8 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>LAB_BACKUP_DIR</key>
+		<string>PASTE_BACKUP_DIR</string>
+	</dict>
 	<key>Label</key>
-	<string>com.homelab.selftest</string>
+	<string>com.homelab.backup</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/opt/homelab/.venv/bin/python</string>
@@ -11,21 +16,22 @@
 		<string>lab.cli</string>
 		<string>--db</string>
 		<string>/var/homelab/lab.db</string>
-		<string>selftest</string>
+		<string>backup</string>
+		<string>--keep</string>
+		<string>14</string>
 		<string>--alert-config</string>
 		<string>/etc/homelab/alert.json</string>
-		<string>--report-ok</string>
 	</array>
 	<key>StandardErrorPath</key>
-	<string>/var/log/homelab/selftest.err</string>
+	<string>/var/log/homelab/backup.err</string>
 	<key>StandardOutPath</key>
-	<string>/var/log/homelab/selftest.log</string>
+	<string>/var/log/homelab/backup.log</string>
 	<key>StartCalendarInterval</key>
 	<dict>
 		<key>Hour</key>
-		<integer>3</integer>
+		<integer>2</integer>
 		<key>Minute</key>
-		<integer>17</integer>
+		<integer>47</integer>
 	</dict>
 	<key>UserName</key>
 	<string>lab</string>

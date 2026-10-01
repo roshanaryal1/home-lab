@@ -246,6 +246,11 @@ sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli \
   --to "$BACKUP_VOLUME/home-lab-backups"
 ```
 
+The daily backup job (`com.homelab.backup`) runs the same command with
+`--keep 14`: it restore-checks each new backup and keeps the newest 14. Its
+folder is set in the installed copy, as described in
+`ops/runbook-lab-account-and-daemons.md` step 4.
+
 Keep at least one additional recovery destination for anything that matters.
 
 ## 10. Uninstall
@@ -253,7 +258,7 @@ Keep at least one additional recovery destination for anything that matters.
 Stop and unload the services first:
 
 ```sh
-for s in supervisor watchdog keepawake statuscheck selftest tick; do
+for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbeat; do
   sudo launchctl bootout "system/com.homelab.$s" 2>/dev/null || true
 done
 ```
