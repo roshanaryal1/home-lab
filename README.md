@@ -170,11 +170,13 @@ against these gaps first; see the
 ## Skill library checks
 
 `lab skills` is a read-only check on a directory of skills. It never runs,
-imports or writes anything it scans.
+imports or writes anything it scans. `skills import` is the one exception:
+it validates a skill and stores it as a candidate, never as active.
 
 ```sh
 uv run python -m lab.cli skills validate --root path/to/skills   # exit 1 on any problem
 uv run python -m lab.cli skills inventory --root path/to/skills [--json]
+uv run python -m lab.cli skills import path/to/skills/one --tier notify --by you --source URL
 ```
 
 `validate` checks that every skill has a SKILL.md with a safe frontmatter
@@ -182,8 +184,20 @@ uv run python -m lab.cli skills inventory --root path/to/skills [--json]
 matches its directory, no duplicate names, no symlink leaving the library,
 size limits, and none of a short list of forbidden commands (permission
 prompts disabled, a download piped into a shell) in SKILL.md, executable
-files or a `scripts/` or `bin/` directory. `inventory` lists each
-skill with a content hash so any change to a skill is visible. Syncing a
+files or a `scripts/` or `bin/` directory. It also refuses zero-width and
+bidi control characters in SKILL.md or a name, a name with non-ASCII
+look-alike letters, a word that mixes scripts, a second SKILL.md below the
+skill root, and an `allowed-tools` list naming a tool the broker does not
+know or one above the declared or requested tier. A name one edit away from
+another skill, or from a name passed with `--known`, is reported as a
+typosquat. `inventory` lists each
+skill with a content hash so any change to a skill is visible.
+
+`import` runs the same checks, with the typosquat check against every name
+already in the skill store, then submits the skill as a candidate with its
+source recorded as `derived_from`. It prints the version id. The candidate
+does nothing until an operator other than the importer promotes it with a
+signed `lab skillstore promote`. Syncing a
 library between machines is deliberately not built: it waits until one
 machine is named the canonical copy and changes to skills have an approval
 step ([#87](https://github.com/roshanaryal1/home-lab/issues/87)).
@@ -219,6 +233,7 @@ uv run python -m lab.cli backup --to DIR          # online snapshot, then restor
 uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything
 uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
 uv run python -m lab.cli skillstore submit|promote|known-good|rollback|history|install   # versioned skills, operator-promoted, one-step rollback
+uv run python -m lab.cli prereg m6 [--json]      # run pre-registered Claim M6 on its frozen cases, refused if the case file changed
 uv run python -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE   # receipts for credentialed sends; ask the provider about a lost response
 uv run python -m lab.cli memory search|inspect|add-evidence|correct|revoke|delete   # inspectable FTS5 memory
 uv run python -m lab.cli route <task> [--want paper]   # post, blog, paper or nothing, by evidence weight; thin evidence refused upward
@@ -277,6 +292,7 @@ docs/PREREGISTRATION.md    evaluation plan, registered at osf.io/jfp74, with res
 docs/REFERENCES.md         every cited paper: published or preprint, and how checked
 lab/skills.py        read-only skill validator and inventory
 lab/skillstore.py    skills as versioned artifacts: candidate, promote, known good, rollback
+lab/prereg.py        runner for the pre-registered Claim M6 over its frozen case file
 THREATS.md           OWASP agentic top 10 mapped to controls and tests
 docs/decisions/      ADRs 0001 to 0007
 ops/mac-mini-setup.md  setup and parked-hardware checklists for the mini itself

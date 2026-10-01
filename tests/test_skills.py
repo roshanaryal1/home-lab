@@ -305,3 +305,195 @@ def test_cli_skills_needs_no_database(tmp_path: Path) -> None:
     missing_db = tmp_path / "missing.db"
     assert cli_main(["--db", str(missing_db), "skills", "validate", "--root", str(tmp_path)]) == 0
     assert not missing_db.exists()
+
+
+# ------------------------------------------------- hardening for imports (#254)
+
+
+def with_frontmatter(name: str, extra: str, body: str = "Body.") -> str:
+    return f"---\nname: {name}\ndescription: Does a thing.\n{extra}---\n\n{body}\n"
+
+
+@pytest.mark.safety
+@pytest.mark.parametrize("char", ["\u200b", "\u200d", "\u2060", "\ufeff", "\u202e", "\u2066",
+                                  "\u061c", "\u00ad"])
+def test_zero_width_and_bidi_characters_in_skill_md_are_refused(tmp_path: Path,
+                                                                char: str) -> None:
+    make_skill(tmp_path, "alpha", GOOD.format(name="alpha") + f"Run this{char} now.\n")
+    problems = skills.scan(tmp_path).problems
+    assert [p.code for p in problems] == ["invisible-character"]
+    assert f"U+{ord(char):04X}" in problems[0].message
+
+
+@pytest.mark.safety
+def test_an_invisible_character_in_a_name_is_refused(tmp_path: Path) -> None:
+    name = "al\u200bpha"
+    make_skill(tmp_path, name, GOOD.format(name=name))
+    found = codes(tmp_path)
+    assert "invisible-character" in found
+    assert "bad-name" not in found, "reported as what it is, not as a charset slip"
+
+
+@pytest.mark.safety
+def test_a_look_alike_letter_in_a_name_is_refused(tmp_path: Path) -> None:
+    name = "summ\u0430rise"                                   # Cyrillic a
+    make_skill(tmp_path, name, GOOD.format(name=name))
+    problems = skills.scan(tmp_path).problems
+    found = {p.code for p in problems}
+    assert "homoglyph-name" in found and "bad-name" not in found
+    assert any("CYRILLIC" in p.message and "LATIN" in p.message for p in problems)
+
+
+def test_a_non_ascii_name_in_a_single_script_is_refused_too(tmp_path: Path) -> None:
+    make_skill(tmp_path, "alpha", GOOD.format(name="\u03b1\u03bb\u03c6\u03b1"))
+    assert "homoglyph-name" in codes(tmp_path)
+
+
+@pytest.mark.safety
+def test_a_mixed_script_word_in_skill_md_is_refused(tmp_path: Path) -> None:
+    make_skill(tmp_path, "alpha", GOOD.format(name="alpha") + "Please ign\u043ere it.\n")
+    assert codes(tmp_path) == {"mixed-script"}
+
+
+def test_single_script_words_and_accents_are_fine(tmp_path: Path) -> None:
+    make_skill(tmp_path, "alpha", GOOD.format(name="alpha")
+               + "A caf\u00e9 note. \u03bb\u03cc\u03b3\u03bf\u03c2 and "
+               + "\u0441\u043b\u043e\u0432\u043e.\n")
+    assert codes(tmp_path) == set()
+
+
+@pytest.mark.safety
+@pytest.mark.parametrize("inner", ["inner/SKILL.md", "a/b/skill.md"])
+def test_a_skill_md_nested_below_the_root_is_refused(tmp_path: Path, inner: str) -> None:
+    directory = make_skill(tmp_path, "alpha")
+    nested = directory / inner
+    nested.parent.mkdir(parents=True)
+    nested.write_text(GOOD.format(name="inner"))
+    problems = skills.scan(tmp_path).problems
+    assert [p.code for p in problems] == ["nested-skill"]
+    assert inner in problems[0].message
+
+
+@pytest.mark.parametrize(("a", "b", "near"), [
+    ("summarise", "summarize", True),        # substitution
+    ("summarise", "summarises", True),       # insertion
+    ("summarise", "sumarise", True),         # deletion
+    ("summarise", "sumamrise", True),        # adjacent swap
+    ("summarise", "summarise", False),       # the same name is not a squat
+    ("summarise", "smumarize", False),       # two edits
+    ("lint", "linter", False),
+    ("ab", "ba", True),
+    ("abc", "bca", False),
+])
+def test_one_edit_apart(a: str, b: str, near: bool) -> None:
+    assert skills.one_edit_apart(a, b) is near
+    assert skills.one_edit_apart(b, a) is near
+
+
+@pytest.mark.safety
+def test_a_name_one_edit_from_another_skill_in_the_library_is_reported(tmp_path: Path) -> None:
+    make_skill(tmp_path, "summarise")
+    make_skill(tmp_path, "summarize")
+    make_skill(tmp_path, "translate")
+    problems = [p for p in skills.scan(tmp_path).problems if p.code == "typosquat"]
+    assert {p.skill for p in problems} == {"summarise", "summarize"}
+
+
+@pytest.mark.safety
+def test_a_name_one_edit_from_a_known_name_is_reported(tmp_path: Path) -> None:
+    make_skill(tmp_path, "summarize")
+    assert codes(tmp_path) == set()
+    result = skills.scan(tmp_path, known_names=["summarise", "translate"])
+    assert [(p.skill, p.code) for p in result.problems] == [("summarize", "typosquat")]
+    assert "'summarise'" in result.problems[0].message
+    assert skills.scan(tmp_path, known_names=["summarize"]).problems == [], \
+        "a new version of a known skill is not a squat on itself"
+
+
+@pytest.mark.parametrize(("value", "expected"), [
+    ("allowed-tools: fs.read, fs.list\n", ["fs.read", "fs.list"]),
+    ("allowed-tools: fs.read fs.list\n", ["fs.read", "fs.list"]),
+    ("allowed-tools: [fs.read, fs.list]\n", ["fs.read", "fs.list"]),
+    ("allowed-tools:\n  - fs.read\n  - fs.list\n", ["fs.read", "fs.list"]),
+    ("allowed-tools:\n- fs.read\n\n- fs.list\n", ["fs.read", "fs.list"]),
+    ("allowed-tools:\n", []),
+    ("other: x\n", None),
+])
+def test_frontmatter_list_forms(value: str, expected: list[str] | None) -> None:
+    assert skills.frontmatter_list(with_frontmatter("demo", value), "allowed-tools") == expected
+
+
+@pytest.mark.parametrize("value", [
+    "allowed-tools: Bash(git:*)\n",
+    "allowed-tools: \"fs.read\"\n",
+    "allowed-tools: fs.read\n  - fs.list\n",
+    "allowed-tools:\n  fs.read\n",
+    "allowed-tools:\n  - - fs.read\n",
+])
+def test_frontmatter_list_stays_strict(value: str) -> None:
+    with pytest.raises(skills.FrontmatterError):
+        skills.frontmatter_list(with_frontmatter("demo", value), "allowed-tools")
+
+
+def test_a_malformed_allowed_tools_list_is_a_frontmatter_problem(tmp_path: Path) -> None:
+    make_skill(tmp_path, "alpha", with_frontmatter("alpha", "allowed-tools: Bash(rm:*)\n"))
+    assert codes(tmp_path) == {"frontmatter"}
+
+
+@pytest.mark.safety
+def test_allowed_tools_unknown_to_the_broker_are_refused(tmp_path: Path) -> None:
+    make_skill(tmp_path, "alpha", with_frontmatter("alpha", "allowed-tools: fs.read, Bash\n"))
+    problems = skills.scan(tmp_path).problems
+    assert [p.code for p in problems] == ["unknown-tool"]
+    assert "Bash" in problems[0].message
+
+
+@pytest.mark.safety
+def test_allowed_tools_above_the_declared_tier_are_refused(tmp_path: Path) -> None:
+    make_skill(tmp_path, "alpha", with_frontmatter(
+        "alpha", "tier: notify\nallowed-tools: fs.read, fs.write, shell.run\n"))
+    problems = skills.scan(tmp_path).problems
+    assert [p.code for p in problems] == ["tools-exceed-tier"]
+    assert "shell.run" in problems[0].message and "fs.write" not in problems[0].message
+
+
+@pytest.mark.safety
+def test_allowed_tools_above_the_requested_tier_are_refused(tmp_path: Path) -> None:
+    make_skill(tmp_path, "alpha", with_frontmatter("alpha", "allowed-tools: fs.read, fs.write\n"))
+    assert codes(tmp_path) == set()
+    assert skills.scan(tmp_path, tier="notify").problems == []
+    problems = skills.scan(tmp_path, tier="autonomous").problems
+    assert [p.code for p in problems] == ["tools-exceed-tier"]
+    assert "requested tier 'autonomous'" in problems[0].message
+
+
+@pytest.mark.safety
+def test_a_looser_requested_tier_does_not_excuse_the_declared_one(tmp_path: Path) -> None:
+    make_skill(tmp_path, "alpha", with_frontmatter(
+        "alpha", "tier: autonomous\nallowed-tools: fs.write\n"))
+    problems = skills.scan(tmp_path, tier="approve").problems
+    assert [p.code for p in problems] == ["tools-exceed-tier"]
+    assert "declared tier 'autonomous'" in problems[0].message
+
+
+def test_allowed_tools_within_the_tier_pass_and_never_permits_all(tmp_path: Path) -> None:
+    make_skill(tmp_path, "alpha", with_frontmatter(
+        "alpha", "tier: approve\nallowed-tools: fs.read, shell.run\n"))
+    make_skill(tmp_path, "beta", with_frontmatter(
+        "beta", "tier: never\nallowed-tools: connector.call\n"))
+    assert codes(tmp_path) == set()
+
+
+def test_an_unknown_tier_next_to_allowed_tools_is_reported(tmp_path: Path) -> None:
+    make_skill(tmp_path, "alpha", with_frontmatter(
+        "alpha", "tier: lenient\nallowed-tools: fs.read\n"))
+    assert codes(tmp_path) == {"bad-tier"}
+    assert "bad-tier" in {p.code for p in skills.scan(tmp_path, tier="loose").problems}
+
+
+def test_cli_validate_takes_known_names(tmp_path: Path,
+                                        capsys: pytest.CaptureFixture[str]) -> None:
+    make_skill(tmp_path, "summarize")
+    assert cli_main(["skills", "validate", "--root", str(tmp_path),
+                     "--known", "summarise"]) == 1
+    assert "typosquat" in capsys.readouterr().out

@@ -337,3 +337,52 @@ def test_cli_submit_promote_known_good_rollback_history_install(tmp_path, capsys
     assert main([*base, "rollback", "summarise", "--by", "roshan"]) == 0
     assert main([*base, "install", "summarise", "--to", str(tmp_path / "live")]) == 0
     assert "one" in (tmp_path / "live" / "summarise" / "SKILL.md").read_text()
+
+
+# ------------------------------------------------------------ import (#254)
+
+
+@pytest.mark.safety
+def test_cli_import_stores_a_candidate_that_is_not_active(tmp_path, capsys) -> None:
+    db = tmp_path / "lab.db"
+    TaskQueue(db).close()
+    make_skill(tmp_path / "w", body="one")
+    assert main(["--db", str(db), "skills", "import", str(tmp_path / "w" / "summarise"),
+                 "--tier", "notify", "--by", "roshan",
+                 "--source", "https://example.org/skills@abc123"]) == 0
+    out = capsys.readouterr().out
+    assert "version id 1" in out and "candidate, not active" in out
+    assert "signed promotion" in out
+    with TaskQueue(db) as q:
+        store = SkillStore(q._conn, ArtifactStore(tmp_path / "artifacts", q._conn))
+        row = store.get(1)
+        assert row["state"] == "candidate" and store.active("summarise") is None
+        assert row["derived_from"] == "https://example.org/skills@abc123"
+        assert row["submitted_by"] == "roshan"
+
+
+@pytest.mark.safety
+def test_cli_import_checks_typosquats_against_the_store(tmp_path, capsys) -> None:
+    db = tmp_path / "lab.db"
+    TaskQueue(db).close()
+    base = ["--db", str(db), "skills", "import"]
+    make_skill(tmp_path / "a", name="summarise")
+    assert main([*base, str(tmp_path / "a" / "summarise"), "--tier", "notify",
+                 "--by", "roshan"]) == 0
+    make_skill(tmp_path / "b", name="summarize")
+    assert main([*base, str(tmp_path / "b" / "summarize"), "--tier", "notify",
+                 "--by", "learner"]) == 1
+    err = capsys.readouterr().err
+    assert "typosquat" in err and "summarise" in err
+    make_skill(tmp_path / "a", name="summarise", body="two")
+    assert main([*base, str(tmp_path / "a" / "summarise"), "--tier", "notify",
+                 "--by", "learner"]) == 0, "a new version of the same skill is not a squat"
+    assert "unstated" in capsys.readouterr().out
+
+
+@pytest.mark.safety
+def test_import_refuses_allowed_tools_above_the_requested_tier(store, tmp_path) -> None:
+    path = make_skill(tmp_path / "w", extra_frontmatter="allowed-tools: fs.read, shell.run\n")
+    with pytest.raises(SkillStoreError, match="tools-exceed-tier"):
+        store.submit(path, "notify", "learner")
+    assert store.submit(path, "approve", "learner")

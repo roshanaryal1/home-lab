@@ -289,6 +289,12 @@ Implemented and tested:
   skills from the install directory into an agent, so the tier is a
   recorded constraint that the loader will have to enforce; and without a
   configured operator public key promotion is unsigned (dev mode).
+  `lab skills import` (#254) is the way in for an outside skill: it runs
+  the validator, including the checks for hidden and bidi characters,
+  look-alike names, nested skills, typosquats against the store and
+  `allowed-tools` above the tier, then stores a candidate with its
+  source. Claim M6 in `docs/PREREGISTRATION-SAFETY.md` measures this path
+  on 36 frozen cases with `lab prereg m6`.
 - **Reviewed publishing with receipts** (`lab/publish.py`,
   `publications`, migration 10, item 8.6, #86). A credentialed send is
   bound, in the approval the operator reads, to the destination host and

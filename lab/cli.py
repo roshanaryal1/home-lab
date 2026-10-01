@@ -25,7 +25,10 @@ Usage:
     python3 -m lab.cli artifacts verify
     python3 -m lab.cli ledger show|review|verify ...
     python3 -m lab.cli memory search|inspect|add-curated|add-evidence|correct|revoke|delete|sweep
+    python3 -m lab.cli skills validate|inventory --root DIR
+    python3 -m lab.cli skills import <dir> --tier TIER --by NAME [--source TEXT]
     python3 -m lab.cli skillstore submit|promote|known-good|rollback|history|install ...
+    python3 -m lab.cli prereg m6 [--json]
     python3 -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
@@ -371,9 +374,21 @@ def build_parser() -> argparse.ArgumentParser:
     skills_sub = skills_cmd.add_subparsers(dest="skills_command", required=True)
     validate = skills_sub.add_parser("validate", help="exit 1 if any skill breaks a rule")
     validate.add_argument("--root", type=Path, required=True, help="directory of skill directories")
+    validate.add_argument("--known", action="append", default=[], metavar="NAME",
+                          help="a name in use elsewhere, checked for typosquats (repeatable)")
     inventory = skills_sub.add_parser("inventory", help="list skills with content hashes")
     inventory.add_argument("--root", type=Path, required=True)
     inventory.add_argument("--json", action="store_true")
+    imp = skills_sub.add_parser(
+        "import", help="validate a skill directory and store it as a candidate, never active")
+    imp.add_argument("directory", type=Path)
+    imp.add_argument("--tier", required=True, choices=["autonomous", "notify",
+                                                      "approve", "never"])
+    imp.add_argument("--by", required=True, help="who is importing it")
+    imp.add_argument("--source", default=None,
+                     help="where it came from (a URL, a repo and commit), kept as derived_from")
+    imp.add_argument("--store", type=Path, default=None,
+                     help="artifact store (default: 'artifacts' next to the database)")
 
     art = sub.add_parser("artifacts", help="list and verify stored task outputs")
     art.add_argument("--store", type=Path, default=None,
@@ -566,6 +581,10 @@ def build_parser() -> argparse.ArgumentParser:
     ev = sub.add_parser("eval", add_help=False,
                         help="run the fixed task set against a model endpoint, with provenance")
     ev.add_argument("eval_args", nargs=argparse.REMAINDER)
+
+    pr = sub.add_parser("prereg", add_help=False,
+                        help="run a pre-registered safety claim against its frozen case file")
+    pr.add_argument("prereg_args", nargs=argparse.REMAINDER)
 
     bn = sub.add_parser("bench", add_help=False,
                         help="benchmark a model endpoint; compare two runs for a tuning gain")
@@ -865,7 +884,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
 
 def cmd_skills(args: argparse.Namespace) -> int:
-    result = skills.scan(args.root)
+    result = skills.scan(args.root, known_names=getattr(args, "known", ()))
     if args.skills_command == "inventory":
         if args.json:
             print(json.dumps([asdict(skill) for skill in result.skills], indent=2))
@@ -878,10 +897,31 @@ def cmd_skills(args: argparse.Namespace) -> int:
         return 0
 
     for found in result.problems:
-        print(f"{found.skill or '-'}: {found.code}: {found.message}")
+        print(_escape(f"{found.skill or '-'}: {found.code}: {found.message}"))
     count = len(result.skills)
     print(f"{count} skill{'s' if count != 1 else ''} checked, {len(result.problems)} problem(s)")
     return 1 if result.problems else 0
+
+
+def cmd_skills_import(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    """Validate, then store as a candidate. Importing never activates anything:
+    the store's typosquat check runs against every name it already holds,
+    and only an operator-signed promotion by someone else makes it active."""
+    store = SkillStore(queue._conn, ArtifactStore(args.store or args.db.parent / "artifacts",
+                                                  queue._conn))
+    try:
+        vid = store.submit(args.directory, args.tier, _escape(args.by),
+                           derived_from=_escape(args.source) if args.source else None)
+    except (SkillStoreError, OSError) as exc:
+        print(_escape(f"skills import: {exc}"), file=sys.stderr)
+        return 1
+    row = store.get(vid)
+    print(f"imported {row['name']} v{row['version']} as version id {vid} "
+          f"(tier {row['tier']}, from {_escape(row['derived_from'] or 'unstated')})")
+    print("It is a candidate, not active. It needs a signed promotion by an operator "
+          f"other than {_escape(row['submitted_by'])}: lab skillstore promote {vid} "
+          "--by NAME --signature SIG")
+    return 0
 
 
 def cmd_artifacts(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
@@ -1182,6 +1222,7 @@ COMMANDS = {
     "emit": cmd_emit,
     "chain": cmd_chain,
     "skillstore": cmd_skillstore,
+    "skills": cmd_skills_import,
     "publish": cmd_publish,
     "memory": cmd_memory,
     "route": cmd_route,
@@ -1199,8 +1240,11 @@ COMMANDS = {
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.command == "skills":
+    if args.command == "skills" and args.skills_command != "import":
         return cmd_skills(args)
+    if args.command == "prereg":
+        from lab import prereg
+        return prereg.main(args.prereg_args)
     if args.command == "audit":
         return cmd_audit(args)
     if args.command == "operator":
