@@ -19,8 +19,14 @@ Protocol, one JSON object per line:
     supervisor -> worker  {"type": "start", "handler": ..., "task": {...}, "context": {...}}
     worker -> supervisor  {"type": "call", "tool": ..., "params": {...}}
     supervisor -> worker  {"type": "result", "ok": ..., "detail": {...}, "error": ...}
-    worker -> supervisor  {"type": "done", "result": {...}}
-                          {"type": "error", "error": "..."}
+    worker -> supervisor  {"type": "done", "result": {...}, "usage": {...}}
+                          {"type": "error", "error": "...", "usage": {...}}
+
+``usage`` is the worker's own peak resident memory and CPU time, from
+getrusage. The supervisor passes it to ``on_usage`` when asked to and
+otherwise ignores it. It is what the worker says about itself, so it is a
+measurement for sizing the ceilings (``lab.ceilings``), never a control:
+the ceilings themselves are enforced from outside the worker.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ import os
 import signal
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -86,6 +93,27 @@ def group_rss_mb(pgid: int) -> float:
     return total_kb / 1024
 
 
+def own_usage() -> dict[str, float]:
+    """Peak resident memory (MB) and CPU seconds of this process and its children."""
+    import resource
+    me = resource.getrusage(resource.RUSAGE_SELF)
+    kids = resource.getrusage(resource.RUSAGE_CHILDREN)
+    # ru_maxrss is in bytes on macOS and in kilobytes on Linux.
+    unit = 1 if sys.platform == "darwin" else 1024
+    return {"peak_rss_mb": max(me.ru_maxrss, kids.ru_maxrss) * unit / (1024 * 1024),
+            "cpu_seconds": me.ru_utime + me.ru_stime + kids.ru_utime + kids.ru_stime}
+
+
+def _usage_of(message: dict[str, Any]) -> dict[str, float] | None:
+    usage = message.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    out = {k: float(v) for k, v in usage.items()
+           if k in ("peak_rss_mb", "cpu_seconds") and isinstance(v, int | float)
+           and not isinstance(v, bool)}
+    return out if len(out) == 2 else None
+
+
 class WorkerError(RuntimeError):
     """The worker process failed, crashed or broke the protocol."""
 
@@ -117,13 +145,17 @@ def worker_environment(workspace: Path) -> dict[str, str]:
 async def run_in_worker(ref: str, task: Task, tools: ToolSession, *,
                         workspace: Path, max_rss_mb: float | None = None,
                         max_cpu_seconds: float | None = None,
-                        poll_seconds: float = 0.5) -> dict[str, Any]:
+                        poll_seconds: float = 0.5,
+                        on_usage: Callable[[dict[str, float]], None] | None = None,
+                        ) -> dict[str, Any]:
     """Run ``ref`` for ``task`` in a fresh process; broker its tool calls.
 
     Raises ``ApprovalRequired`` when a call needs a human (after ending
     the worker, since the task will park), and ``WorkerError`` when the
     worker fails, crashes or misbehaves. The worker's whole process group
-    is killed on the way out, whatever happened.
+    is killed on the way out, whatever happened. ``on_usage`` gets the
+    worker's own report of its peak memory and CPU when it finishes, for
+    measurement only.
     """
     check_reference(ref)
     proc = await asyncio.create_subprocess_exec(
@@ -202,6 +234,10 @@ async def run_in_worker(ref: str, task: Task, tools: ToolSession, *,
             except (ValueError, KeyError, TypeError) as exc:
                 raise WorkerError(f"worker broke the protocol: {line[:200]!r}") from exc
 
+            if kind in ("done", "error") and on_usage is not None:
+                usage = _usage_of(message)
+                if usage is not None:
+                    on_usage(usage)
             if kind == "call":
                 params = message.get("params")
                 tool = message.get("tool")
@@ -288,10 +324,10 @@ def main() -> None:
         task = Task(**start["task"])
         tools = RemoteTools(WorkerContext(**start["context"]), reader, proto_out)
         result = asyncio.run(handler(task, tools))
-        emit({"type": "done", "result": result})
+        emit({"type": "done", "result": result, "usage": own_usage()})
     except BaseException as exc:
         emit({"type": "error", "error": f"{type(exc).__name__}: {exc}",
-              "permanent": isinstance(exc, PermanentFailure)})
+              "permanent": isinstance(exc, PermanentFailure), "usage": own_usage()})
         raise SystemExit(1) from None
 
 

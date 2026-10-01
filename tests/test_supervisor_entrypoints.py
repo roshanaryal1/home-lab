@@ -26,6 +26,8 @@ KNOWN_SITES = {
     "supervisor.py": (1, "the daemon entry point: require_operator_key unless --allow-unsigned"),
     "loop.py": (1, "lab tick: the CLI requires the key unless --allow-unsigned or a mock reply"),
     "attacks.py": (1, "the attack harness: a temporary database and a dummy secret only"),
+    "ceilings.py": (1, "lab measure-ceilings: a temporary database, fake model and pages, "
+                       "and sample tasks that need no approval"),
 }
 
 
