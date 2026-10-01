@@ -301,3 +301,8 @@ A DOI needs the owner to connect Zenodo; the steps are in
 See [`ops/mac-mini-setup.md`](ops/mac-mini-setup.md). Do the accounts
 and network sections before anything else; the dedicated non-admin user
 is what keeps an agent mistake survivable.
+
+Once the lab is deployed, the checks that need the machine run in one sitting:
+`ops/mac-session.sh` runs each of them in order and writes one report. See
+[`ops/mac-session.md`](ops/mac-session.md) for what each check proves and which
+issue its result goes into.
