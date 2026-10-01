@@ -39,6 +39,11 @@ server in `/etc/homelab/mcp.json`. Without them those steps report SKIPPED. Do
 that setup first, or rerun them afterwards with `./ops/mac-session.sh --only skillrun`, and
 `./ops/mac-session.sh --only mcp` once the MCP change (#256) is in.
 
+The `selftest` step reads the nightly self-test log, which only exists once the
+self-test job from section 2 has run. On a first session it reports FAIL for
+that reason. Rerun it the morning after with
+`./ops/mac-session.sh --only selftest`.
+
 ```sh
 ./ops/mac-session.sh --dry-run
 LAB_CONTAINER_IMAGE='<name@sha256:...>' ./ops/mac-session.sh
