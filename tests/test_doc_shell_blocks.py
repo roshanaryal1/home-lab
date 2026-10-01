@@ -66,3 +66,34 @@ def test_a_doc_with_inline_comments_in_shell_blocks_carries_the_zsh_note() -> No
     assert not missing, (
         "these docs have inline # comments in shell blocks but do not tell the reader "
         f"to run `setopt interactivecomments` first (see #208): {missing}")
+
+
+def assignments_with_a_trailing_comment(text: str) -> list[int]:
+    """The dangerous case (#208): ``NAME=value  # note`` leaves NAME empty when pasted
+    into zsh, whether or not the reader knows about ``interactivecomments``."""
+    lines = text.splitlines()
+    return [n for n in inline_comment_lines(text)
+            if re.match(r"\s*(export\s+)?[A-Za-z_][A-Za-z0-9_]*=", lines[n - 1])]
+
+
+def test_the_assignment_detector_flags_only_assignments() -> None:
+    text = "\n".join([
+        "```sh",
+        'MODEL_REV="abc"   # the build now served',
+        'export REPO="$HOME/x"  # where it lives',
+        "sudo -u lab /bin/cat key   # expect Permission denied",
+        'CLEAN="value"',
+        "```",
+    ])
+    assert assignments_with_a_trailing_comment(text) == [2, 3]
+
+
+def test_no_shell_block_puts_a_comment_after_a_variable_assignment() -> None:
+    offenders = []
+    for doc in sorted(ROOT.rglob("*.md")):
+        if SKIP & set(doc.relative_to(ROOT).parts):
+            continue
+        offenders += [f"{doc.relative_to(ROOT)}:{n}"
+                      for n in assignments_with_a_trailing_comment(doc.read_text())]
+    assert not offenders, (
+        f"a comment after an assignment leaves the variable empty in zsh: {offenders}")
