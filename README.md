@@ -220,6 +220,7 @@ uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a 
 uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
 uv run python -m lab.cli skillstore submit|promote|known-good|rollback|history|install   # versioned skills, operator-promoted, one-step rollback
 uv run python -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE   # receipts for credentialed sends; ask the provider about a lost response
+uv run python -m lab.cli mcp snapshot <server> [--allow a,b] [--key K --by you]   # what the operator signs for an MCP server. `mcp list [--check]` shows each server's state
 uv run python -m lab.cli memory search|inspect|add-evidence|correct|revoke|delete   # inspectable FTS5 memory
 uv run python -m lab.cli route <task> [--want paper]   # post, blog, paper or nothing, by evidence weight; thin evidence refused upward
 uv run python -m lab.cli shadow --cases evals/shadow_cases.jsonl   # measure the rubric on labeled cases; a model candidate is compared in shadow, never applied

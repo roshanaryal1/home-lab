@@ -34,6 +34,8 @@ Usage:
     python3 -m lab.cli restore-check MANIFEST --into DIR
     python3 -m lab.cli drill crash|restore [--log DIR]
     python3 -m lab.cli chat [--once] [--chat-id N]
+    python3 -m lab.cli mcp list [--check]
+    python3 -m lab.cli mcp snapshot <server> [--allow a,b] [--key KEYFILE --by roshan]
 """
 
 from __future__ import annotations
@@ -62,6 +64,7 @@ from lab import (
     emitter,
     keepawake,
     loop,
+    mcp,
     metrics,
     publish,
     rubric,
@@ -403,6 +406,29 @@ def build_parser() -> argparse.ArgumentParser:
     op_init = op_sub.add_parser("init", help="write operator.key (0600) and operator.pub")
     op_init.add_argument("--dir", type=Path, required=True,
                          help="a directory the agent's OS account cannot read")
+
+    mc = sub.add_parser("mcp", help="operator-signed MCP servers: snapshot what to sign, list")
+    mc.add_argument("--servers", type=Path,
+                    default=Path(os.environ.get("LAB_MCP_SERVERS", "/etc/homelab/mcp.json")),
+                    help="the JSON list of server entries "
+                         "(default: $LAB_MCP_SERVERS or /etc/homelab/mcp.json)")
+    mc.add_argument("--operator-pubkey", type=Path,
+                    default=(Path(os.environ["LAB_OPERATOR_PUBKEY"])
+                             if os.environ.get("LAB_OPERATOR_PUBKEY") else None),
+                    help="the key every entry must be signed with "
+                         "(default: $LAB_OPERATOR_PUBKEY)")
+    mc_sub = mc.add_subparsers(dest="mcp_command", required=True)
+    mc_list = mc_sub.add_parser("list", help="configured servers and whether each is signed")
+    mc_list.add_argument("--check", action="store_true",
+                         help="start each signed server in the sandbox and compare its tools "
+                              "with the signed snapshot, and exit 1 on any difference")
+    mc_snap = mc_sub.add_parser("snapshot", help="print the entry the operator would sign")
+    mc_snap.add_argument("server")
+    mc_snap.add_argument("--allow", default=None,
+                         help="comma-separated tools to allow (default: every tool offered)")
+    mc_snap.add_argument("--key", type=Path, default=None,
+                         help="the operator's private key, which signs the entry")
+    mc_snap.add_argument("--by", default="", help="who signs (required with --key)")
 
     sk = sub.add_parser("skillstore", help="versioned skills: submit, promote, roll back, install")
     sk.add_argument("--store", type=Path, default=None)
@@ -833,6 +859,60 @@ def cmd_operator(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mcp(args: argparse.Namespace) -> int:
+    """Read-only on the lab: it opens no database. ``--check`` and ``snapshot``
+    start servers, each in a fresh temporary folder under the sandbox."""
+    import tempfile
+
+    try:
+        servers = mcp.load_servers(args.servers)
+        public = (operator_keys.load_public(args.operator_pubkey)
+                  if args.operator_pubkey else None)
+        registry = mcp.McpRegistry(servers, public, launcher=_mcp_launcher())
+        if args.mcp_command == "snapshot":
+            with tempfile.TemporaryDirectory(prefix="homelab-mcp-") as tmp:
+                offered = registry.snapshot(args.server, Path(tmp))
+            allow = [t for t in args.allow.split(",") if t] if args.allow is not None else None
+            entry = mcp.proposed(registry.spec(args.server), offered, allow)
+            if args.key is not None:
+                entry = mcp.sign_server(operator_keys.load_private(args.key), entry, args.by)
+            print(json.dumps({"offered": offered, "entry": entry.as_entry()},
+                             indent=2, ensure_ascii=True))
+            return 0
+        failed = 0
+        for name in registry.names:
+            spec, state = registry.spec(name), registry.state(name)
+            line = (f"{name:<16} {state:<15} {len(spec.tools)} allowed  "
+                    f"{_escape(spec.argv[0])}")
+            if args.check and state == "signed":
+                with tempfile.TemporaryDirectory(prefix="homelab-mcp-") as tmp:
+                    drift = registry.drift(name, Path(tmp))
+                if drift.ok:
+                    print(f"ok    {line}  tools match the signed snapshot"
+                          + (f", {len(drift.unsigned)} other tools not allowed"
+                             if drift.unsigned else ""))
+                    continue
+                failed += 1
+                print(f"DRIFT {line}  changed {list(drift.changed)} missing "
+                      f"{list(drift.missing)}: refused until the operator signs again")
+            elif args.check:
+                failed += 1
+                print(f"FAIL  {line}  cannot be called until the operator signs it")
+            else:
+                print(line)
+        if not registry.names:
+            print("no MCP servers are configured")
+        return 1 if failed else 0
+    except (mcp.McpError, operator_keys.OperatorKeyError) as exc:
+        print(f"mcp: {_escape(exc)}", file=sys.stderr)
+        return 1
+
+
+def _mcp_launcher() -> mcp.Launcher:
+    """The sandboxed launcher. A seam for tests on hosts without Seatbelt."""
+    return mcp.seatbelt_launcher
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     """Read-only on the database: it opens no queue and applies no migration."""
     if not args.db.exists():
@@ -1205,6 +1285,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_audit(args)
     if args.command == "operator":
         return cmd_operator(args)
+    if args.command == "mcp":
+        return cmd_mcp(args)
     if args.command == "status":
         return cmd_status(args)
     if args.command == "watchdog":

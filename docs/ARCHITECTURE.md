@@ -95,6 +95,7 @@ re-losing.
 | Artifact router | `lab/rubric.py`, `lab/route.py` | Rubric built (7.2): routes a research task by evidence weight over the ledger, refuses thin evidence upward, states conflicts, bounded stop rule. The single-signal v0 in `route.py` remains for the vertical slice. Human review of every route | [#33](https://github.com/roshanaryal1/home-lab/issues/33) |
 | Secret broker and connectors | `lab/vault.py`, `lab/connectors.py` | Built and tested with dummy credentials and a fake transport; Keychain path unexercised until the mini | [#15](https://github.com/roshanaryal1/home-lab/issues/15) |
 | Publish plane | `lab/publish.py`, `lab/broker.py` | Reviewed publishing built against a dummy provider: approval bound to destination and draft hash, write-ahead receipts, idempotency keys, reconciliation of lost responses. No real destination yet | [#86](https://github.com/roshanaryal1/home-lab/issues/86) |
+| MCP client | `lab/mcp.py`, `lab mcp`, `lab/broker.py` (`mcp.call`) | Built and tested against a fake stdio server on Linux: signed server config, tool allowlist with signed fingerprints, approve tier, untrusted evidence, message, call and time limits, kill on timeout and cancel. The Seatbelt run of a real server waits for the Mac (see the section below) | [#256](https://github.com/roshanaryal1/home-lab/issues/256) |
 | Network egress control | `lab/egress.py` | Built, tested with a fake resolver and transport (metadata-address redirect, DNS rebinding, IP-literal spellings); not yet exercised against a real host | [#14](https://github.com/roshanaryal1/home-lab/issues/14) |
 | Resource ceilings per task | `lab/worker.py`, `lab/supervisor.py` | Built for reviewed handlers: RSS sampled over the worker process group and `RLIMIT_CPU`, breach kills, fails without retry and is audited. Values unmeasured until the M6 | [#16](https://github.com/roshanaryal1/home-lab/issues/16) |
 | `dscl` account enumeration | `lab/sandbox.py` | Accepted, not narrowed; untrusted code is routed to a disposable container instead | [ADR 0007](decisions/0007-isolation-for-untrusted-code.md), [#27](https://github.com/roshanaryal1/home-lab/issues/27) |
@@ -109,6 +110,40 @@ re-losing.
 | Injection harness | `lab/attacks.py` | 9 benign-plus-hostile scenarios, graded on files, database and network. Against the worst-case stub and against the real model on the M6 (pre-registered H4, and again after the switch to DWQ): 0 of 9 attacks succeed | [#72](https://github.com/roshanaryal1/home-lab/issues/72) |
 | Status dashboard | `lab/dashboard.py`, `lab dashboard` | Built and tested: read-only page and JSON over `metrics.collect` and `control.get`, loopback bind enforced, GET only, Host header checked, output escaped, no script or form. Reaching it from another device (a private tunnel to the loopback port) is a checklist item | H7 |
 | launchd + watchdog | `lab/service.py`, `ops/launchd/`, `lab watchdog` | Built: heartbeat written from the event loop, a periodic watchdog that kills a supervisor whose heartbeat is stale (pid and start time checked), and generated LaunchDaemon definitions. Installed on the M6 on 2026-09-30 as six LaunchDaemons (the supervisor runs as the non-admin `lab` account from root-owned code in `/opt/homelab`). After `kill -9` the supervisor was back at the 40 s check; a frozen one was replaced by the 150 s check, so the two-minute target is not yet demonstrated. Startup recovery under launchd with idempotent and non-idempotent tasks in flight is not yet tested on the M6 (the 2026-09-29 crash drills covered requeue, but not under launchd) | [#78](https://github.com/roshanaryal1/home-lab/issues/78), `ops/mac-mini-setup.md` §16 |
+
+## MCP servers through the broker (#256)
+
+`lab/mcp.py` is a small MCP client written by hand: newline-delimited
+JSON-RPC 2.0 over a child's stdin and stdout, with `initialize`, `tools/list`
+and `tools/call`. No dependency was added.
+
+- The operator lists servers in a signed JSON file (`mcp_servers_file`, or
+  `lab mcp --servers`). Each entry holds a name, the exact argument list, the
+  allowed tools and the SHA-256 of each one's name, description and input
+  schema. `lab mcp snapshot <server>` prints the entry to sign, and signs it
+  with `--key`. `lab mcp list [--check]` shows each server's state and, with
+  `--check`, compares the live tool list with the signed one.
+- The broker has one generic tool, `mcp.call(server, name, arguments)`, not
+  one broker tool per server tool. It is approve tier, journaled as
+  non-idempotent and classed as untrusted input in `authority.TOOL_LEGS`. A
+  handler is granted named servers at registration, as with connectors.
+- One tool, because the broker table is reviewed code that also generates the
+  model's grammar and the tool signatures in the frozen tool-call corpus
+  (`evals/toolcalls-v1.jsonl`). One broker tool per server tool would make
+  that table depend on a config file, and both would change silently whenever
+  the operator edits it. `mcp.call` is listed in
+  `toolcorpus.NOT_IN_CORPUS`, and a test fails if any broker tool is in
+  neither the corpus nor that list. The corpus files are unchanged. A new
+  `lab eval run --grammar` run gets one more branch in its schema
+  (`arguments` is any JSON object). A rerun uses the schema stored in its
+  record.
+- Each call starts the server fresh under Seatbelt, checks the tool against
+  its signed fingerprint, calls it and kills the process group. Output and the
+  tool's description come back as `Evidence`.
+
+Not yet: no reviewed handler is granted `mcp.call`, the daemon does not read
+an MCP config yet, and the real sandboxed run is the `mcp` step of
+`ops/mac-session.sh`.
 
 ## Related documents
 

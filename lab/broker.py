@@ -72,9 +72,21 @@ from lab import sandbox
 from lab.connectors import Connector, ConnectorError
 from lab.egress import EgressDenied, EgressGateway, parse_allowlist
 from lab.journal import OperationJournal, operation_id
+from lab.mcp import MAX_ARGUMENT_BYTES as MCP_MAX_ARGUMENT_BYTES
+from lab.mcp import MAX_CALLS_PER_TASK as MCP_MAX_CALLS_PER_TASK
+from lab.mcp import (
+    CallOutcome,
+    McpCancelled,
+    McpError,
+    McpRefused,
+    McpRegistry,
+    McpTimeout,
+    ServerSpec,
+    argument_bytes,
+)
 from lab.policy import Decision, PolicyEngine, Tier, canonical
 from lab.queue import LeaseToken
-from lab.untrusted import Evidence, clean
+from lab.untrusted import MAX_LIMIT, Evidence, clean, extract_evidence
 from lab.vault import Redactor, SecretUnavailable, Vault
 
 LOG = logging.getLogger(__name__)
@@ -180,6 +192,12 @@ TOOL_TIERS: dict[str, Tier] = {
     # net.fetch, then the bounded model summarizes the fetched Evidence in
     # the broker. Same tier as net.fetch: the same request, the same gateway.
     "net.summarize": Tier.NOTIFY,
+    # One tool of an operator-signed MCP server (#256). Approve tier: the
+    # server is a program the lab did not write, and a person sees the exact
+    # server, tool and arguments. The approval is also bound to the signed
+    # entry and the tool's signed fingerprint, so a re-signed server needs a
+    # new approval.
+    "mcp.call": Tier.APPROVE,
 }
 
 
@@ -201,6 +219,7 @@ TOOL_EFFECTS: dict[str, str] = {
     "git.log": READ_ONLY,
     "git.diff": READ_ONLY,
     "net.summarize": IDEMPOTENT,    # a GET and a local model call
+    "mcp.call": NON_IDEMPOTENT,     # a server tool can do anything: journaled
 }
 
 # Per-task and per-call ceilings (item 1.10). A request can lower these
@@ -243,6 +262,14 @@ def _is_timeout(v: object) -> bool:
             and math.isfinite(v) and v > 0)
 
 
+def _is_json_object(v: object) -> bool:
+    """A plain JSON object of bounded size: what an MCP tool takes as arguments."""
+    if not isinstance(v, dict):
+        return False
+    size = argument_bytes(v)
+    return size is not None and size <= MCP_MAX_ARGUMENT_BYTES
+
+
 TOOL_SCHEMAS: dict[str, dict[str, tuple[_Validator, bool]]] = {
     "fs.read": {"path": (_is_str, True)},
     "fs.list": {"path": (_is_str, False)},
@@ -257,6 +284,10 @@ TOOL_SCHEMAS: dict[str, dict[str, tuple[_Validator, bool]]] = {
     "git.log": {"repo": (_is_str, False)},
     "git.diff": {"repo": (_is_str, False)},
     "net.summarize": {"url": (_is_str, True)},
+    # ``name`` is the server's tool, as in MCP's own tools/call. It cannot be
+    # called ``tool``: that is the session's own argument (``submit(tool, ...)``).
+    "mcp.call": {"server": (_is_str, True), "name": (_is_str, True),
+                 "arguments": (_is_json_object, False)},
 }
 
 
@@ -531,6 +562,10 @@ class ExecutionBroker:
         self._connectors: dict[str, Connector] = {}
         self._task_connectors: dict[str, frozenset[str]] = {}
         self._egress_hosts: dict[str, frozenset[str]] = {}
+        # None means mcp.call always refuses: no signed servers (#256).
+        self._mcp: McpRegistry | None = None
+        self._task_mcp: dict[str, frozenset[str]] = {}
+        self._mcp_calls: dict[str, int] = {}
         self._workspaces: dict[str, Workspace] = {}
         self._calls: dict[str, int] = {}
         self._grants: dict[str, set[str]] = {}
@@ -539,7 +574,8 @@ class ExecutionBroker:
 
     def open_workspace(self, task_id: str, allowed_tools: set[str],
                        egress_hosts: frozenset[str] | set[str] = frozenset(),
-                       connectors: frozenset[str] | set[str] = frozenset()) -> Workspace:
+                       connectors: frozenset[str] | set[str] = frozenset(),
+                       mcp_servers: frozenset[str] | set[str] = frozenset()) -> Workspace:
         """Give a task its own directory and an explicit tool allowlist.
 
         The allowlist is per task and default-deny: a tool not named here
@@ -553,6 +589,10 @@ class ExecutionBroker:
 
         if task_id in self._workspaces:
             raise BrokerError(f"task {task_id} already has an open workspace")
+        known_mcp = set(self._mcp.names) if self._mcp is not None else set()
+        unknown_mcp = set(mcp_servers) - known_mcp
+        if unknown_mcp:
+            raise ToolNotAllowed(f"unknown MCP servers: {sorted(unknown_mcp)}")
         # Named here, never by the task; private to the lab user.
         path = self.workspace_root / f"task-{task_id}-{uuid.uuid4().hex[:8]}"
         path.mkdir(mode=0o700, parents=False, exist_ok=False)
@@ -564,12 +604,18 @@ class ExecutionBroker:
         if unknown_connectors:
             raise ToolNotAllowed(f"unknown connectors: {sorted(unknown_connectors)}")
         self._task_connectors[task_id] = frozenset(connectors)
+        self._task_mcp[task_id] = frozenset(mcp_servers)
+        self._mcp_calls[task_id] = 0
         self._calls[task_id] = 0
         return ws
 
     def add_connector(self, connector: Connector) -> None:
         """Trusted registration of a destination. Not reachable from a task."""
         self._connectors[connector.name] = connector
+
+    def set_mcp(self, registry: McpRegistry) -> None:
+        """Trusted registration of the operator's signed MCP servers (#256)."""
+        self._mcp = registry
 
     def set_summarizer(self, summarizer: Callable[[Evidence], str]) -> None:
         """Trusted registration of the bounded model behind net.summarize.
@@ -585,6 +631,8 @@ class ExecutionBroker:
         self._grants.pop(task_id, None)
         self._egress_hosts.pop(task_id, None)
         self._task_connectors.pop(task_id, None)
+        self._task_mcp.pop(task_id, None)
+        self._mcp_calls.pop(task_id, None)
         self._calls.pop(task_id, None)
         if ws is not None:
             ws.destroy()
@@ -611,6 +659,7 @@ class ExecutionBroker:
             "git.log": self._tool_git,
             "git.diff": self._tool_git,
             "net.summarize": lambda req, ws: self._run_job_sync(self._job_net_summarize(req)),
+            "mcp.call": lambda req, ws: self._run_job_sync(self._job_mcp_call(req)),
         }
 
     def session(self, ctx: ExecutionContext) -> ToolSession:
@@ -619,7 +668,8 @@ class ExecutionBroker:
 
     def revoke(self) -> None:
         """Refuse every call from every session from now on, and end the shell
-        commands that are running (they are otherwise left to their timeout)."""
+        commands and MCP servers that are running (they are otherwise left to
+        their timeout)."""
         self._revoked = True
         with self._shell_lock:
             for flags in self._shell_cancels.values():
@@ -627,8 +677,9 @@ class ExecutionBroker:
                     flag.set()
 
     def cancel_running(self, task_id: str) -> None:
-        """End the shell commands this task is running. Called when its work is
-        interrupted: a stop, a lost lease or the wall-clock ceiling."""
+        """End the shell commands and MCP servers this task is running. Called
+        when its work is interrupted: a stop, a lost lease or the wall-clock
+        ceiling."""
         with self._shell_lock:
             for flag in self._shell_cancels.get(task_id, ()):
                 flag.set()
@@ -656,6 +707,10 @@ class ExecutionBroker:
             # Before policy, so a person is never asked to approve a call
             # to a connector the task does not hold or a path it may not use.
             self._precheck_connector(request)
+        if request.tool == "mcp.call":
+            # The same for MCP: a server the task does not hold, an unsigned
+            # server or a tool off the signed allowlist never reaches a person.
+            self._precheck_mcp(request)
         used = self._calls.get(request.task_id, 0)
         if used >= MAX_CALLS_PER_TASK:
             raise QuotaExceeded(f"tool call ceiling {MAX_CALLS_PER_TASK} reached")
@@ -796,7 +851,8 @@ class ExecutionBroker:
     def _net_job_factory(self, tool: str) -> Callable[[ToolRequest], NetJob] | None:
         return {"net.fetch": self._job_net_fetch,
                 "net.summarize": self._job_net_summarize,
-                "connector.call": self._job_connector_call}.get(tool)
+                "connector.call": self._job_connector_call,
+                "mcp.call": self._job_mcp_call}.get(tool)
 
     def _flush_job(self, job: NetJob) -> None:
         """Write the gateway events the thread buffered, on the loop's thread.
@@ -876,6 +932,12 @@ class ExecutionBroker:
                     "body_sha256": hashlib.sha256(
                         request.params.get("body", "").encode("utf-8")).hexdigest(),
                 }
+            if request.tool == "mcp.call":
+                # Bound to the signed entry and to the tool as signed, so a
+                # server the operator re-signs needs a new approval.
+                spec = self._precheck_mcp(request)
+                preconditions = {**(preconditions or {}), "server_sha256": spec.digest(),
+                                 "tool_sha256": spec.tools[request.params["name"]]}
             verdict = self.policy.authorize_tool(
                 request.task_id, request.tool, request.params, tier, preconditions,
             )
@@ -1227,6 +1289,73 @@ class ExecutionBroker:
                 "connector": name, "status": outcome.status, "idempotency_key": key,
                 "evidence": outcome.evidence.as_payload(),
             }))
+
+        job.perform, job.finish = perform, finish
+        return job
+
+    def _precheck_mcp(self, request: ToolRequest) -> ServerSpec:
+        params = request.params
+        server = params["server"]
+        if self._mcp is None:
+            raise ToolNotAllowed("no MCP servers are configured")
+        if server not in self._task_mcp.get(request.task_id, frozenset()):
+            raise ToolNotAllowed(
+                f"task {request.task_id} has no grant for MCP server {server!r}")
+        if self._mcp_calls.get(request.task_id, 0) >= MCP_MAX_CALLS_PER_TASK:
+            raise QuotaExceeded(f"MCP call ceiling {MCP_MAX_CALLS_PER_TASK} reached")
+        try:
+            return self._mcp.check_call(server, params["name"], params.get("arguments", {}),
+                                        self._egress_hosts.get(request.task_id, frozenset()))
+        except McpRefused as exc:
+            raise ToolNotAllowed(str(exc)) from None
+
+    def _job_mcp_call(self, request: ToolRequest) -> NetJob:
+        """One call to one MCP server tool (#256).
+
+        The server runs in a thread like a shell command, under the same cancel
+        flag, so a stop or a revoke kills its process group. Whatever it returns,
+        and the tool's own description, reach the caller only as Evidence, and
+        the task is tainted, because a server's words are someone else's.
+        """
+        registry = self._mcp
+        if registry is None:
+            return NetJob.refused(request.tool, "no MCP servers are configured")
+        self._precheck_mcp(request)
+        task_id = request.task_id
+        ws = self._workspace_for(task_id)
+        hosts = self._egress_hosts.get(task_id, frozenset())
+        server, tool = request.params["server"], request.params["name"]
+        arguments = request.params.get("arguments", {})
+        self._mcp_calls[task_id] = self._mcp_calls.get(task_id, 0) + 1
+        job = NetJob(request.tool)
+
+        def perform() -> Any:
+            with self._cancel_flag(task_id) as cancel:
+                try:
+                    return registry.call(server, tool, arguments, ws.root,
+                                         egress_hosts=hosts, cancel=cancel)
+                except McpError as exc:
+                    return exc
+
+        def finish(outcome: Any) -> ToolResult:
+            if self.policy is not None:
+                self.policy.taint(task_id, "ran an MCP server tool")
+            source = f"mcp:{server}/{tool}"
+            if isinstance(outcome, McpError):
+                return ToolResult(False, request.tool, {
+                    "server": server, "tool": tool,
+                    "refused": isinstance(outcome, McpRefused),
+                    "timed_out": isinstance(outcome, McpTimeout),
+                    "cancelled": isinstance(outcome, McpCancelled),
+                }, error=f"{type(outcome).__name__}: {clean(str(outcome))[:500]}")
+            assert isinstance(outcome, CallOutcome)
+            return ToolResult(not outcome.is_error, request.tool, {
+                "server": server, "tool": tool, "is_error": outcome.is_error,
+                "evidence": extract_evidence(outcome.text, source_type="document",
+                                             source_id=source, limit=MAX_LIMIT).as_payload(),
+                "description": extract_evidence(outcome.description, source_type="document",
+                                                source_id=f"{source}#description").as_payload(),
+            }, error="the MCP tool reported an error" if outcome.is_error else None)
 
         job.perform, job.finish = perform, finish
         return job

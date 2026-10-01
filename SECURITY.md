@@ -848,6 +848,35 @@ published no replacement covering headless process sandboxing, since App
 Sandbox requires code signing and an Xcode project. Tracked as a risk
 with Apple's container framework as the fallback if it is ever removed.
 
+### MCP servers (#256)
+
+An MCP server is a program the lab did not write, and it describes its own
+tools. `lab/mcp.py` reaches one only through the broker tool `mcp.call`:
+
+- **Signed config.** The operator lists each server with its exact argument
+  list, the tools a task may call, and the SHA-256 of each allowed tool's name,
+  description and input schema (`lab mcp snapshot`). The entry is signed with
+  the operator key. Unsigned, badly signed or edited entries cannot be called,
+  and nothing can be called without an operator public key.
+- **Rug pulls refused.** Every call starts the server fresh and compares the
+  tool with its signed fingerprint. A changed tool is refused until the
+  operator signs again. A new tool is not on the allowlist.
+- **Approve tier, untrusted output.** A person sees the exact server, tool and
+  arguments. The approval is bound to the signed entry. The output and the
+  tool's description come back only as fixed-schema evidence, and the task is
+  tainted.
+- **Confined.** No shell and the sandbox's minimal environment. The server
+  runs under the Seatbelt profile, and where Seatbelt is missing the call is
+  refused. No network unless the signed entry and the task's egress list both
+  allow it.
+- **Bounded.** A message over 1 MiB is refused. A task makes at most 20 MCP
+  calls. One deadline covers each call. The process group is killed at the
+  deadline, on a stop and after every call.
+
+Not proven yet: the sandboxed run of a real server on the Mac. Seatbelt
+cannot filter by host name, so a server allowed the network has all of it.
+That is why it needs both the signature and the task's grant.
+
 ## Fixed
 
 1. Unbounded task leasing. Measured at 19 leased against 1 running slot;

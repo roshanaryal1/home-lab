@@ -55,6 +55,7 @@ These settings come from the environment. The defaults match the runbook:
 | `PY` | `/opt/homelab/.venv/bin/python` |
 | `MODEL_URL` | `http://127.0.0.1:8080/v1` |
 | `BACKUP_VOLUME` | `/Volumes/labbackup` |
+| `MCP_CONFIG` | `/etc/homelab/mcp.json` |
 
 ## The steps, in order
 
@@ -67,10 +68,11 @@ These settings come from the environment. The defaults match the runbook:
 | 5 | `backup` | #67 | `lab` can write a backup to `$BACKUP_VOLUME/home-lab-backups`, and `restore-check` restores it into a temporary folder and verifies it. The temporary folder is removed after. | 30 s | writing the backup |
 | 6 | `alert` | #79, #80 | One test alert goes through the installed alert hook (`/etc/homelab/alert.json`) as `lab`, the same path `status` and `selftest` use, and reaches the phone. | 1 min | sending it; then whether it arrived |
 | 7 | `selftest` | #80 | The nightly self-test log was written in the last 26 hours and its recent lines have no `FAIL`. | 5 s | nothing |
-| 8 | `concurrency` | #211 | Two chat completions sent to the model server at the same moment: each one's wall time, whether they overlapped, peak memory (`top` PhysMem, sampled every second) and swap (`sysctl vm.swapusage`) before, during and after. | 1 to 3 min | nothing |
-| 9 | `drills` | #78 | The two timed drills from runbook step 6, with the same commands: after `kill -9` a new supervisor within about 30 s; after `kill -STOP` the frozen one gone and replaced within 120 s, and the watchdog then says `healthy`. | up to 6 min | killing the supervisor |
-| 10 | `network` | #79 | Manual. Unplug the network; the dead-man switch alert must reach the phone within ten minutes. | 10 to 15 min | nothing, you do it |
-| 11 | `power` | #77, #91 | Manual. The power-pull drill: pull the plug during a task, restore power, time the lab's return, and check the task was requeued or held. The report gives the drill template path. | 20 to 30 min | nothing, you do it |
+| 8 | `mcp` | #256 | As `lab`, `lab.cli mcp list --check` starts every signed MCP server in `$MCP_CONFIG` under the Seatbelt profile and compares its tools with the signed snapshot. Each line must start with `ok`. Skipped when the file does not exist or lists no server. | 10 s | nothing |
+| 9 | `concurrency` | #211 | Two chat completions sent to the model server at the same moment: each one's wall time, whether they overlapped, peak memory (`top` PhysMem, sampled every second) and swap (`sysctl vm.swapusage`) before, during and after. | 1 to 3 min | nothing |
+| 10 | `drills` | #78 | The two timed drills from runbook step 6, with the same commands: after `kill -9` a new supervisor within about 30 s; after `kill -STOP` the frozen one gone and replaced within 120 s, and the watchdog then says `healthy`. | up to 6 min | killing the supervisor |
+| 11 | `network` | #79 | Manual. Unplug the network; the dead-man switch alert must reach the phone within ten minutes. | 10 to 15 min | nothing, you do it |
+| 12 | `power` | #77, #91 | Manual. The power-pull drill: pull the plug during a task, restore power, time the lab's return, and check the task was requeued or held. The report gives the drill template path. | 20 to 30 min | nothing, you do it |
 
 What each result means:
 
@@ -98,6 +100,7 @@ Each step's section in the report is self-contained. Paste it into its issue:
 | `backup` | #67 |
 | `alert` | #79 and #80 |
 | `selftest` | #80 |
+| `mcp` | #256 |
 | `concurrency` | #211 |
 | `drills` | #78 |
 | `network`, with your two times | #79 |

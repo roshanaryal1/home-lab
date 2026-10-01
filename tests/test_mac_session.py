@@ -19,7 +19,8 @@ SCRIPT = ROOT / "ops" / "mac-session.sh"
 
 STEPS = [
     ("context", "#241"), ("home", "#225"), ("caffeinate", "#235"), ("signature", "#70"),
-    ("backup", "#67"), ("alert", "#79, #80"), ("selftest", "#80"), ("concurrency", "#211"),
+    ("backup", "#67"), ("alert", "#79, #80"), ("selftest", "#80"), ("mcp", "#256"),
+    ("concurrency", "#211"),
     ("drills", "#78"), ("network", "#79"), ("power", "#77, #91"),
 ]
 
@@ -78,7 +79,7 @@ def make_stubs(directory: Path, overrides: dict[str, str] | None = None) -> Path
 
 
 def run(tmp_path: Path, *args: str, answers: str | None = None, home_readable: bool = False,
-        stubs: dict[str, str] | None = None,
+        stubs: dict[str, str] | None = None, mcp_config: Path | None = None,
         ) -> tuple[subprocess.CompletedProcess[str], str, list[str]]:
     bin_dir = make_stubs(tmp_path, stubs)
     home = tmp_path / "home"
@@ -89,6 +90,8 @@ def run(tmp_path: Path, *args: str, answers: str | None = None, home_readable: b
         "PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(home), "TMPDIR": str(tmp_path),
         "CALLS": str(calls), "STUB_DIR": str(tmp_path),
         "STUB_HOME_READABLE": "1" if home_readable else "0",
+        # Never the machine's own config: absent unless a test writes one.
+        "MCP_CONFIG": str(mcp_config or tmp_path / "no-mcp.json"),
     }
     result = subprocess.run(
         ["bash", str(SCRIPT), "--report", str(report), *args], env=env, text=True,
@@ -135,7 +138,8 @@ def test_a_full_run_with_no_answers_changes_nothing(tmp_path: Path) -> None:
         assert change not in joined, f"{change!r} ran without a yes"
     expected = {"context": "PASS", "home": "PASS", "caffeinate": "PASS",
                 "signature": "PASS", "backup": "SKIPPED", "alert": "SKIPPED",
-                "selftest": "PASS", "concurrency": "PASS", "drills": "SKIPPED",
+                "selftest": "PASS", "mcp": "SKIPPED", "concurrency": "PASS",
+                "drills": "SKIPPED",
                 "network": "MANUAL", "power": "MANUAL"}
     for number, (name, _) in enumerate(STEPS, 1):
         assert result_of(report, number) == expected[name], name
@@ -215,6 +219,53 @@ def test_an_alert_the_operator_did_not_see_is_a_failure(tmp_path: Path) -> None:
     result, report, calls = run(again, "--only", "alert", answers="y\ny\n")
     assert result.returncode == 0 and result_of(report, 1) == "PASS"
     assert any(" -c " in c and "/etc/homelab/alert.json" in c for c in calls)
+
+
+MCP_SUDO = r'''
+case "$*" in
+  -v) exit 0 ;;
+  *"mcp --servers"*) printf '%s\n' "$STUB_MCP_OUT"; exit "${STUB_MCP_RC:-0}" ;;
+esac
+exit 0'''
+
+
+def test_the_mcp_step_is_skipped_when_no_server_is_configured(tmp_path: Path) -> None:
+    result, report, calls = run(tmp_path, "--only", "mcp")
+    assert result.returncode == 0, report
+    assert result_of(report, 1) == "SKIPPED"
+    assert "no MCP server is configured" in report
+    assert not any("mcp" in c for c in calls)
+
+
+def test_the_mcp_step_checks_signed_servers_as_lab_in_the_sandbox(tmp_path: Path) -> None:
+    config = tmp_path / "mcp.json"
+    config.write_text("[]")
+    for out, rc, expected in (
+            ("ok    fake  signed  2 allowed  /usr/bin/x  tools match the signed snapshot", 0,
+             "PASS"),
+            ("DRIFT fake  signed  2 allowed  /usr/bin/x  changed ['echo'] missing []", 1,
+             "FAIL"),
+            ("no MCP servers are configured", 0, "SKIPPED")):
+        case = tmp_path / expected
+        case.mkdir()
+        result, report, calls = _run_with_env(case, config, {"STUB_MCP_OUT": out,
+                                                             "STUB_MCP_RC": str(rc)})
+        assert result.returncode == (1 if expected == "FAIL" else 0), report
+        assert result_of(report, 1) == expected, report
+        assert any(c.startswith("sudo -u lab ") and "-m lab.cli mcp --servers " + str(config)
+                   in c and "list --check" in c for c in calls), calls
+
+
+def _run_with_env(tmp_path: Path, config: Path, extra: dict[str, str]
+                  ) -> tuple[subprocess.CompletedProcess[str], str, list[str]]:
+    bin_dir = make_stubs(tmp_path, {"sudo": MCP_SUDO})
+    report, calls = tmp_path / "report.md", tmp_path / "calls.txt"
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path), "TMPDIR": str(tmp_path),
+           "CALLS": str(calls), "STUB_DIR": str(tmp_path), "MCP_CONFIG": str(config), **extra}
+    result = subprocess.run(["bash", str(SCRIPT), "--report", str(report), "--only", "mcp"],
+                            env=env, text=True, capture_output=True, timeout=120, cwd=tmp_path,
+                            stdin=subprocess.DEVNULL)
+    return result, report.read_text(), calls.read_text().splitlines()
 
 
 def test_an_unknown_step_is_refused(tmp_path: Path) -> None:
