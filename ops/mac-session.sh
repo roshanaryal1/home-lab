@@ -31,6 +31,7 @@ Steps, in order:
   alert        a test alert reaches the phone (#79, #80)
   selftest     the nightly self-test ran and passed (#80)
   skillrun     a skill script runs only in a real container (#255)
+  mcp          signed MCP servers start under Seatbelt and match their snapshot (#256)
   concurrency  two model requests at once: timing, memory, swap (#211)
   drills       timed kill and freeze drills of the supervisor (#78)
   network      network-unplug test of the dead-man switch, manual (#79)
@@ -43,6 +44,7 @@ Environment, with defaults:
   MODEL_URL=http://127.0.0.1:8080/v1
   BACKUP_VOLUME=/Volumes/labbackup
   LAB_CONTAINER_IMAGE=(not set, the skillrun step needs an image pinned by digest)
+  MCP_CONFIG=/etc/homelab/mcp.json
 EOF
 }
 
@@ -52,11 +54,12 @@ PY="${PY:-/opt/homelab/.venv/bin/python}"
 MODEL_URL="${MODEL_URL:-http://127.0.0.1:8080/v1}"
 BACKUP_VOLUME="${BACKUP_VOLUME:-/Volumes/labbackup}"
 CONTAINER_IMAGE="${LAB_CONTAINER_IMAGE:-}"
+MCP_CONFIG="${MCP_CONFIG:-/etc/homelab/mcp.json}"
 PUBKEY=/etc/homelab/operator.pub
 ALERT_CONFIG=/etc/homelab/alert.json
 LOG_DIR=/var/log/homelab
 
-ALL_STEPS="context home caffeinate signature backup alert selftest skillrun concurrency drills network power"
+ALL_STEPS="context home caffeinate signature backup alert selftest skillrun mcp concurrency drills network power"
 
 DRY_RUN=0
 ONLY=""
@@ -461,6 +464,26 @@ pinned by digest."
   fi
 }
 
+step_mcp() {
+  begin mcp "Signed MCP servers run under Seatbelt and match their snapshot" "#256" \
+    "As lab, starts every signed MCP server in \`$MCP_CONFIG\` under the Seatbelt profile and \
+compares its tool list with the snapshot the operator signed. Skipped when no server is \
+configured."
+  if ! dry && [ ! -f "$MCP_CONFIG" ]; then
+    rep "No MCP server is configured: \`$MCP_CONFIG\` does not exist."
+    finish SKIPPED "no MCP server is configured"
+    return
+  fi
+  run 'sudo -u lab "$PY" -m lab.cli mcp --servers "$MCP_CONFIG" --operator-pubkey "$PUBKEY" list --check'
+  if [ "$LAST_RC" = 0 ] && has 'no MCP servers are configured'; then
+    finish SKIPPED "the MCP config lists no server"
+  elif [ "$LAST_RC" = 0 ] && has '^ok '; then
+    finish PASS "every signed server started under Seatbelt and matches its signed snapshot"
+  else
+    finish FAIL "a server is unsigned, changed since signing or did not start. Read the output above"
+  fi
+}
+
 step_concurrency() {
   begin concurrency "Two model requests at once" "#211" \
     "Sends two chat completions to the loopback model server at the same moment and \
@@ -644,6 +667,7 @@ selected() {
     "$REPO" "$DB" "$PY" "$MODEL_URL" "$BACKUP_VOLUME"
   printf -- '- PUBKEY=%s\n- ALERT_CONFIG=%s\n- LOG_DIR=%s\n' "$PUBKEY" "$ALERT_CONFIG" "$LOG_DIR"
   printf -- '- LAB_CONTAINER_IMAGE=%s\n' "${CONTAINER_IMAGE:-not set}"
+  printf -- '- MCP_CONFIG=%s\n' "$MCP_CONFIG"
   printf -- '- steps: %s\n' "${ONLY:-all}"
   printf '\nWhat each step proves, and which issue to paste it into: ops/mac-session.md.\n'
 } >>"$REPORT"

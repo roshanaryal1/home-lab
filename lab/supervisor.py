@@ -41,6 +41,7 @@ from lab.broker import (
 from lab.connectors import load_connectors
 from lab.egress import EgressGateway, parse_allowlist, socket_transport, system_resolver
 from lab.journal import OperationJournal
+from lab.mcp import McpRegistry, load_servers
 from lab.operator import load_public
 from lab.policy import Decision, PolicyEngine
 from lab.queue import LeaseLost, LeaseToken, PayloadTooLarge, Task, TaskQueue
@@ -165,6 +166,10 @@ class SupervisorConfig:
     heartbeat_seconds: float = 10.0
     # JSON list of connector definitions (lab.connectors.load_connectors).
     connectors_file: str | Path | None = None
+    # JSON list of operator-signed MCP server entries (lab.mcp.load_servers).
+    # A server can be called only if its entry verifies against the operator
+    # public key above, so without that key no MCP server can run (#256).
+    mcp_servers_file: str | Path | None = None
     # A worker slot that fails this many times in a row stops and marks
     # the supervisor unhealthy, rather than spinning on a broken
     # dependency (item 1.8).
@@ -224,6 +229,9 @@ class Supervisor:
         if config.connectors_file:
             for connector in load_connectors(Path(config.connectors_file)).values():
                 self.broker.add_connector(connector)
+        if config.mcp_servers_file:
+            self.broker.set_mcp(McpRegistry(load_servers(Path(config.mcp_servers_file)),
+                                            self._control_key))
         self.artifacts = ArtifactStore(
             config.artifact_root or Path(config.db_path).parent / "artifacts",
             self.queue._conn)
@@ -231,6 +239,7 @@ class Supervisor:
         self._capabilities: dict[str, AgentCapability] = {}
         self._egress_hosts: dict[str, frozenset[str]] = {}
         self._connector_grants: dict[str, frozenset[str]] = {}
+        self._mcp_grants: dict[str, frozenset[str]] = {}
         self.stats = SupervisorStats()
         self._handlers: dict[str, Handler] = {}
         self._stopping = asyncio.Event()
@@ -255,7 +264,8 @@ class Supervisor:
                  tools: frozenset[str] | set[str] = frozenset(), *,
                  sensitive_data: bool = False, external_action: bool = False,
                  egress_hosts: frozenset[str] | set[str] = frozenset(),
-                 connectors: frozenset[str] | set[str] = frozenset()) -> None:
+                 connectors: frozenset[str] | set[str] = frozenset(),
+                 mcp_servers: frozenset[str] | set[str] = frozenset()) -> None:
         """Register reviewed handler code and the tools it may request.
 
         The allowlist lives here, in trusted registration, not on the
@@ -269,13 +279,15 @@ class Supervisor:
         self._capabilities[agent_kind] = AgentCapability(sensitive_data, external_action)
         self._egress_hosts[agent_kind] = parse_allowlist(egress_hosts)
         self._connector_grants[agent_kind] = frozenset(connectors)
+        self._mcp_grants[agent_kind] = frozenset(mcp_servers)
 
     def register_reviewed(self, agent_kind: str, ref: str,
                           tools: frozenset[str] | set[str] = frozenset(), *,
                           sensitive_data: bool = False,
                           external_action: bool = False,
                           egress_hosts: frozenset[str] | set[str] = frozenset(),
-                          connectors: frozenset[str] | set[str] = frozenset()) -> None:
+                          connectors: frozenset[str] | set[str] = frozenset(),
+                          mcp_servers: frozenset[str] | set[str] = frozenset()) -> None:
         """Register a reviewed handler that runs in its own worker process.
 
         ``ref`` is ``lab.handlers.<module>:<function>``; anything else is
@@ -305,7 +317,7 @@ class Supervisor:
 
         self.register(agent_kind, in_worker, tools, sensitive_data=sensitive_data,
                       external_action=external_action, egress_hosts=egress_hosts,
-                      connectors=connectors)
+                      connectors=connectors, mcp_servers=mcp_servers)
 
     def _handler_for(self, task: Task) -> Handler | None:
         return self._handlers.get(task.agent_kind or "", None)
@@ -584,7 +596,8 @@ class Supervisor:
             self.broker.open_workspace(
                 task.id, set(self._tools.get(task.agent_kind or "", ())),
                 self._egress_hosts.get(task.agent_kind or "", frozenset()),
-                self._connector_grants.get(task.agent_kind or "", frozenset()))
+                self._connector_grants.get(task.agent_kind or "", frozenset()),
+                self._mcp_grants.get(task.agent_kind or "", frozenset()))
         ctx = ExecutionContext(task_id=task.id, agent_kind=task.agent_kind or "",
                                attempt=task.attempts, lease=token)
         ceiling = asyncio.timeout(self.config.task_timeout_seconds)
