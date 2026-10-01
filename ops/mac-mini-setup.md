@@ -628,6 +628,7 @@ never the alert bot and never the old shell bot. Press Start on it once.
       ```sh
       P=/Library/LaunchDaemons/com.homelab.chat.plist
       CHAT_ID=$(security find-generic-password -a "$USER" -s homelab-telegram-chat -w)
+      sudo chown root:wheel "$P" && sudo chmod 600 "$P"
       read -s "TOK?Chat bot token: "; echo
       printf '%s\n%s' "$CHAT_ID" "$TOK" | sudo /opt/homelab/.venv/bin/python -c 'import plistlib, sys; p = sys.argv[1]; chat, tok = sys.stdin.read().split("\n"); d = plistlib.load(open(p, "rb")); env = d.setdefault("EnvironmentVariables", {}); env["LAB_CHAT_ID"] = chat.strip(); env["LAB_SECRET_TELEGRAM_CHAT_BOT"] = tok.strip(); plistlib.dump(d, open(p, "wb"))' "$P"
       unset TOK

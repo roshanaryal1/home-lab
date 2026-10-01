@@ -293,7 +293,22 @@ def test_each_chat_is_rate_limited(tmp_path: Path) -> None:
     actions = [lab.say(f"task {n}").action for n in range(5)]
     assert actions == [Action.TASK_CREATED] * 3 + [Action.RATE_LIMITED] * 2
     assert lab.tasks() == 3
-    assert len(lab.server.sent) == 3             # no reply to a flood
+    assert len(lab.server.sent) == 4             # one note at the limit, then no reply
+    assert "/stop and /pause still work" in lab.server.sent[3][1]
+    lab.close()
+
+
+@pytest.mark.safety
+def test_stop_and_pause_get_through_the_rate_limit(tmp_path: Path) -> None:
+    """A burst of messages must never be what keeps the owner from stopping the lab."""
+    lab = Lab(tmp_path, rate_max=2)
+    for n in range(4):
+        lab.say(f"task {n}")
+    assert lab.say("/pause").action is Action.CONTROL
+    assert control.get(lab.queue._conn).mode == "paused"
+    assert lab.say("/stop@somebot").action is Action.CONTROL
+    assert control.get(lab.queue._conn).mode == "stopped"
+    assert lab.say("/status").action is Action.RATE_LIMITED
     lab.close()
 
 

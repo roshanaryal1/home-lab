@@ -263,8 +263,17 @@ class ChatChannel:
                 and sender_id == chat_id):
             return Outcome(update_id, chat_id, Action.UNPAIRED), {
                 "sender_id": sender_id, "chat_type": _plain(chat.get("type", ""), 20), **facts}
-        if self._recent(chat_id) >= self.rate_max:
-            return Outcome(update_id, chat_id, Action.RATE_LIMITED), facts
+        # /stop and /pause only remove authority, so a burst of messages must
+        # never be what keeps the owner from stopping the lab.
+        head = text.strip().split(" ", 1)[0].split("@", 1)[0].lower() \
+            if isinstance(text, str) else ""
+        recent = self._recent(chat_id)
+        if head not in ("/stop", "/pause") and recent >= self.rate_max:
+            # One note when the limit is first reached, then silence, so a
+            # flood is not answered with a flood.
+            reply = ("Too many messages; this one and the rest for a while are not read. "
+                     "/stop and /pause still work.") if recent == self.rate_max else None
+            return Outcome(update_id, chat_id, Action.RATE_LIMITED, reply=reply), facts
         if not isinstance(text, str) or not text.strip():
             return Outcome(update_id, chat_id, Action.IGNORED,
                            reply="Only text messages are read."), facts
