@@ -97,7 +97,7 @@ sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
   `sudo sysadminctl -deleteUser lab`, and `sudo rm -r /etc/homelab`.
   Removing `/var/homelab` or `/var/log/homelab` deletes the lab's database
   and logs; that is a separate teardown, never part of an undo: first back
-  up with `sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db backup --to $BACKUP_VOLUME/home-lab-backups/before-teardown`,
+  up with `sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db backup --to "$BACKUP_VOLUME/home-lab-backups/before-teardown"`,
   confirm the manifest exists, and only then remove them.
 - Closes: 1 "dedicated non-admin account" and "lab user cannot sudo";
   11 "create the non-admin lab account", "copy only operator.pub", "as
