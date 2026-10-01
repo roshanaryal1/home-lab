@@ -27,13 +27,15 @@ Usage:
     python3 -m lab.cli memory search|inspect|add-curated|add-evidence|correct|revoke|delete|sweep
     python3 -m lab.cli skills validate|inventory --root DIR
     python3 -m lab.cli skills import <dir> --tier TIER --by NAME [--source TEXT]
+    python3 -m lab.cli memory proposals|show-proposal|accept|reject
     python3 -m lab.cli skillstore submit|promote|known-good|rollback|history|install ...
     python3 -m lab.cli prereg m6 [--json]
     python3 -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
-    python3 -m lab.cli backup --to DIR [--artifacts DIR]
+    python3 -m lab.cli backup [--to DIR] [--artifacts DIR] [--keep N] [--alert-config FILE]
+    python3 -m lab.cli heartbeat --url-file FILE
     python3 -m lab.cli restore-check MANIFEST --into DIR
     python3 -m lab.cli drill crash|restore [--log DIR]
     python3 -m lab.cli chat [--once] [--chat-id N]
@@ -48,6 +50,7 @@ import os
 import re
 import sqlite3
 import sys
+import tempfile
 import time
 import unicodedata
 from dataclasses import asdict
@@ -55,12 +58,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
 from lab import (
     accountplan,
     alert,
     audit,
     backup,
     control,
+    deadman,
     drills,
     emitter,
     keepawake,
@@ -73,6 +79,7 @@ from lab import (
     skills,
     supervisor,
 )
+from lab import memory as memory_mod
 from lab import model as model_mod
 from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
@@ -330,6 +337,24 @@ def cmd_resolve(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace
     return 0
 
 
+def cmd_measure_ceilings(args: argparse.Namespace) -> int:
+    """Measure every reviewed handler; write the report; exit 1 on any problem."""
+    from lab import ceilings
+    try:
+        extra = [ceilings.parse_handler(h) for h in args.handler]
+        report = ceilings.measure(
+            args.tasks or ceilings.DEFAULT_TASKS, repeats=args.repeats, headroom=args.headroom,
+            extra=extra, include_registered=not args.only_named, max_rss_mb=args.max_rss_mb,
+            max_cpu_seconds=args.max_cpu_seconds)
+        path = ceilings.save(report, args.out or ceilings.DEFAULT_OUT)
+    except (ValueError, OSError) as exc:
+        print(f"measure-ceilings: {exc}", file=sys.stderr)
+        return 1
+    print(ceilings.render(report))
+    print(f"wrote {path}")
+    return 1 if report.problems else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lab", description="Operate the home lab."
@@ -399,9 +424,15 @@ def build_parser() -> argparse.ArgumentParser:
     art_sub.add_parser("verify", help="re-hash every stored artifact; exit 1 on any problem")
 
     bak = sub.add_parser("backup", help="snapshot the database and artifacts (online, consistent)")
-    bak.add_argument("--to", type=Path, required=True, help="destination directory")
+    bak.add_argument("--to", type=Path, default=None,
+                     help="destination directory (default: $LAB_BACKUP_DIR)")
     bak.add_argument("--artifacts", type=Path, default=None,
                      help="artifact store to copy (default: 'artifacts' next to the database)")
+    bak.add_argument("--keep", type=int, default=None, metavar="N",
+                     help="restore-check the new backup, then delete all but the newest N "
+                     "backups in the folder (only its own files)")
+    bak.add_argument("--alert-config", type=Path, default=None,
+                     help="operator-owned JSON naming a command to run when the backup fails")
     rc = sub.add_parser("restore-check",
                         help="restore a backup into a fresh directory and verify it")
     rc.add_argument("manifest", type=Path)
@@ -491,6 +522,23 @@ def build_parser() -> argparse.ArgumentParser:
         m_end.add_argument("--by", required=True)
         m_end.add_argument("--reason", required=True)
     mem_sub.add_parser("sweep", help="retire expired memories")
+    mem_sub.add_parser("proposals", help="memories tasks proposed, waiting for a decision")
+    m_sp = mem_sub.add_parser("show-proposal", help="the exact text, source and taint mark")
+    m_sp.add_argument("id", type=int)
+    m_acc = mem_sub.add_parser("accept", help="make a proposal curated memory (signed)")
+    m_acc.add_argument("id", type=int)
+    m_acc.add_argument("--by", required=True)
+    m_acc.add_argument("--key", type=Path, default=None,
+                       help="operator private key (or $LAB_OPERATOR_KEY); signs the decision")
+    m_acc.add_argument("--operator-pubkey", type=Path, default=None,
+                       help="operator public key to verify with (or $LAB_OPERATOR_PUBKEY); "
+                       "ignored in favour of the deployed key where one is installed")
+    m_acc.add_argument("--untrusted-ok", action="store_true",
+                       help="required to accept a proposal from a tainted task")
+    m_rej = mem_sub.add_parser("reject", help="turn a proposal down (no signature needed)")
+    m_rej.add_argument("id", type=int)
+    m_rej.add_argument("--by", required=True)
+    m_rej.add_argument("--reason", required=True)
 
     stc = sub.add_parser("selftest", help="verify the audit chain, a backup restore, health and "
                          "the safety tests; alert on failure")
@@ -498,6 +546,9 @@ def build_parser() -> argparse.ArgumentParser:
     stc.add_argument("--tests-dir", type=Path, default=None)
     stc.add_argument("--alert-config", type=Path, default=None,
                      help="operator-owned JSON naming the alert command")
+    stc.add_argument("--report-ok", action="store_true",
+                     help="with --alert-config, also send one short alert when every check "
+                     "passes, so a result arrives every morning")
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
@@ -519,6 +570,11 @@ def build_parser() -> argparse.ArgumentParser:
     tk.add_argument("--min-failures", type=int, default=3)
     tk.add_argument("--allow-unsigned", action="store_true",
                     help="run without an operator key (dummy data only)")
+
+    hb = sub.add_parser("heartbeat", help="ping the operator's dead-man switch, only while "
+                        "the lab is healthy")
+    hb.add_argument("--url-file", type=Path, required=True,
+                    help="file holding the ping URL; owned by this user, mode 600")
 
     wd = sub.add_parser("watchdog", help="kill a supervisor whose heartbeat has gone stale")
     wd.add_argument("--max-age", type=float, default=service.DEFAULT_MAX_AGE,
@@ -589,6 +645,25 @@ def build_parser() -> argparse.ArgumentParser:
     bn = sub.add_parser("bench", add_help=False,
                         help="benchmark a model endpoint; compare two runs for a tuning gain")
     bn.add_argument("bench_args", nargs=argparse.REMAINDER)
+
+    mc = sub.add_parser("measure-ceilings",
+                        help="measure peak memory and CPU of every reviewed handler and "
+                             "suggest task ceilings (#180)")
+    mc.add_argument("--tasks", type=Path, default=None,
+                    help="sample task file (default: evals/ceilings/tasks.json)")
+    mc.add_argument("--repeats", type=int, default=5, help="runs of each sample (default 5)")
+    mc.add_argument("--headroom", type=float, default=2.0,
+                    help="suggested ceiling = largest peak times this (default 2)")
+    mc.add_argument("--handler", action="append", default=[], metavar="KIND=REF",
+                    help="also measure lab.handlers.module:function as KIND; repeatable")
+    mc.add_argument("--only-named", action="store_true",
+                    help="measure only --handler handlers, not those register_all registers")
+    mc.add_argument("--max-rss-mb", type=int, default=None,
+                    help="memory ceiling to measure under (default: the current default)")
+    mc.add_argument("--max-cpu-seconds", type=float, default=None,
+                    help="CPU ceiling to measure under (default: the current default)")
+    mc.add_argument("--out", type=Path, default=None,
+                    help="report directory (default: evals/ceilings)")
 
     st = sub.add_parser("status", help="queue, worker health and counters, from the event log")
     st.add_argument("--json", action="store_true")
@@ -755,6 +830,14 @@ def cmd_watchdog(args: argparse.Namespace) -> int:
     return 2 if verdict.action in ("killed", "would_kill") else 0
 
 
+def cmd_heartbeat(args: argparse.Namespace) -> int:
+    """Read-only on the database. Exit 0 pinged, 2 unhealthy so not pinged, 1 failed.
+    The URL is a secret: nothing printed here ever contains it."""
+    outcome = deadman.run(args.db, args.url_file)
+    print(f"heartbeat: {outcome.message}", file=sys.stdout if outcome.code == 0 else sys.stderr)
+    return outcome.code
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Read-only. Exit 0 ok, idle or attention; 2 unhealthy (for a watchdog)."""
     if not args.db.exists():
@@ -790,6 +873,9 @@ def _send_alert(args: argparse.Namespace, kind: str, message: str) -> None:
 
 
 def cmd_selftest(args: argparse.Namespace) -> int:
+    if args.report_ok and args.alert_config is None:
+        print("selftest: --report-ok needs --alert-config", file=sys.stderr)
+        return 1
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1
@@ -797,20 +883,71 @@ def cmd_selftest(args: argparse.Namespace) -> int:
                           run_safety_tests=not args.no_safety_tests)
     for check in report.checks:
         print(f"{'ok  ' if check.ok else 'FAIL'} {check.name:<15} {_escape(check.detail)}")
-    if not report.ok and args.alert_config is not None:
-        _send_alert(args, "selftest", "; ".join(f"{c.name}: {c.detail}"
-                                                 for c in report.failures()))
+    if args.alert_config is not None:
+        if not report.ok:
+            _send_alert(args, "selftest", "; ".join(f"{c.name}: {c.detail}"
+                                                     for c in report.failures()))
+        elif args.report_ok:
+            # Its own kind, so a morning "ok" never uses up the window a
+            # failure alert needs, and the config's rate limit still applies.
+            _send_alert(args, "selftest_ok", f"selftest ok: {len(report.checks)} checks")
     return 0 if report.ok else 1
+
+
+def _backup_destination(args: argparse.Namespace) -> Path:
+    if args.to is not None:
+        return Path(args.to)
+    env = os.environ.get("LAB_BACKUP_DIR", "")
+    if not env:
+        raise backup.BackupError("no destination: pass --to or set LAB_BACKUP_DIR")
+    if "PASTE_" in env or not os.path.isabs(env):
+        raise backup.BackupError("LAB_BACKUP_DIR is still the placeholder or not absolute; "
+                                 "set it in the installed service definition")
+    return Path(env)
+
+
+def cmd_scheduled_backup(args: argparse.Namespace) -> int:
+    """Back up, prove the new backup restores, then rotate. Alerts on any failure."""
+    def failed(message: str) -> int:
+        print(f"backup: {message}", file=sys.stderr)
+        if args.alert_config is not None:
+            _send_alert(args, "backup", message)
+        return 1
+
+    if args.keep is not None and args.keep < 1:
+        return failed("--keep must be at least 1")
+    try:
+        dest = _backup_destination(args)
+        if args.keep is not None and dest.is_symlink():
+            # Rotation deletes files, so it only works in the folder it was given.
+            return failed(f"{dest} is a symlink; give the real directory")
+        store = args.artifacts if args.artifacts is not None else args.db.parent / "artifacts"
+        path = backup.backup(args.db, dest, store if store.exists() else None)
+        print(f"wrote {path}")
+        if args.keep is None:
+            return 0
+        with tempfile.TemporaryDirectory(prefix="lab-backup-check-") as tmp:
+            report = backup.restore_check(path, Path(tmp) / "restore")
+        if not report.ok:
+            return failed(f"the new backup {path.name} failed its restore check: "
+                          + "; ".join(report.problems))
+        print(f"restore check ok: {report.events} audit events, "
+              f"{report.artifacts_checked} artifact blobs")
+        rotated = backup.rotate(dest, args.keep, protect=path)
+    except (backup.BackupError, OSError, sqlite3.DatabaseError) as exc:
+        return failed(str(exc))
+    print(f"kept {len(rotated.kept)}, removed {len(rotated.removed)} backups and "
+          f"{rotated.blobs_removed} artifact blobs")
+    for note in rotated.left_alone:
+        print(f"left alone: {_escape(note)}")
+    return 0
 
 
 def cmd_backup(args: argparse.Namespace) -> int:
     """Read-only on the source database; opens no queue and applies no migration."""
+    if args.command == "backup":
+        return cmd_scheduled_backup(args)
     try:
-        if args.command == "backup":
-            store = args.artifacts if args.artifacts is not None else args.db.parent / "artifacts"
-            path = backup.backup(args.db, args.to, store if store.exists() else None)
-            print(f"wrote {path}")
-            return 0
         report = backup.restore_check(args.manifest, args.into)
     except backup.BackupError as exc:
         print(f"backup: {exc}", file=sys.stderr)
@@ -1046,11 +1183,87 @@ def cmd_memory(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace)
         elif cmd == "delete":
             memory.delete(args.id, args.by, args.reason, ledger=ledger)
             print(f"memory {args.id} deleted; the row remains as a tombstone")
-        else:
+        elif cmd == "sweep":
             print(f"{memory.sweep_expired()} expired memory(ies) retired")
+        else:
+            return _memory_proposal_command(memory, args)
     except (MemoryRefused, LedgerError) as exc:
         print(f"memory: {exc}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _operator_public_key(override: Path | None) -> Ed25519PublicKey:
+    """The key an owner decision is verified with.
+
+    Where the deployed key exists (root-owned, outside the lab account's
+    reach) it is the only one accepted, so code running as the lab account
+    cannot point the check at a key it made itself. Elsewhere (dummy data)
+    it is ``--operator-pubkey`` or ``$LAB_OPERATOR_PUBKEY``. No key, no accept.
+    """
+    deployed = supervisor.DEPLOYED_OPERATOR_KEY
+    if deployed.exists():
+        if override is not None and override.resolve() != deployed.resolve():
+            raise operator_keys.OperatorKeyError(
+                f"{deployed} is installed here; decisions verify against it, not {override}")
+        return operator_keys.load_public(deployed)
+    path = override or os.environ.get("LAB_OPERATOR_PUBKEY")
+    if not path:
+        raise operator_keys.OperatorKeyError(
+            "accepting a proposal needs the operator public key: --operator-pubkey or "
+            "$LAB_OPERATOR_PUBKEY")
+    return operator_keys.load_public(Path(path))
+
+
+def _print_proposal(row: sqlite3.Row) -> None:
+    for key in ("state", "task_id", "source_id", "source_sha256", "text_sha256", "proposed_at",
+                "decided_by", "decided_at", "decision_reason", "memory_id"):
+        print(f"{key:<16}{_escape(row[key])}")
+    print(f"{'trust':<16}" + ("UNTRUSTED: proposed by a tainted task; its text may be an "
+                              "outsider's" if row["tainted"] else "operator task"))
+    print(f"reason\n  {_escape(row['reason'])}")
+    print(f"text\n  {_escape(row['text'])}")
+
+
+def _memory_proposal_command(memory: Memory, args: argparse.Namespace) -> int:
+    cmd = args.memory_command
+    if cmd == "proposals":
+        rows = memory.proposals()
+        for r in rows:
+            mark = "TAINTED" if r["tainted"] else "trusted"
+            print(f"#{r['id']} [{mark}] task {_escape(r['task_id'][:12])} "
+                  f"{_escape(r['source_id'])}: {_escape(r['text'][:80])}")
+        print(f"{len(rows)} pending proposal(s)")
+        if rows:
+            print("Read one in full before deciding:  memory show-proposal <id>")
+        return 0
+    row = memory.proposal(args.id)
+    if cmd == "show-proposal":
+        _print_proposal(row)
+        return 0
+    if cmd == "reject":
+        memory.reject(args.id, _escape(args.by), _escape(args.reason))
+        print(f"proposal {args.id} rejected")
+        return 0
+    if row["tainted"] and not args.untrusted_ok:
+        print(f"memory: proposal {args.id} came from a tainted task; read it with "
+              "show-proposal and pass --untrusted-ok to accept it anyway", file=sys.stderr)
+        return 1
+    key_path = args.key or os.environ.get("LAB_OPERATOR_KEY")
+    if not key_path:
+        print("memory: accepting a proposal needs the operator private key (--key or "
+              "$LAB_OPERATOR_KEY)", file=sys.stderr)
+        return 1
+    by = _escape(args.by)
+    try:
+        signer = operator_keys.load_private(Path(key_path))
+        public = _operator_public_key(args.operator_pubkey)
+    except operator_keys.OperatorKeyError as exc:
+        print(f"memory: {exc}", file=sys.stderr)
+        return 1
+    memory_id = memory.accept(args.id, by, memory_mod.sign_acceptance(signer, row, by), public)
+    print(f"proposal {args.id} accepted as curated memory {memory_id}, promoted by {by!r}"
+          + (" (from a tainted task)" if row["tainted"] else ""))
     return 0
 
 
@@ -1252,6 +1465,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_status(args)
     if args.command == "watchdog":
         return cmd_watchdog(args)
+    if args.command == "heartbeat":
+        return cmd_heartbeat(args)
     if args.command == "chat":
         return cmd_chat(args)
     if args.command == "tick":
@@ -1266,6 +1481,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_dashboard(args)
     if args.command == "setup-plan":
         return cmd_setup_plan(args)
+    if args.command == "measure-ceilings":
+        return cmd_measure_ceilings(args)
     if args.command == "bench":
         from lab import bench
         return bench.main(args.bench_args)

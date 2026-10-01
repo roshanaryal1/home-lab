@@ -69,7 +69,8 @@ Then apply it. It creates the non-admin `lab` account (you choose its
 password at the prompt), `/var/homelab` and `/var/log/homelab` owned by
 `lab` with mode 700, root-owned `/etc/homelab`, copies only the public key
 there, and installs every service definition in `ops/launchd/` root-owned
-under `/Library/LaunchDaemons`. It does not load them. Since #239 that
+under `/Library/LaunchDaemons`. It does not load them. Since #67 and #79 that includes the daily backup and
+the dead-man switch ping. Since #239 that
 includes `com.homelab.chat.plist`, which stays unloaded until the pairing step
 in `ops/mac-mini-setup.md` section 23.
 
@@ -149,13 +150,15 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
   prints 3.53.1 or later; and `sudo -u lab /usr/bin/touch /opt/homelab/x`
   is refused.
 - Undo: first unload anything step 5 started
-  (`for s in supervisor watchdog keepawake statuscheck selftest tick; do sudo launchctl bootout system/com.homelab.$s; done`),
+  (`for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbeat; do sudo launchctl bootout system/com.homelab.$s; done`),
   then `sudo rm -rf /opt/homelab /opt/homelab-python`.
 - Rehearsal note: the scratch rehearsal ran `uv sync` as the operator too.
 
 ## Step 4. Settings the service files need (sudo)
 
-The committed plists leave two things to the operator.
+The committed plists leave four things to the operator: the operator key and
+the model for the supervisor and the loop, the backup folder for the backup
+job, and the ping URL file for the dead-man switch.
 
 ```sh
 P=/Library/LaunchDaemons
@@ -196,12 +199,44 @@ sudo chown lab /etc/homelab/alert.json && sudo chmod 600 /etc/homelab/alert.json
 - Closes: nothing on its own; 19 "alert command" becomes closable once
   step 5 loads the status check (the channel item stays open until the bot).
 
-## Step 5. Start the services, one at a time (sudo)
-
-Order: supervisor, watchdog, keep-awake, status check, self-test, tick.
+**The backup folder (#67).** The committed `com.homelab.backup.plist` says
+`LAB_BACKUP_DIR` is `PASTE_BACKUP_DIR`. The job refuses to run while it says
+that, so the real folder goes only into the installed, root-owned copy, the
+same way the model settings above do. The job runs as `lab`, so `lab` must own
+the folder. An external volume ignores file owners by default; turn owners on
+first:
 
 ```sh
-for s in supervisor watchdog keepawake statuscheck selftest tick; do
+diskutil info "$BACKUP_VOLUME" | grep -i owners
+sudo diskutil enableOwnership "$BACKUP_VOLUME"
+sudo install -d -o lab -g staff -m 700 "$BACKUP_VOLUME/home-lab-backups"
+sudo plutil -replace EnvironmentVariables.LAB_BACKUP_DIR -string "$BACKUP_VOLUME/home-lab-backups" $P/com.homelab.backup.plist
+plutil -p $P/com.homelab.backup.plist | grep LAB_BACKUP_DIR
+sudo -u lab /usr/bin/touch "$BACKUP_VOLUME/home-lab-backups/probe" && sudo -u lab /bin/rm "$BACKUP_VOLUME/home-lab-backups/probe" && echo "lab can write the backup folder"
+```
+
+The `grep` must show the real path, not `PASTE_`, and the last line must print
+`lab can write the backup folder`. The job runs at 02:47, writes one backup,
+restores it into a temporary folder and checks every hash, then deletes all but
+the newest 14 backups in that folder. It deletes only its own manifests, their
+databases and blobs only they used, and follows no symlink. Any failure, the
+placeholder included, sends a `backup` alert through `/etc/homelab/alert.json`.
+Give the folder itself, not a symlink to it: the job refuses a symlink.
+
+- Undo: `sudo plutil -replace EnvironmentVariables.LAB_BACKUP_DIR -string PASTE_BACKUP_DIR $P/com.homelab.backup.plist`.
+  The backups stay where they are.
+
+**The ping URL file (#79).** Create it as in `ops/mac-mini-setup.md` section
+19 before step 5 loads `com.homelab.heartbeat`. Until it exists the job only
+logs, every five minutes, that it cannot read the file.
+
+## Step 5. Start the services, one at a time (sudo)
+
+Order: supervisor, watchdog, keep-awake, status check, self-test, tick,
+backup, heartbeat.
+
+```sh
+for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbeat; do
   sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.$s.plist \
     || { echo "STOP: $s did not load; fix it before starting the rest"; break; }
   sleep 5; sudo launchctl print system/com.homelab.$s | grep -E "state|last exit"
@@ -221,7 +256,8 @@ done
   show ..." and "put the queue database ... under a lab-only path"; 16
   "install supervisor", "install watchdog", and "the loop" (after one
   `lab tick` by hand and `lab audit verify`); 18 "nightly job" and 19
-  "alert command" (interim channel).
+  "alert command" (interim channel). After the first night, 18 "nightly job"
+  also needs the "selftest ok" message to have arrived (#80).
 
 ## Step 6. Drills (sudo)
 
@@ -278,9 +314,20 @@ sudo -u lab env LAB_TARGET=mac-mini /opt/homelab/.venv/bin/python -m lab.cli \
   --db /var/homelab/lab.db drill restore --log /var/log/homelab/drills
 ```
 
-Scheduling the backup to `$BACKUP_VOLUME/home-lab-backups` needs the
-lab account to write there (the volume is currently the operator's);
-decide ownership in the sitting.
+The scheduled backup (`com.homelab.backup`, set up in step 4) writes to
+`$BACKUP_VOLUME/home-lab-backups` every night. Run it once now instead of
+waiting for 02:47, then read what it printed:
+
+```sh
+sudo launchctl kickstart system/com.homelab.backup
+sleep 30
+sudo tail -n 5 /var/log/homelab/backup.log /var/log/homelab/backup.err
+ls -l "$BACKUP_VOLUME/home-lab-backups"
+```
+
+`backup.log` must end with `restore check ok` and a `kept ... removed ...`
+line, `backup.err` must be empty, and the folder must hold a new
+`lab-*.manifest.json` with its `lab-*.db`.
 
 - Closes: 10 "first full restore drill" (copy the record into
   `ops/drills/log/` and commit it).
@@ -330,6 +377,8 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
   reinstall it (`sudo install -o root -g wheel -m 644 /opt/homelab/ops/launchd/<file>
   /Library/LaunchDaemons/<file>`), redo that file's settings from step 4, then
   `sudo launchctl bootout system/com.homelab.<name>` and `bootstrap` it again.
+  A file that is new (listed but not yet in `/Library/LaunchDaemons`) is
+  installed the same way, given its settings from step 4, and bootstrapped.
   Do not re-run `setup-plan --apply` for this: it tries to create the `lab`
   account again.
 - **After ownership is back with root,** run git as root
@@ -364,6 +413,7 @@ reason is in `/var/log/homelab/supervisor.err`.
 ## What stays open after this sitting
 
 FileVault's restart trade-off and the power-pull test (17), macOS update
-policy (18 item 1), the Telegram alert channel and dead-man switch (19),
+policy (18 item 1), the Telegram alert channel and the dead-man switch's
+outside check and unplug test (19),
 the first real destination (15), secrets for real credentials (6), the
 router port-forwarding check (2), and the monthly restore drills.

@@ -28,7 +28,6 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from lab.broker import TOOL_TIERS
 from lab.policy import Tier
 
 MAX_DESCRIPTION = 1024
@@ -347,6 +346,8 @@ def _check_tools(text: str, declared: str | None, requested: str | None,
         return
     if tools is None:
         return
+    # Imported here: the broker imports this module for skill.run.
+    from lab.broker import TOOL_TIERS
     unknown = sorted(set(tools) - set(TOOL_TIERS))
     if unknown:
         problem("unknown-tool",

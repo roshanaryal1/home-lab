@@ -45,7 +45,7 @@ Run these in order:
    is a path and that a request using it is accepted (HTTP 200). Write down any
    command that differs from the guide before you change the guide.
 
-6. **Services and health.** All six launchd jobs load, the supervisor runs as
+6. **Services and health.** All eight launchd jobs load, the supervisor runs as
    `lab`, and these work:
    ```sh
    sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db status

@@ -68,12 +68,16 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from lab import sandbox
+from lab import container as containers
+from lab import sandbox, skills
 from lab.connectors import Connector, ConnectorError
+from lab.container import ContainerExecutor, ContainerResult, ContainerUnavailable
 from lab.egress import EgressDenied, EgressGateway, parse_allowlist
 from lab.journal import OperationJournal, operation_id
+from lab.memory import MemoryRefused
 from lab.policy import Decision, PolicyEngine, Tier, canonical
 from lab.queue import LeaseToken
+from lab.skillstore import SkillStore, SkillStoreError
 from lab.untrusted import Evidence, clean
 from lab.vault import Redactor, SecretUnavailable, Vault
 
@@ -111,6 +115,10 @@ class PolicyUnavailable(BrokerError):
 
 class PolicyDenied(BrokerError):
     """Policy refused this call outright."""
+
+
+class SkillRefused(BrokerError):
+    """skill.run cannot run this script safely, so it does not run at all (#255)."""
 
 
 class PermanentFailure(RuntimeError):
@@ -180,6 +188,14 @@ TOOL_TIERS: dict[str, Tier] = {
     # net.fetch, then the bounded model summarizes the fetched Evidence in
     # the broker. Same tier as net.fetch: the same request, the same gateway.
     "net.summarize": Tier.NOTIFY,
+    # Stores a pending proposal and nothing else (#253). Notify tier: the
+    # proposal grants nothing; the owner's signed decision does, later,
+    # outside the broker.
+    "memory.propose": Tier.NOTIFY,
+    # Runs a script from the active version of a skill, only inside a
+    # disposable container (#255, ADR 0007). Approve tier: the code is not
+    # ours, and a person sees the skill, the version and the exact script.
+    "skill.run": Tier.APPROVE,
 }
 
 
@@ -201,7 +217,13 @@ TOOL_EFFECTS: dict[str, str] = {
     "git.log": READ_ONLY,
     "git.diff": READ_ONLY,
     "net.summarize": IDEMPOTENT,    # a GET and a local model call
+    "memory.propose": IDEMPOTENT,   # the same text from the same task is one proposal
+    "skill.run": NON_IDEMPOTENT,    # untrusted code can do anything to the workspace
 }
+
+# Tools that work on the database. SQLite's one connection lives on the
+# event loop's thread, so these run there rather than in a worker thread.
+_ON_LOOP = frozenset({"memory.propose"})
 
 # Per-task and per-call ceilings (item 1.10). A request can lower these
 # where a parameter allows it, never raise them.
@@ -224,6 +246,13 @@ GIT_MAX_ENTRIES = 50_000                # files and directories checked in one g
 GIT_MAX_CONFIG_BYTES = 64 * 1024
 GIT_PATH = "/usr/bin:/bin"
 
+# skill.run (#255). The timeout and output ceilings are the container tier's.
+MAX_SKILL_ARGS = 32
+MAX_SKILL_ARG_CHARS = 1024
+SKILL_DEFAULT_TIMEOUT = 30.0
+MAX_SKILL_OUTPUT_CHARS = containers.MAX_OUTPUT_BYTES
+SKILL_RUN_PREFIX = "skill-run-"
+
 # What each tool accepts: field -> (validator, required). Unknown fields
 # are refused, so a model cannot pass options the broker never reviewed.
 _Validator = Callable[[object], bool]
@@ -236,6 +265,11 @@ def _is_str(v: object) -> bool:
 def _is_argv(v: object) -> bool:
     return isinstance(v, list) and bool(v) and all(isinstance(a, str) and "\0" not in a
                                                    for a in v)
+
+
+def _is_str_list(v: object) -> bool:
+    """A list of strings, possibly empty, none holding a NUL byte."""
+    return isinstance(v, list) and all(isinstance(a, str) and "\0" not in a for a in v)
 
 
 def _is_timeout(v: object) -> bool:
@@ -257,6 +291,10 @@ TOOL_SCHEMAS: dict[str, dict[str, tuple[_Validator, bool]]] = {
     "git.log": {"repo": (_is_str, False)},
     "git.diff": {"repo": (_is_str, False)},
     "net.summarize": {"url": (_is_str, True)},
+    "memory.propose": {"text": (_is_str, True), "source": (_is_str, True),
+                       "reason": (_is_str, True), "source_sha256": (_is_str, False)},
+    "skill.run": {"skill": (_is_str, True), "script": (_is_str, True),
+                  "args": (_is_str_list, False), "timeout": (_is_timeout, False)},
 }
 
 
@@ -501,6 +539,8 @@ class ExecutionBroker:
         journal: OperationJournal | None = None,
         egress: EgressGateway | None = None,
         vault: Vault | None = None,
+        skills: SkillStore | None = None,
+        container: ContainerExecutor | None = None,
     ) -> None:
         self.workspace_root = Path(workspace_root)
         self.workspace_root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -528,6 +568,10 @@ class ExecutionBroker:
         self._vault = vault
         # None means net.summarize always refuses: no model, no summary.
         self._summarizer: Callable[[Evidence], str] | None = None
+        # Both or nothing: skill.run refuses unless a skill store and a
+        # container executor with a digest-pinned image are configured.
+        self._skills = skills
+        self._container = container
         self._connectors: dict[str, Connector] = {}
         self._task_connectors: dict[str, frozenset[str]] = {}
         self._egress_hosts: dict[str, frozenset[str]] = {}
@@ -580,6 +624,13 @@ class ExecutionBroker:
         """
         self._summarizer = summarizer
 
+    def set_skill_runner(self, skills: SkillStore, container: ContainerExecutor) -> None:
+        """Trusted registration of what skill.run needs (#255): the skill
+        store it reads the active version from, and the container executor
+        it runs in. Never reachable from a task."""
+        self._skills = skills
+        self._container = container
+
     def close_workspace(self, task_id: str) -> None:
         ws = self._workspaces.pop(task_id, None)
         self._grants.pop(task_id, None)
@@ -611,6 +662,8 @@ class ExecutionBroker:
             "git.log": self._tool_git,
             "git.diff": self._tool_git,
             "net.summarize": lambda req, ws: self._run_job_sync(self._job_net_summarize(req)),
+            "memory.propose": self._tool_memory_propose,
+            "skill.run": lambda req, ws: self._run_job_sync(self._job_skill_run(req)),
         }
 
     def session(self, ctx: ExecutionContext) -> ToolSession:
@@ -656,6 +709,10 @@ class ExecutionBroker:
             # Before policy, so a person is never asked to approve a call
             # to a connector the task does not hold or a path it may not use.
             self._precheck_connector(request)
+        if request.tool == "skill.run":
+            # Before policy, like a connector: a person is never asked to
+            # approve a script that would be refused anyway.
+            self._precheck_skill(request)
         used = self._calls.get(request.task_id, 0)
         if used >= MAX_CALLS_PER_TASK:
             raise QuotaExceeded(f"tool call ceiling {MAX_CALLS_PER_TASK} reached")
@@ -769,6 +826,8 @@ class ExecutionBroker:
                     finally:
                         self._flush_job(job)
                     result = job.finish(outcome)           # database work, on the loop
+                elif request.tool in _ON_LOOP:
+                    result = handler(request, ws)
                 else:
                     result = await asyncio.to_thread(handler, request, ws)
             except BaseException as exc:
@@ -796,7 +855,8 @@ class ExecutionBroker:
     def _net_job_factory(self, tool: str) -> Callable[[ToolRequest], NetJob] | None:
         return {"net.fetch": self._job_net_fetch,
                 "net.summarize": self._job_net_summarize,
-                "connector.call": self._job_connector_call}.get(tool)
+                "connector.call": self._job_connector_call,
+                "skill.run": self._job_skill_run}.get(tool)
 
     def _flush_job(self, job: NetJob) -> None:
         """Write the gateway events the thread buffered, on the loop's thread.
@@ -865,6 +925,13 @@ class ExecutionBroker:
             # on, so a file changed after review voids the grant (1.4).
             preconditions = ({"workspace_sha256": ws.state_hash()}
                              if tier is Tier.APPROVE else None)
+            active = (self._skills.active(request.params["skill"])
+                      if request.tool == "skill.run" and self._skills is not None else None)
+            if preconditions is not None and active is not None:
+                # The grant names the exact version and content, so a promotion
+                # or a rollback after review voids it (#255).
+                preconditions.update({"skill_version": str(active["version"]),
+                                      "skill_sha256": active["content_sha256"]})
             if request.tool == "connector.call":
                 # A send is bound to where it goes and to the exact bytes it
                 # carries, not to the workspace: editing the draft by one
@@ -1280,6 +1347,123 @@ class ExecutionBroker:
             error=None if result.ok else result.stderr.strip() or "failed",
         )
 
+    # ---- skill.run (#255): an active skill's script, only in a container
+    #
+    # Every check runs on the loop's thread before anything starts: in
+    # ``_prepare`` (so a person is never asked to approve a refusal) and again
+    # right before the install. Only the container run itself is in a thread.
+
+    def _precheck_skill(self, request: ToolRequest) -> tuple[Any, str]:
+        """The active version and the script's manifest path, or a refusal."""
+        if self._skills is None or self._container is None:
+            raise SkillRefused("skill.run is off: no container image is configured "
+                               "(set LAB_CONTAINER_IMAGE to an image pinned by digest)")
+        params = request.params
+        name = params["skill"]
+        args = params.get("args", [])
+        if len(args) > MAX_SKILL_ARGS or any(len(a) > MAX_SKILL_ARG_CHARS for a in args):
+            raise InvalidParams(f"skill.run: at most {MAX_SKILL_ARGS} arguments of at most "
+                                f"{MAX_SKILL_ARG_CHARS} characters each")
+        if len(name) > skills.MAX_NAME or not skills.NAME_RE.match(name):
+            raise SkillRefused(f"{name[:80]!r} is not a skill name")
+        script = _skill_script(params["script"])
+        row = self._skills.active(name)
+        if row is None:
+            raise SkillRefused(f"{name!r} has no active version, and only an active "
+                               "version runs")
+        label = f"{name} v{row['version']}"
+        if row["tier"] == "never":
+            raise SkillRefused(f"{label} has tier never")
+        entry = json.loads(row["manifest"]).get(script)
+        if entry is None:
+            raise SkillRefused(f"{script!r} is not a file of {label}")
+        if not int(entry[1]) & stat.S_IXUSR:
+            raise SkillRefused(f"{script!r} is not executable in {label}")
+        problems = self._skills.verify_version(int(row["id"]))
+        if problems:
+            raise SkillRefused(f"the stored files of {label} no longer verify: "
+                               + "; ".join(problems[:3]))
+        try:
+            containers.check_image(self._container.config.image)
+            containers.check_limits(self._container.config)
+        except ContainerUnavailable as exc:
+            raise SkillRefused(str(exc)) from None
+        if self._container.runtime.cli() is None:
+            raise SkillRefused("no container runtime on this host, and a skill script never "
+                               "runs without one")
+        return row, script
+
+    def _job_skill_run(self, request: ToolRequest) -> NetJob:
+        row, script = self._precheck_skill(request)
+        store, executor = self._skills, self._container
+        assert store is not None and executor is not None, "checked by _precheck_skill"
+        ws = self._workspace_for(request.task_id)
+        name = row["name"]
+        # A fresh directory per run, named here, inside the workspace, so the
+        # guest sees it under /work and nothing else of the host.
+        run_dir = f"{SKILL_RUN_PREFIX}{uuid.uuid4().hex[:12]}"
+        (ws.root / run_dir).mkdir(mode=0o700)
+        try:
+            installed = store.install(name, ws.root / run_dir)
+        except SkillStoreError as exc:
+            _remove_entry(ws, run_dir)
+            raise SkillRefused(f"the active version of {name!r} did not install: {exc}") \
+                from None
+        command = [f"{containers.GUEST_WORKDIR}/{run_dir}/{name}/{script}",
+                   *request.params.get("args", [])]
+        timeout = min(float(request.params.get("timeout", SKILL_DEFAULT_TIMEOUT)),
+                      containers.MAX_TIMEOUT_SECONDS)
+        job = NetJob(request.tool)
+
+        def perform() -> ContainerResult:
+            try:
+                # The same flag shell.run uses, so revoke() and cancel_running()
+                # reach a running script (#228).
+                with self._cancel_flag(request.task_id) as cancel:
+                    try:
+                        return executor.run(ws.root, command, task_id=request.task_id,
+                                            timeout=timeout, cancel=cancel)
+                    except ContainerUnavailable as exc:
+                        raise SkillRefused(f"refusing to run without a container: {exc}") \
+                            from None
+            finally:
+                _remove_entry(ws, run_dir)
+
+        def finish(result: ContainerResult) -> ToolResult:
+            # Untrusted code wrote this. The task holds untrusted input from now on.
+            if self.policy is not None:
+                self.policy.taint(request.task_id, f"read the output of skill {name}")
+            stdout, cut_out = _untrusted_text(result.stdout)
+            stderr, cut_err = _untrusted_text(result.stderr)
+            return ToolResult(result.ok, request.tool, {
+                "skill": name, "version": installed.version, "script": script,
+                "content_sha256": row["content_sha256"], "stdout": stdout, "stderr": stderr,
+                "returncode": result.returncode, "timed_out": result.timed_out,
+                "cancelled": result.cancelled,
+                "truncated": result.truncated or cut_out or cut_err,
+                "removed": result.removed, "container": result.name, "untrusted": True,
+            }, error=None if result.ok else (stderr.strip()[-2000:] or "failed"))
+
+        job.perform, job.finish = perform, finish
+        return job
+
+    def _tool_memory_propose(self, request: ToolRequest, ws: Workspace) -> ToolResult:
+        """Store a pending proposal (#253). It is never searched and never
+        active; only the owner's signed decision, outside the broker, can
+        make it curated memory. The taint mark is read from the task's row,
+        so nothing the handler says can clear it."""
+        assert self.policy is not None, "_authorize refuses every call without policy"
+        params = request.params
+        try:
+            row = self.policy.propose_memory(request.task_id, params["text"],
+                                             params["source"], params["reason"],
+                                             params.get("source_sha256"))
+        except MemoryRefused as exc:
+            raise InvalidParams(f"memory.propose: {exc}") from None
+        return ToolResult(True, request.tool, {
+            "proposal": row["id"], "state": row["state"], "tainted": bool(row["tainted"]),
+            "text_sha256": row["text_sha256"]})
+
     def _tool_fs_delete(self, request: ToolRequest, ws: Workspace) -> ToolResult:
         # No resolve() here: it follows a final symlink, which would refuse
         # to remove a planted link. The descriptor walk is the check.
@@ -1330,7 +1514,7 @@ class ExecutionBroker:
 
 @dataclass
 class NetJob:
-    """A network tool call split at the thread boundary.
+    """A tool call split at the thread boundary (the network tools, skill.run).
 
     ``perform`` runs in a thread and must not touch the database. ``finish``
     and the buffered audit events are handled on the loop's thread.
@@ -1348,6 +1532,42 @@ class NetJob:
     def refused(cls, tool: str, error: str) -> NetJob:
         return cls(tool, perform=lambda: None,
                    finish=lambda _outcome: ToolResult(False, tool, error=error))
+
+
+def _skill_script(script: str) -> str:
+    """A script path as the manifest writes it, or a refusal.
+
+    Relative, inside the skill, with no ``..``: the path names a manifest
+    entry, never a place on disk.
+    """
+    path = PurePosixPath(script)
+    if (not script or "\0" in script or "\\" in script or path.is_absolute()
+            or ".." in path.parts):
+        raise PathEscape(f"{script[:200]!r} is not a plain path inside the skill")
+    parts = [p for p in path.parts if p not in ("", ".")]
+    if not parts:
+        raise PathEscape("the script path is empty")
+    return "/".join(parts)
+
+
+def _untrusted_text(text: str) -> tuple[str, bool]:
+    """Output written by untrusted code: control characters dropped, capped."""
+    cleaned = clean(text)
+    return cleaned[:MAX_SKILL_OUTPUT_CHARS], len(cleaned) > MAX_SKILL_OUTPUT_CHARS
+
+
+def _remove_entry(ws: Workspace, name: str) -> None:
+    """Remove one top-level entry of the workspace without following a link.
+
+    The guest could have replaced the directory with a symlink. That removes
+    the link, never its target. Best effort: the container is already gone.
+    """
+    with contextlib.suppress(OSError), ws.dir_fd([]) as parent:
+        info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if stat.S_ISDIR(info.st_mode):
+            shutil.rmtree(name, dir_fd=parent)
+        else:
+            os.unlink(name, dir_fd=parent)
 
 
 def _provider_id(connector: Connector, fetched: Any) -> str | None:

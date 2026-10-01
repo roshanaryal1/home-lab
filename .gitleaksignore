@@ -1,0 +1,7 @@
+# Findings gitleaks reports in history that are known not to be secrets.
+# Each line is a finding fingerprint: commit:file:rule:line.
+#
+# A made-up UUID used as the dead-man ping path in tests/test_deadman.py
+# (#79). It never pointed at a real check. The test now uses a value the
+# scanner does not flag; this line covers the commit that is already pushed.
+d39699b01e2404aa0e0f9f195348e6845e8e5833:tests/test_deadman.py:generic-api-key:28

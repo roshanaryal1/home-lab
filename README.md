@@ -34,8 +34,8 @@ than quietly resolved.
 | 6. Aider/OpenHands executor adapters | not started |
 | 7. Research evidence ledger and verification pipeline | ledger built: claim status is separate from task status, every claim opens its exact source ([#90](https://github.com/roshanaryal1/home-lab/issues/90)); the automated verification pipeline is not |
 | 8. Dedicated-user permissions and task workspaces | on the M6 since 2026-09-30: the lab runs as a non-admin `lab` account that cannot `sudo`, cannot read the owner's approval key and cannot change its own code or service definitions; by default, the supervisor and `lab tick` refuse to start without the owner's public key, and `--allow-unsigned` is refused on a machine where the deployed key exists ([#190](https://github.com/roshanaryal1/home-lab/issues/190), [#200](https://github.com/roshanaryal1/home-lab/issues/200)); the fabricated-signature test on the machine is still open, [#70](https://github.com/roshanaryal1/home-lab/issues/70) |
-| 9. launchd + watchdog + queue-aware caffeinate | installed on the M6 2026-09-30 as six LaunchDaemons; a `kill -9` supervisor was observed back at the 40 s check, while the freeze drill only demonstrated replacement by the 150 s check and did not establish the two-minute target ([kill drill](ops/drills/log/2026-09-30T0100Z-supervisor-kill.md), [freeze drill](ops/drills/log/2026-09-30T0100Z-supervisor-freeze.md), [restore drill](ops/drills/log/2026-09-30T010636Z-restore.md)); caffeinate under a real queue still to check, [#78](https://github.com/roshanaryal1/home-lab/issues/78) |
-| 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status`, `lab control` (pause, drain, stop), `lab cancel` and a read-only `lab dashboard` on loopback exist; alerts and the dead-man switch are parked, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
+| 9. launchd + watchdog + queue-aware caffeinate | installed on the M6 2026-09-30 as six LaunchDaemons; a daily backup job (`com.homelab.backup`: restore-checked, keeps the newest 14, alerts on failure, [#67](https://github.com/roshanaryal1/home-lab/issues/67)) and the dead-man switch ping are built and committed but not yet installed on the M6; a `kill -9` supervisor was observed back at the 40 s check, while the freeze drill only demonstrated replacement by the 150 s check and did not establish the two-minute target ([kill drill](ops/drills/log/2026-09-30T0100Z-supervisor-kill.md), [freeze drill](ops/drills/log/2026-09-30T0100Z-supervisor-freeze.md), [restore drill](ops/drills/log/2026-09-30T010636Z-restore.md)); caffeinate under a real queue still to check, [#78](https://github.com/roshanaryal1/home-lab/issues/78) |
+| 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status`, `lab control` (pause, drain, stop), `lab cancel` and a read-only `lab dashboard` on loopback exist; alerts go through the operator's hook, the nightly self-test also reports "ok" every morning ([#80](https://github.com/roshanaryal1/home-lab/issues/80)), and `lab heartbeat` pings an outside dead-man switch every five minutes while the lab is healthy. Both are built and tested on Linux; the outside check, the plist install and the unplug test are still to do on the M6, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
 | 11. sqlite-vec / FTS retrieval | FTS5 baseline built with inspect, correct, revoke and delete ([#85](https://github.com/roshanaryal1/home-lab/issues/85)); embeddings must beat it on a measured task first |
 | 12. Benchmark and tune before adding anything else | benchmarked on the M6 (`evals/bench/`, setup section 14); first tuning test run as pre-registered H3 (prompt cache 1 against 4: no gain, not adopted, `docs/PREREGISTRATION.md`) |
 | M3. Three real tools ([#240](https://github.com/roshanaryal1/home-lab/issues/240)) | workspace files (notify), read-only git (autonomous) and web fetch with summary (notify) built as reviewed handlers in `lab/handlers/`, each with only the broker tools it needs, and tested with hostile input on Linux (`tests/test_local_tools.py`); not yet run on the M6. Task ceilings from measured peaks wait for these to run real work there, [#180](https://github.com/roshanaryal1/home-lab/issues/180) |
@@ -96,7 +96,7 @@ ssh -N -L 8765:127.0.0.1:8765 <user>@<mac-mini>   # lab dashboard, after `lab da
 
 | What | Result | Where |
 |---|---|---|
-| Apple `container`, measured for the planned untrusted-code tier (not used by the lab yet) | 0.64 s median start; inside a container the host's accounts and files were not visible; network is on by default, so that executor must turn it off | ADR 0007 |
+| Apple `container`, measured for the untrusted-code tier (used only by the broker's `skill.run`, off unless `LAB_CONTAINER_IMAGE` is set, #255) | 0.64 s median start; inside a container the host's accounts and files were not visible; network is on by default, so that executor must turn it off | ADR 0007 |
 | Heavy model memory and speed | 17.2 GB loaded, about 200 KB per token of context, about 16K tokens under the 20.5 GB budget, about 67 tok/s | ADR 0001 |
 | Utility evaluation, 24 tasks | heavy 19, 4B baseline 20; reruns identical | setup section 14, `evals/runs/` |
 | Prompt injection with the real model driving | 0 of 9 attacks succeeded; the model tried 2, the broker stopped both | `SECURITY.md` |
@@ -218,7 +218,8 @@ uv run python -m lab.cli control pause|resume|drain|stop --by you   # the whole-
 uv run python -m lab.cli watchdog [--max-age 90] [--dry-run]   # kill a hung supervisor; launchd restarts it
 uv run python -m lab.cli cancel <task> --by you   # cancel work that has not started
 uv run python -m lab.cli chat [--once] [--chat-id N]   # the paired Telegram chat: messages become tasks; cannot approve or resume
-uv run python -m lab.cli selftest [--alert-config F]   # chain, backup restore, health, safety tests; alerts on failure
+uv run python -m lab.cli selftest [--alert-config F [--report-ok]]   # chain, backup restore, health, safety tests; alerts on failure, and with --report-ok also on success
+uv run python -m lab.cli heartbeat --url-file F   # ping the dead-man switch, only while the lab is healthy; the URL is never printed
 uv run python -m lab.cli setup-plan [--apply]      # print the lab-account setup; --apply needs root on macOS
 uv run python -m lab.cli keepawake [--once] [--grace 600]   # hold caffeinate only while work is pending
 uv run python -m lab.cli tick [--repo owner/repo]     # one pass: observe, summarize with the model, route
@@ -229,7 +230,7 @@ uv run python -m lab.cli resolve <op> --happened|--not-happened --by you   # rec
 uv run python -m lab.cli audit verify             # walk the hash-chained event log
 uv run python -m lab.cli audit checkpoint --key K --out DIR    # signed head, kept outside the lab
 uv run python -m lab.cli artifacts verify         # re-hash every stored output
-uv run python -m lab.cli backup --to DIR          # online snapshot, then restore-check to prove it
+uv run python -m lab.cli backup --to DIR [--keep N] [--alert-config F]   # online snapshot; with --keep, restore-check it, then keep the newest N
 uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything
 uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
 uv run python -m lab.cli skillstore submit|promote|known-good|rollback|history|install   # versioned skills, operator-promoted, one-step rollback
@@ -244,6 +245,7 @@ uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokeni
 uv run python -m lab.cli eval rerun <record>      # repeat a run from its record alone, then compare
 uv run python -m lab.cli bench run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # cold start, first token, decode speed, server memory
 uv run python -m lab.cli bench tune <baseline> <candidate>   # recommend a setting only on a measured gain with no task lost
+uv run python -m lab.cli measure-ceilings [--repeats 5] [--headroom 2]   # peak memory and CPU of every reviewed handler in real workers; suggests task ceilings, changes nothing
 uv run python -m lab.attacks                      # benign-plus-hostile scenarios against a stub model
 ```
 
@@ -267,11 +269,12 @@ lab/egress.py        the only outbound path: default-deny, resolve-then-pin
 lab/vault.py, connectors.py, publish.py   secrets injected per call, one destination each, receipts and reconciliation
 lab/audit.py         append-only hash chain and signed checkpoints
 lab/artifacts.py     content-addressed task outputs
-lab/backup.py, drills.py      verifying backup and logged recovery drills
+lab/backup.py, drills.py      verifying backup, rotation of a scheduled backup folder, logged recovery drills
 lab/metrics.py       `lab status`, derived from the event log
 lab/control.py       the operator mode switch: pause, drain, stop
 lab/service.py       heartbeat, watchdog and the launchd definitions (`ops/launchd/`)
 lab/selftest.py, alert.py   nightly self-test; the operator-configured alert hook
+lab/deadman.py       the dead-man switch ping, sent through the egress gateway only while the lab is healthy
 lab/accountplan.py   the lab-account setup written as a plan, dry-run by default
 lab/shadow.py        candidate routing model measured against the rubric on labeled cases; advice only
 lab/grammar.py       tool-call JSON Schema generated from the broker table, for constrained decoding
@@ -284,6 +287,8 @@ lab/memory.py        inspectable memory: FTS5, provenance, expiry, revoke that r
 lab/rubric.py        the router's rules: evidence weight to post, blog, paper or nothing
 lab/ledger.py        research claims with statuses separate from task state, evidence snapshots
 lab/bench.py         benchmark of one endpoint and the tuning gate
+lab/ceilings.py      peak memory and CPU of each reviewed handler, and suggested task ceilings
+evals/ceilings/      the sample tasks it runs, and its reports
 lab/evals.py         fixed task set run against any endpoint, sealed provenance records
 lab/attacks.py       injection harness
 evals/tasks.jsonl    the 24 tasks (arithmetic, extraction, format, code, tool calls, injection)
