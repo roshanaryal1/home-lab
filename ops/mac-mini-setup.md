@@ -581,7 +581,8 @@ the paths, then:
       4. The unplug test: unplug the network cable (and turn off Wi-Fi).
          The service alerts once the period plus the grace has passed since
          the last ping, so with a 5 minute period and a 5 minute grace the
-         alert must reach the phone within 10 minutes of the unplug. The
+         service detects the outage within 10 minutes of the unplug. Phone
+         delivery can take a little longer than that. Record both times. The
          owner chose the 5 minute grace on 2026-10-01: the ten-minute target
          holds, at the cost of an alert whenever one ping is late. Plug the
          network back in; the check must go green again by

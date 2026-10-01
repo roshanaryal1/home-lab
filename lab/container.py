@@ -229,7 +229,7 @@ def check_limits(config: ContainerConfig) -> None:
 def check_user(user: object) -> str:
     """A numeric ``uid:gid`` that is not root. A name is refused: it would be
     looked up inside an image we did not write."""
-    match = _USER.match(user) if isinstance(user, str) else None
+    match = _USER.fullmatch(user) if isinstance(user, str) else None
     if match is None:
         raise ContainerUnavailable(f"the container user must be a numeric uid:gid: {user!r}")
     if int(match.group(1)) == 0 or int(match.group(2)) == 0:

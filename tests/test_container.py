@@ -167,7 +167,7 @@ def test_network_none_is_always_present_whatever_the_caller_passes(workspace, ro
 
 @pytest.mark.safety
 @pytest.mark.parametrize("user", ["0:0", "0:1000", "1000:0", "root", "nobody", "1000",
-                                  "1000:1000:1", "", None, 1000])
+                                  "1000:1000:1", "65534:65534\n", "", None, 1000])
 def test_the_guest_never_runs_as_root_or_a_named_user(workspace, root, user) -> None:
     runtime = FakeRuntime()
     with pytest.raises(ContainerUnavailable):
