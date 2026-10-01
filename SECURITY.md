@@ -942,8 +942,15 @@ after review needs a new approval.
 - **Output is untrusted.** It is cleaned of control characters, capped at
   256 KiB per stream, marked `untrusted`, and reading it taints the task.
 - **Off unless configured.** `LAB_CONTAINER_IMAGE` must name an image pinned
-  by digest. Without it the tool refuses every call. No handler is granted
-  the tool yet.
+  by digest. Without it the tool refuses every call, and the handler below
+  is not registered.
+- **One handler holds it.** The owner decided on 2026-10-01 to grant the
+  tool to a reviewed handler now, still at the approve tier. The `skill.run`
+  handler (`lab/handlers/skill_run.py`) takes a skill, a script and optional
+  arguments. It holds `skill.run` and no other tool, no network grant, no
+  connector and no MCP server. Every call parks the task until the operator
+  signs an approval for that exact call. The output is returned as data,
+  marked untrusted, and never acted on by the handler.
 
 The proofs are in `tests/test_skillrun.py`, with a fake runtime: each refusal,
 the command line (pinned image, `--network none`, the workspace as the only
@@ -981,6 +988,17 @@ tools. `lab/mcp.py` reaches one only through the broker tool `mcp.call`:
 - **Bounded.** A message over 1 MiB is refused. A task makes at most 20 MCP
   calls. One deadline covers each call. The process group is killed at the
   deadline, on a stop and after every call.
+
+**One handler holds it.** The owner decided on 2026-10-01 to grant
+`mcp.call` to a reviewed handler now, still at the approve tier. The
+`mcp.call` handler (`lab/handlers/mcp_call.py`) takes a server, a tool and
+its arguments. It holds `mcp.call` and no other tool. It is granted the
+servers in the operator-signed file and no network, so a server signed for
+the network is refused to it. The daemon reads the file named by
+`LAB_MCP_SERVERS`. If any entry in it is unsigned, badly signed or edited,
+or there is no operator key, the daemon refuses to start. Every call parks
+the task until the operator signs. The tests are in
+`tests/test_grant_skill_mcp.py`.
 
 Not proven yet: the sandboxed run of a real server on the Mac. Seatbelt
 cannot filter by host name, so a server allowed the network has all of it.

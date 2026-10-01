@@ -661,6 +661,11 @@ class ExecutionBroker:
         """Trusted registration of the operator's signed MCP servers (#256)."""
         self._mcp = registry
 
+    @property
+    def mcp_registry(self) -> McpRegistry | None:
+        """The registry ``set_mcp`` installed, for trusted registration code."""
+        return self._mcp
+
     def set_summarizer(self, summarizer: Callable[[Evidence], str]) -> None:
         """Trusted registration of the bounded model behind net.summarize.
 

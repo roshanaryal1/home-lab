@@ -95,7 +95,7 @@ re-losing.
 | Artifact router | `lab/rubric.py`, `lab/route.py` | Rubric built (7.2): routes a research task by evidence weight over the ledger, refuses thin evidence upward, states conflicts, bounded stop rule. The single-signal v0 in `route.py` remains for the vertical slice. Human review of every route | [#33](https://github.com/roshanaryal1/home-lab/issues/33) |
 | Secret broker and connectors | `lab/vault.py`, `lab/connectors.py` | Built and tested with dummy credentials and a fake transport; Keychain path unexercised until the mini | [#15](https://github.com/roshanaryal1/home-lab/issues/15) |
 | Publish plane | `lab/publish.py`, `lab/broker.py` | Reviewed publishing built against a dummy provider: approval bound to destination and draft hash, write-ahead receipts, idempotency keys, reconciliation of lost responses. No real destination yet | [#86](https://github.com/roshanaryal1/home-lab/issues/86) |
-| MCP client | `lab/mcp.py`, `lab mcp`, `lab/broker.py` (`mcp.call`) | Built and tested against a fake stdio server on Linux: signed server config, tool allowlist with signed fingerprints, approve tier, untrusted evidence, message, call and time limits, kill on timeout and cancel. The Seatbelt run of a real server waits for the Mac (see the section below) | [#256](https://github.com/roshanaryal1/home-lab/issues/256) |
+| MCP client | `lab/mcp.py`, `lab mcp`, `lab/broker.py` (`mcp.call`) | Built and tested against a fake stdio server on Linux: signed server config, tool allowlist with signed fingerprints, approve tier, untrusted evidence, message, call and time limits, kill on timeout and cancel. Since 2026-10-01 the `mcp.call` handler holds the tool, at the approve tier. The Seatbelt run of a real server waits for the Mac (see the section below) | [#256](https://github.com/roshanaryal1/home-lab/issues/256) |
 | Network egress control | `lab/egress.py` | Built, tested with a fake resolver and transport (metadata-address redirect, DNS rebinding, IP-literal spellings); not yet exercised against a real host | [#14](https://github.com/roshanaryal1/home-lab/issues/14) |
 | Resource ceilings per task | `lab/worker.py`, `lab/supervisor.py` | Built for reviewed handlers: RSS sampled over the worker process group and `RLIMIT_CPU`, breach kills, fails without retry and is audited. Values unmeasured until the M6; `lab/ceilings.py` (`lab measure-ceilings`) measures each reviewed handler's peaks and suggests values ([#180](https://github.com/roshanaryal1/home-lab/issues/180)) | [#16](https://github.com/roshanaryal1/home-lab/issues/16) |
 | `dscl` account enumeration | `lab/sandbox.py` | Accepted, not narrowed; untrusted code is routed to a disposable container instead | [ADR 0007](decisions/0007-isolation-for-untrusted-code.md), [#27](https://github.com/roshanaryal1/home-lab/issues/27) |
@@ -104,7 +104,7 @@ re-losing.
 | Operator controls | `lab/control.py`, `lab control`, `lab cancel` | Built: pause, resume, drain and stop as one database row obeyed by the supervisor (a resume is operator-signed and bound to its generation); stop runs the emergency stop and persists across restart. Watchdog, alerts and dead-man switch need the M6 | [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
 | Evidence ledger | `lab/ledger.py`, `lab ledger` | Built: research-task record, claims with a status separate from the task's, quote-checked evidence snapshots, a review pass required before a draft is reviewable; the router (7.2) is not yet built on it | [#90](https://github.com/roshanaryal1/home-lab/issues/90) |
 | Utility evals | `lab/evals.py`, `evals/tasks.jsonl` | 24 fixed tasks graded deterministically; sealed provenance record; rerun from the record alone. Run on the M6 (records in `evals/runs/`), plus a 70-task held-out tool-call set for the pre-registered H2 and H2b (`docs/PREREGISTRATION.md`) | [#81](https://github.com/roshanaryal1/home-lab/issues/81) |
-| Skill store | `lab/skillstore.py`, `lab/skills.py` | Skills as immutable versions with lineage, operator-signed promotion, tier that a skill cannot lower, known-good marks and one-step rollback. The validator/inventory (8.7a) feeds it, and `lab skills import` stores an outside skill as a candidate only (#254). `lab/prereg.py` runs Claim M6 against it. No agent loads from it yet. A script of the active version runs only in the container, through the broker tool `skill.run` (#255) | [#87](https://github.com/roshanaryal1/home-lab/issues/87) |
+| Skill store | `lab/skillstore.py`, `lab/skills.py` | Skills as immutable versions with lineage, operator-signed promotion, tier that a skill cannot lower, known-good marks and one-step rollback. The validator/inventory (8.7a) feeds it, and `lab skills import` stores an outside skill as a candidate only (#254). `lab/prereg.py` runs Claim M6 against it. No agent loads from it yet. A script of the active version runs only in the container, through the broker tool `skill.run` (#255). Since 2026-10-01 the `skill.run` handler holds that tool, at the approve tier | [#87](https://github.com/roshanaryal1/home-lab/issues/87) |
 | Shadow experiment and grammar | `lab/shadow.py`, `lab/grammar.py`, `evals/shadow_cases.jsonl` | Built and tested against scripted candidates: a candidate's route and confidence are compared with the rubric on 12 labeled cases (per-class confusion, false promotion, abstention, calibration, latency, memory) and can only produce advice; the tool-call JSON Schema is generated from the broker table and sent as `response_format` when configured. Real-model runs are checklist items | H6a |
 | Benchmark and tuning gate | `lab/bench.py`, `lab bench` | Built and tested against a scripted adapter: cold start, first token (a one-token request, since the adapter does not stream), decode speed and server memory, sealed with the model revision and lab commit; a setting is recommended only if no task is lost and the gain clears a threshold. Real figures are checklist items | H6b |
 | Injection harness | `lab/attacks.py` | 9 benign-plus-hostile scenarios, graded on files, database and network. Against the worst-case stub and against the real model on the M6 (pre-registered H4, and again after the switch to DWQ): 0 of 9 attacks succeed | [#72](https://github.com/roshanaryal1/home-lab/issues/72) |
@@ -141,9 +141,25 @@ and `tools/call`. No dependency was added.
   its signed fingerprint, calls it and kills the process group. Output and the
   tool's description come back as `Evidence`.
 
-Not yet: no reviewed handler is granted `mcp.call`, the daemon does not read
-an MCP config yet, and the real sandboxed run is the `mcp` step of
-`ops/mac-session.sh`.
+The owner decided on 2026-10-01 to grant `mcp.call` and `skill.run` to
+reviewed handlers now, still at the approve tier (#255, #256):
+
+- `mcp.call` handler (`lab/handlers/mcp_call.py`): server, tool and
+  arguments in the payload. Granted `mcp.call`, the servers in the signed
+  file and no network. The daemon reads the file named by
+  `LAB_MCP_SERVERS`. `register_all` registers the handler only when that
+  file is set and every entry verifies. An entry that does not verify stops
+  the daemon at start.
+- `skill.run` handler (`lab/handlers/skill_run.py`): skill, script and
+  optional arguments in the payload. Granted `skill.run` only. Registered
+  only when `LAB_CONTAINER_IMAGE` names a pinned image.
+
+Each holds one tool, and every call parks the task until the operator
+signs. Both return what came back as untrusted data. Neither has ceiling
+samples: a sample would park, so the measurement leaves them off. The tests
+are in `tests/test_grant_skill_mcp.py`.
+
+Not yet: the real sandboxed run is the `mcp` step of `ops/mac-session.sh`.
 
 ## Related documents
 

@@ -39,6 +39,7 @@ than quietly resolved.
 | 11. sqlite-vec / FTS retrieval | FTS5 baseline built with inspect, correct, revoke and delete ([#85](https://github.com/roshanaryal1/home-lab/issues/85)); embeddings must beat it on a measured task first |
 | 12. Benchmark and tune before adding anything else | benchmarked on the M6 (`evals/bench/`, setup section 14); first tuning test run as pre-registered H3 (prompt cache 1 against 4: no gain, not adopted, `docs/PREREGISTRATION.md`) |
 | M3. Three real tools ([#240](https://github.com/roshanaryal1/home-lab/issues/240)) | workspace files (notify), read-only git (autonomous) and web fetch with summary (notify) built as reviewed handlers in `lab/handlers/`, each with only the broker tools it needs, and tested with hostile input on Linux (`tests/test_local_tools.py`); not yet run on the M6. Task ceilings from measured peaks wait for these to run real work there, [#180](https://github.com/roshanaryal1/home-lab/issues/180) |
+| Skill scripts and MCP tools through handlers ([#255](https://github.com/roshanaryal1/home-lab/issues/255), [#256](https://github.com/roshanaryal1/home-lab/issues/256)) | The owner decided on 2026-10-01 to grant `skill.run` and `mcp.call` to reviewed handlers now, still at the approve tier. Each handler holds its one tool, and every call waits for the operator's signature. The `skill.run` handler is registered only when `LAB_CONTAINER_IMAGE` is set. The `mcp.call` handler is registered only when `LAB_MCP_SERVERS` names a file whose every entry is signed, and it gets no network. Tested on Linux with a fake container runtime and a fake MCP server (`tests/test_grant_skill_mcp.py`). Not yet run on the M6. |
 
 Steps 1, 2 and 4 are machine-independent and run anywhere. Everything
 touching model residency needs the 32 GB machine to mean anything, and
@@ -96,7 +97,7 @@ ssh -N -L 8765:127.0.0.1:8765 <user>@<mac-mini>   # lab dashboard, after `lab da
 
 | What | Result | Where |
 |---|---|---|
-| Apple `container`, measured for the untrusted-code tier (used only by the broker's `skill.run`, off unless `LAB_CONTAINER_IMAGE` is set, #255) | 0.64 s median start; inside a container the host's accounts and files were not visible; network is on by default, so that executor must turn it off | ADR 0007 |
+| Apple `container`, measured for the untrusted-code tier (used only by the broker's `skill.run`, off unless `LAB_CONTAINER_IMAGE` is set, #255. Since 2026-10-01 the `skill.run` handler holds that tool, approve tier) | 0.64 s median start; inside a container the host's accounts and files were not visible; network is on by default, so that executor must turn it off | ADR 0007 |
 | Heavy model memory and speed | 17.2 GB loaded, about 200 KB per token of context, about 16K tokens under the 20.5 GB budget, about 67 tok/s | ADR 0001 |
 | Utility evaluation, 24 tasks | heavy 19, 4B baseline 20; reruns identical | setup section 14, `evals/runs/` |
 | Prompt injection with the real model driving | 0 of 9 attacks succeeded; the model tried 2, the broker stopped both | `SECURITY.md` |
@@ -265,7 +266,7 @@ lab/policy.py        capability tiers, approvals (operator-signed), the gate
 lab/authority.py     the Rule of Two, enforced per task (ADR 0006)
 lab/origin.py        where a task's input came from, and the taint that follows it
 lab/broker.py        typed tools, workspaces, per-call audit
-lab/handlers/        reviewed handlers, the only code a worker loads: workspace files, read-only git, web summary
+lab/handlers/        reviewed handlers, the only code a worker loads: workspace files, read-only git, web summary, skill.run, mcp.call
 lab/egress.py        the only outbound path: default-deny, resolve-then-pin
 lab/vault.py, connectors.py, publish.py   secrets injected per call, one destination each, receipts and reconciliation
 lab/audit.py         append-only hash chain and signed checkpoints

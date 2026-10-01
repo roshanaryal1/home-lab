@@ -221,6 +221,14 @@ test checks that `skill.run` is not in it. The fake-runtime tests are in
 `tests/test_skillrun.py`. Its real-container test runs in the `skillrun`
 step of `ops/mac-session.sh`.
 
+*Update, 2026-10-01 (#255).* The owner decided on 2026-10-01 to grant
+`skill.run` to a reviewed handler now, still at the approve tier. The
+`skill.run` handler (`lab/handlers/skill_run.py`) takes a skill, a script
+and optional arguments, holds that one tool and nothing else, and returns
+the output marked untrusted. `register_all` registers it only when
+`LAB_CONTAINER_IMAGE` names a pinned image. Every call still parks the task
+until the operator signs. The tests are in `tests/test_grant_skill_mcp.py`.
+
 **Flags to confirm on the Mac.** The spellings follow the `container`
 command reference: `--read-only`, `--tmpfs`, `--cpus`, `--memory`,
 `--volume`, `--workdir`, `--env`, `delete --force` and `list --all
