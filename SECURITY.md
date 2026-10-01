@@ -82,6 +82,61 @@ Implemented and tested:
   profile is passed inline and never written into the workspace (R10);
   default-deny tool allowlists per task, byte and file-count ceilings,
   and an artifact manifest per execution.
+- **The first three local tools** (`lab/handlers/workspace.py`,
+  `lab/handlers/git_read.py`, `lab/handlers/web.py`, #240). Each is a
+  reviewed handler run in a worker process, registered in `register_all`
+  with only the broker tools it needs, and its policy tier is the highest
+  tier among them. None holds `fs.delete`, `shell.run`, `connector.call`
+  or a secret. Each does all its I/O through the broker; none opens a
+  file, a socket or a process itself. Tested with hostile input in
+  `tests/test_local_tools.py`.
+  - *Workspace files* (notify): `fs.read`, `fs.list`, `fs.write` and a
+    new `fs.search`. `fs.search` is autonomous like `fs.read`: it finds
+    a literal string (not a regular expression, so no pattern can run
+    for ever), walks by descriptor without following any symlink, skips
+    `.git`, opens only regular files, and caps files, bytes per file,
+    bytes in total, matches and the length of each returned line. All
+    file tools now check a file's type before opening it and again by
+    descriptor after, so a FIFO cannot hang a call and a device is never
+    opened or truncated.
+  - *Git read-only* (autonomous): new `git.status`, `git.log` and
+    `git.diff`. They take only a repository directory; the broker builds
+    the whole argument list, never a shell string. They are autonomous
+    because nothing a repository holds can make them run code, write,
+    or reach outside the workspace. Before git runs, the repository must
+    be inside the workspace and reached without a symlink; a `.git` file
+    must point inside the workspace; the git directory must contain no
+    symlink, no special file, and no `commondir`, `config.worktree` or
+    `objects/info/alternates`; its config may set only reviewed keys
+    (core basics, remote URLs, branch tracking, user name), and a config
+    line the strict parser does not understand is a refusal; and for
+    status and diff, the index may name no path outside the work tree.
+    Git then runs with `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`,
+    `HOME` set to the workspace, `GIT_OPTIONAL_LOCKS=0` (status does not
+    rewrite the index), and `-c core.fsmonitor=false -c
+    core.hooksPath=/dev/null -c protocol.allow=never`, pager, attributes
+    and excludes files off, `--no-ext-diff --no-textconv`, submodules
+    ignored. Output is capped at 256 KiB per stream, cleaned of control
+    characters, and the command is killed after 30 s or on a stop.
+    Measured while building it: the `-c` overrides alone stop a hostile
+    fsmonitor, pager and external diff, but not a clean filter that
+    `git status` runs on a changed file. The config check is what stops
+    that, so it is the load-bearing control, and the overrides are the
+    second layer.
+  - *Web fetch with summary* (notify): one new tool, `net.summarize`.
+    The broker makes the same request as `net.fetch`, through the egress
+    gateway, to a host on the list fixed at registration
+    (`LAB_WEB_FETCH_HOSTS`, DNS names only; an IP address stops the daemon
+    at start). The page becomes fixed-schema `Evidence` (bounded,
+    cleaned), and the bounded model sees only that record, inside a JSON
+    object, under a system prompt that calls it data. The reply must be
+    exactly one `{"summary": ...}` object or it is refused, never
+    repaired. The handler never sees the raw page and holds no other
+    tool, so a page that tells the model to write a file or fetch another
+    URL has nothing to steer: the tests run a model that obeys the page
+    and one whose summary repeats the instructions, and in both cases
+    the only call made is the one fetch. The task is tainted on read, and
+    the summary is returned as data for a person, never as instructions.
 - **Durable task state** with bounded dispatch, lease renewal, atomic
   state transitions (#44), lease tokens checked in the same transaction
   as each write with a generation per claim and a host singleton lock
@@ -567,6 +622,60 @@ Implemented and tested:
   should be a private tunnel, not a wider bind
   (`tests/test_dashboard.py`).
 
+- **Chat through the broker** (`lab/chat.py`, `lab chat`, #239). A message
+  from the one paired Telegram chat becomes a queued task; the reply comes
+  from the task's result. The rules, each tested in `tests/test_chat.py`:
+  - Only the paired chat id is answered, and only from a private chat whose
+    sender is that same id. Every other update creates nothing, gets no reply
+    and is audited (`chat_update`, action `unpaired`) by hash and length, never
+    by content. The pairing is `LAB_CHAT_ID` in the installed, root-owned
+    service definition, out of the lab account's write reach; without it
+    `lab chat` refuses to start.
+  - Chat text is data. It is stored as fixed-schema evidence with origin
+    `chat`, so the task is tainted and the Rule of Two applies. It never
+    becomes a command line, never picks the handler, the task tier or a tool,
+    and never grants anything. A chat task runs the `chat` handler, which in
+    this phase is a model answer with no tools.
+  - No approval from chat. `/approve` shows the exact intent (credential-like
+    values redacted) and prints the `lab approve ... --expect-hash` command to
+    run on the Mac with the operator key. There is no path from a chat message
+    to a granted approval, and an approval the lab account writes itself is
+    still ignored by a supervisor that holds the operator's public key. The
+    test sends a message that a worst-case handler turns into `shell.run`: it
+    waits for approval through `/approve`, injected "approve all" text and an
+    unsigned grant, and runs only after the operator's signed grant. There is
+    no safe way yet to sign from the phone; the owner runs the printed command
+    on the Mac (at the keyboard or over SSH on the tailnet).
+  - Only less authority from chat. `/pause`, `/stop`, `/cancel` and `/deny`
+    act directly for the paired chat because they only remove authority; each
+    is audited with the chat as the actor. `/stop` is the emergency stop: the
+    supervisor revokes broker authority and ends running work. Resume adds
+    authority and stays operator-signed (`lab control resume --key`), so the
+    chat only prints that command. While the lab is stopped no new chat task is
+    queued. `/cancel`, `/deny` and `/approvals` reach only tasks that came from
+    the chat.
+  - Once only. The next update id lives in the database and moves in the same
+    transaction that records the update, so a replayed or re-sent update is
+    not handled twice, and a task created just before a crash is found again by
+    its origin id. One poller per database (a lock file).
+  - Bounded. Messages over 2,000 characters are refused; each chat may send 30
+    messages per 10 minutes; replies are cleaned plain text (no markup), at most
+    3,500 characters, and go only to the paired chat. A result marked secret is
+    not sent.
+  - Through the egress gateway. Polls and replies go only to
+    `api.telegram.org`, https on port 443, public addresses only, no redirects.
+    Refused requests are audited; routine polls are not, so the hash chain is
+    not filled with them. The bot token comes from `lab.vault` (secret
+    `telegram-chat-bot`) and never appears in an event, a log line or an error.
+  - Limits, stated plainly. The poller runs as the lab account, so that account
+    can read the chat bot's token. Whoever holds the token can read the owner's
+    messages to the bot and send the owner messages that look like the bot's,
+    including a fake approval prompt. It cannot approve anything: approving
+    needs the operator key on the Mac, and `lab show` there is the copy to
+    trust. Use a bot of its own for chat, never the alert bot or the old
+    shell bot. Telegram bot chats are not end-to-end encrypted, so send no
+    secrets through it.
+
 ## Known gaps in what exists
 
 Reproduced by an independent review on 2026-09-28 and tracked, not fixed
@@ -579,8 +688,27 @@ every draft by hand.
   the same OS user, so a hostile handler that found the database file
   could open it; the separate lab account closes that (#70). Only code
   under `lab.handlers` can be loaded into a worker.
+- The read-only git tools run git outside the Seatbelt sandbox, because
+  their safety must not depend on a sandbox Linux does not have. What
+  stops a hostile repository is the check before git runs and the fixed
+  command line, described under "What exists". Two limits remain. The
+  check and git's own reads are not atomic, so a process already able to
+  write the workspace at the same moment could change the repository in
+  between; nothing but the task's own sequential tool calls writes there
+  today. And a git object store can be made expensive to read: the 30 s
+  deadline and the output cap bound it, the worker memory ceiling does
+  not, since git runs under the supervisor (#16).
+- Neither `fs.read` nor `fs.search` refuses a hard link. A hard link to a
+  file outside the workspace cannot be made by the file tools; only a
+  command could make one, and `shell.run` is confined by Seatbelt.
+- The worker ceilings for the three new handlers are the defaults, not
+  values measured on real work. Setting them from measured peaks is #180,
+  and it waits for the handlers to run real tasks on the Mac mini.
 - An owner-only Telegram bot gives the owner a shell on the Mac mini
-  from the phone (#184). It lives outside this repository on purpose and
+  from the phone (#184). The chat channel above replaces it (#239), but
+  retiring it is an operator step on the Mac that has not been done yet
+  (`ops/mac-mini-setup.md` section 23): stop its service and revoke its token.
+  Until then it lives outside this repository and
   bypasses the lab's broker, approvals and audit log: a command sent
   through it runs as the owner's macOS user, not as the lab account. It
   answers one paired chat id only, needs a fresh TOTP code to open the
@@ -599,10 +727,19 @@ absent is worse than no policy:
 
 - **Network egress exists only through one gateway, and no real host
   has been exercised yet.** `net.fetch` (`lab/egress.py`, item 4.3, #14)
-  is the only outbound path: see "What exists". Shell commands still run
-  with the sandbox's network rules, and nothing else in the lab opens
-  sockets. The dead-man switch ping (#79) will be the first real host the
-  gateway reaches, once the operator sets it up on the mini.
+  and `net.summarize` (the same request, then the model; #240) are the
+  only outbound paths for a task: see "What exists". The chat channel's
+  polls go through the same gateway, to one fixed host, and so does the dead-man switch ping (#79). Shell commands
+  still run with the sandbox's network rules, and the alert command
+  (`lab/telegram_alert.py`) posts to its one fixed host directly.
+- **No approval from the phone.** The chat channel can show what waits and
+  print the signed command, but signing needs the operator key, which lives on
+  the Mac outside the lab account's reach. A way to sign from the phone without
+  moving that key is not designed yet; no new cryptography was added for it.
+- **The chat channel has not run against the real Telegram API.** It is tested
+  against a fake Bot API behind the real egress gateway (`tests/test_chat.py`).
+  Installing it, pairing the chat id and retiring the raw-shell bot are operator
+  steps on the Mac (`ops/mac-mini-setup.md` section 23).
 - **Memory and CPU ceilings cover reviewed handlers only, and their values
   are unmeasured.** A reviewed handler's worker process is sampled every
   half second (`ps` over its process group) and killed with the group above

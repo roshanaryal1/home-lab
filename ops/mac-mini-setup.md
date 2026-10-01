@@ -513,6 +513,19 @@ the paths, then:
       `ops/runbook-lab-account-and-daemons.md`). Use a **new, alert-only bot**
       from BotFather, never the token of the shell bot: the `lab` account has to
       read this one. Press Start on the new bot once so it may message you.
+
+      Both this step and the chat in section 23 read your numeric Telegram chat
+      id from the Keychain item `homelab-telegram-chat`. If it is not there yet,
+      store it once. Your id is the number `@userinfobot` replies with in
+      Telegram. The last line must print the number, not an error:
+
+      ```sh
+      read "CHAT_ID?Your numeric Telegram chat id: "
+      security add-generic-password -U -a "$USER" -s homelab-telegram-chat -w "$CHAT_ID"
+      unset CHAT_ID
+      security find-generic-password -a "$USER" -s homelab-telegram-chat -w
+      ```
+
       Then, in a Terminal on the mini (the token is typed at a hidden prompt,
       never pasted into a command line):
 
@@ -672,3 +685,56 @@ expect a call either way between runs.
       (2048 MB, 900 s) stay. The model server's half is measured (ADR 0001):
       16 GiB idle, about +7 GiB at 37K tokens, under the 24.96 GiB Metal
       ceiling.
+
+## 23. Chat through the broker, and retiring the raw-shell bot (#239)
+
+`lab chat` polls one Telegram bot and turns messages from one paired private
+chat into tasks (`lab/chat.py`, SECURITY.md "Chat through the broker"). It runs
+as `lab`, so `lab` can read its token: use a **new bot** from BotFather for it,
+never the alert bot and never the old shell bot. Press Start on it once.
+
+- [ ] Install and pair. `setup-plan --apply` already copied
+      `com.homelab.chat.plist` root-owned to `/Library/LaunchDaemons`; if it
+      predates this section, copy it from `/opt/homelab/ops/launchd/` the same
+      way. The pairing and the token go into the installed copy, which `lab`
+      cannot edit. The chat id is the one the alert setup stored in your
+      Keychain (section 19). The token is read at a hidden prompt and written
+      with `plistlib`, so it never appears on a command line:
+
+      ```sh
+      P=/Library/LaunchDaemons/com.homelab.chat.plist
+      CHAT_ID=$(security find-generic-password -a "$USER" -s homelab-telegram-chat -w)
+      sudo chown root:wheel "$P" && sudo chmod 600 "$P"
+      read -s "TOK?Chat bot token: "; echo
+      printf '%s\n%s' "$CHAT_ID" "$TOK" | sudo /opt/homelab/.venv/bin/python -c 'import plistlib, sys; p = sys.argv[1]; chat, tok = sys.stdin.read().split("\n"); d = plistlib.load(open(p, "rb")); env = d.setdefault("EnvironmentVariables", {}); env["LAB_CHAT_ID"] = chat.strip(); env["LAB_SECRET_TELEGRAM_CHAT_BOT"] = tok.strip(); plistlib.dump(d, open(p, "wb"))' "$P"
+      unset TOK
+      sudo chown root:wheel "$P" && sudo chmod 600 "$P"
+      sudo plutil -lint "$P"
+      sudo launchctl bootstrap system "$P"
+      sudo launchctl print system/com.homelab.chat | grep -E "state|last exit"
+      ```
+
+      Mode 600 keeps the token from other local accounts; that launchd loads a
+      600 definition is to be confirmed here. The Keychain is the other source
+      `lab.vault` reads (service `home-lab`, account `telegram-chat-bot`), but
+      that path is unexercised from a daemon (#15).
+- [ ] Check from the phone: `/status` answers; a plain message is queued and
+      answered (needs the model settings in the supervisor, section 16); a
+      message from another Telegram account gets no answer and shows up as
+      `unpaired` in `sudo tail /var/log/homelab/chat.log`.
+- [ ] Check the boundary with a dummy task: a chat message never approves
+      anything. When a chat task waits for approval, the chat prints the exact
+      intent and the `lab.cli approve ... --expect-hash` command. Run it on the
+      Mac, at the keyboard or over SSH on the tailnet, with the operator key.
+      There is no way to sign from the phone yet.
+- [ ] `/stop` from the phone, then `lab control show` on the Mac says
+      `stopped` and `set by chat:<id>`. Resume with
+      `lab control resume --key ~/.lab-operator/operator.key`; the chat cannot.
+- [ ] Retire the raw-shell bot (#184). It runs outside this repository as your
+      own user, so find its job with `launchctl list | grep -i -E "telegram|bot"`,
+      then `launchctl bootout gui/$(id -u)/<its label>` and delete its plist
+      from `~/Library/LaunchAgents`. In BotFather, `/revoke` its token (or
+      `/deletebot`), so a copy of the token stops working. Delete its token and
+      TOTP secret from the Keychain and the TOTP entry from your authenticator.
+      Keep `homelab-telegram-chat`: the alert and chat setups read it. Then
+      remove the raw-shell bullet from SECURITY.md "Known gaps" with the date.

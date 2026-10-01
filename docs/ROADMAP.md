@@ -23,6 +23,8 @@ What is missing for daily use:
 
 - **No chat path through the broker.** The Telegram bot is a TOTP-gated raw
   shell outside the repository; it bypasses the broker and the audit log.
+  Update: the chat channel is built (`lab/chat.py`, #239); installing it and
+  retiring the raw-shell bot are operator steps on the Mac.
 - **No real handlers.** `lab/handlers/` holds one demo.
 - No tools a person wants (calendar, mail, richer web, code editing), no
   agent-proposed memory, no skill import, and no install path for other
@@ -74,7 +76,10 @@ summary, read-only calendar. Each is a reviewed handler under `lab.handlers`
 with a policy tier, tested with hostile input, and it sets the real task
 ceilings ([#180](https://github.com/roshanaryal1/home-lab/issues/180)). No
 real credentials until the three preconditions in the README hold. About one
-week.
+week. Status: workspace files, read-only git and web fetch with summary are
+built and tested with hostile input
+([#240](https://github.com/roshanaryal1/home-lab/issues/240)); the ceilings
+wait for them to run real work on the Mac mini (#180).
 
 **M4. Memory.** The agent may propose a memory; the owner approves it; the
 owner can inspect, correct and delete everything (`lab memory` exists). Done

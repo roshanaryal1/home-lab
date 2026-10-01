@@ -38,6 +38,7 @@ than quietly resolved.
 | 10. Tailscale-only FastAPI dashboard and emergency stop | `lab status`, `lab control` (pause, drain, stop), `lab cancel` and a read-only `lab dashboard` on loopback exist; alerts go through the operator's hook, the nightly self-test also reports "ok" every morning ([#80](https://github.com/roshanaryal1/home-lab/issues/80)), and `lab heartbeat` pings an outside dead-man switch every five minutes while the lab is healthy. Both are built and tested on Linux; the outside check, the plist install and the unplug test are still to do on the M6, [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
 | 11. sqlite-vec / FTS retrieval | FTS5 baseline built with inspect, correct, revoke and delete ([#85](https://github.com/roshanaryal1/home-lab/issues/85)); embeddings must beat it on a measured task first |
 | 12. Benchmark and tune before adding anything else | benchmarked on the M6 (`evals/bench/`, setup section 14); first tuning test run as pre-registered H3 (prompt cache 1 against 4: no gain, not adopted, `docs/PREREGISTRATION.md`) |
+| M3. Three real tools ([#240](https://github.com/roshanaryal1/home-lab/issues/240)) | workspace files (notify), read-only git (autonomous) and web fetch with summary (notify) built as reviewed handlers in `lab/handlers/`, each with only the broker tools it needs, and tested with hostile input on Linux (`tests/test_local_tools.py`); not yet run on the M6. Task ceilings from measured peaks wait for these to run real work there, [#180](https://github.com/roshanaryal1/home-lab/issues/180) |
 
 Steps 1, 2 and 4 are machine-independent and run anywhere. Everything
 touching model residency needs the 32 GB machine to mean anything, and
@@ -52,6 +53,7 @@ a task runner:
 |---|---|---|
 | Observation: notice work from the event stream, emit proposals | [#32](https://github.com/roshanaryal1/home-lab/issues/32) | this repo's closed issues and merged PRs become proposals; the event log yields a proposal when tasks of one kind keep failing alike, when closed issues look alike, or when a measurement has no artifact |
 | Router: post / blog / paper by evidence weight | [#33](https://github.com/roshanaryal1/home-lab/issues/33) | rubric built over the evidence ledger: deterministic rules, refuses thin evidence upward, inspectable chain; still needs a human to review every route |
+| Chat: a message from the owner's paired chat becomes a task, the reply comes from its result | [#239](https://github.com/roshanaryal1/home-lab/issues/239) | built and tested against a fake Telegram server through the egress gateway; only the paired chat is answered, approving still needs the operator's signature on the Mac; not installed on the mini yet, and the old raw-shell bot stays until the owner retires it (setup section 23) |
 | Publish: post/email on your behalf | [#86](https://github.com/roshanaryal1/home-lab/issues/86) | reviewed publishing built and tested against a dummy provider: approval bound to destination and draft hash, write-ahead receipts, idempotency keys, reconciliation of lost responses; no real destination has been used |
 
 Build order and reasoning are in ADR 0004; the rules that limit what an
@@ -201,6 +203,7 @@ uv run python -m lab.cli tasks                    # task counts by state
 uv run python -m lab.cli control pause|resume|drain|stop --by you   # the whole-lab switch; resume takes --key operator.key; `control show` reads it
 uv run python -m lab.cli watchdog [--max-age 90] [--dry-run]   # kill a hung supervisor; launchd restarts it
 uv run python -m lab.cli cancel <task> --by you   # cancel work that has not started
+uv run python -m lab.cli chat [--once] [--chat-id N]   # the paired Telegram chat: messages become tasks; cannot approve or resume
 uv run python -m lab.cli selftest [--alert-config F [--report-ok]]   # chain, backup restore, health, safety tests; alerts on failure, and with --report-ok also on success
 uv run python -m lab.cli heartbeat --url-file F   # ping the dead-man switch, only while the lab is healthy; the URL is never printed
 uv run python -m lab.cli setup-plan [--apply]      # print the lab-account setup; --apply needs root on macOS
@@ -245,6 +248,7 @@ lab/policy.py        capability tiers, approvals (operator-signed), the gate
 lab/authority.py     the Rule of Two, enforced per task (ADR 0006)
 lab/origin.py        where a task's input came from, and the taint that follows it
 lab/broker.py        typed tools, workspaces, per-call audit
+lab/handlers/        reviewed handlers, the only code a worker loads: workspace files, read-only git, web summary
 lab/egress.py        the only outbound path: default-deny, resolve-then-pin
 lab/vault.py, connectors.py, publish.py   secrets injected per call, one destination each, receipts and reconciliation
 lab/audit.py         append-only hash chain and signed checkpoints

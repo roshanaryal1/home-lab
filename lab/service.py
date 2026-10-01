@@ -42,6 +42,7 @@ BACKUP_KEEP = 14
 BACKUP_DIR_PLACEHOLDER = "PASTE_BACKUP_DIR"
 DEADMAN_LABEL = "com.homelab.heartbeat"
 DEADMAN_INTERVAL_SECONDS = 300
+CHAT_LABEL = "com.homelab.chat"
 
 
 def heartbeat_path(db: str | Path) -> Path:
@@ -206,3 +207,14 @@ def heartbeat_plist(*, user: str, python: str, workdir: str, db: str, url_file: 
     return _plist(DEADMAN_LABEL,
                   [python, "-m", "lab.cli", "--db", db, "heartbeat", "--url-file", url_file],
                   workdir, UserName=user, RunAtLoad=True, StartInterval=DEADMAN_INTERVAL_SECONDS)
+
+
+def chat_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
+    """``lab chat`` as the lab user, restarted on exit (#239).
+
+    The pairing is not in the committed file on purpose: the operator adds
+    ``LAB_CHAT_ID`` to the installed, root-owned copy, where the lab account
+    cannot change it. Without it the job exits 2 and answers nobody.
+    """
+    return _plist(CHAT_LABEL, [python, "-m", "lab.cli", "--db", db, "chat"], workdir,
+                  UserName=user, RunAtLoad=True, KeepAlive=True, ThrottleInterval=30)

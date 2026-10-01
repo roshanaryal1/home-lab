@@ -38,6 +38,7 @@ class SourceType(StrEnum):
     TASK = "task"            # produced by another task; inherits its trust
     MEMORY = "memory"
     MODEL = "model"
+    CHAT = "chat"            # a message from the paired chat (lab.chat): data, never a grant
     UNKNOWN = "unknown"
 
 

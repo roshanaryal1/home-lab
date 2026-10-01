@@ -57,6 +57,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import stat
 import threading
@@ -73,6 +74,7 @@ from lab.egress import EgressDenied, EgressGateway, parse_allowlist
 from lab.journal import OperationJournal, operation_id
 from lab.policy import Decision, PolicyEngine, Tier, canonical
 from lab.queue import LeaseToken
+from lab.untrusted import Evidence, clean
 from lab.vault import Redactor, SecretUnavailable, Vault
 
 LOG = logging.getLogger(__name__)
@@ -84,6 +86,11 @@ class BrokerError(RuntimeError):
 
 class PathEscape(BrokerError):
     """A request tried to reach outside its workspace."""
+
+
+class UnsafeRepository(BrokerError):
+    """A repository that git must not be run on: it reaches outside the
+    workspace, or its configuration could make git run something."""
 
 
 class ContextRevoked(BrokerError):
@@ -157,6 +164,22 @@ TOOL_TIERS: dict[str, Tier] = {
     # One destination, one credential, injected by the broker (item 4.4).
     # Approve tier: a person sees the exact destination, path and body.
     "connector.call": Tier.APPROVE,
+    # Read-only search of the task's own files. Autonomous like fs.read: it
+    # walks by descriptor, never follows a symlink and never opens anything
+    # but a regular file, so it cannot see outside the workspace.
+    "fs.search": Tier.AUTONOMOUS,
+    # Read-only git on a repository inside the workspace (#240). Autonomous
+    # because nothing a repository holds can make these run code or reach
+    # outside: the repository is checked before git runs (no symlinks, no
+    # git directory or object store outside, only reviewed config keys), the
+    # command line is fixed, hooks, fsmonitor, pagers and every transport
+    # are off, and output is capped. SECURITY.md gives the reasoning.
+    "git.status": Tier.AUTONOMOUS,
+    "git.log": Tier.AUTONOMOUS,
+    "git.diff": Tier.AUTONOMOUS,
+    # net.fetch, then the bounded model summarizes the fetched Evidence in
+    # the broker. Same tier as net.fetch: the same request, the same gateway.
+    "net.summarize": Tier.NOTIFY,
 }
 
 
@@ -173,6 +196,11 @@ TOOL_EFFECTS: dict[str, str] = {
     "shell.run": NON_IDEMPOTENT,
     "net.fetch": IDEMPOTENT,        # a GET; retried freely, and gated by the host list
     "connector.call": NON_IDEMPOTENT,   # may change the outside world: journaled
+    "fs.search": READ_ONLY,
+    "git.status": READ_ONLY,     # GIT_OPTIONAL_LOCKS=0, so status does not rewrite the index
+    "git.log": READ_ONLY,
+    "git.diff": READ_ONLY,
+    "net.summarize": IDEMPOTENT,    # a GET and a local model call
 }
 
 # Per-task and per-call ceilings (item 1.10). A request can lower these
@@ -180,6 +208,21 @@ TOOL_EFFECTS: dict[str, str] = {
 MAX_CALLS_PER_TASK = 1000
 MAX_READ_BYTES = 1024 * 1024
 MAX_LIST_ENTRIES = 1000
+MAX_SEARCH_MATCHES = 200
+MAX_SEARCH_BYTES = 16 * 1024 * 1024     # read in total by one search
+MAX_PATTERN_CHARS = 200
+MAX_MATCH_CHARS = 300                   # of each matching line returned
+
+# Read-only git (#240).
+GIT_MAX_OUTPUT = 256 * 1024             # per stream
+# The index listing is checked inside the broker and never returned, so it
+# may be larger than what the model sees; this bounds memory only.
+GIT_MAX_INDEX_BYTES = 16 * 1024 * 1024
+GIT_TIMEOUT_SECONDS = 30.0
+GIT_LOG_ENTRIES = 50
+GIT_MAX_ENTRIES = 50_000                # files and directories checked in one git directory
+GIT_MAX_CONFIG_BYTES = 64 * 1024
+GIT_PATH = "/usr/bin:/bin"
 
 # What each tool accepts: field -> (validator, required). Unknown fields
 # are refused, so a model cannot pass options the broker never reviewed.
@@ -209,6 +252,11 @@ TOOL_SCHEMAS: dict[str, dict[str, tuple[_Validator, bool]]] = {
     "net.fetch": {"url": (_is_str, True)},
     "connector.call": {"connector": (_is_str, True), "path": (_is_str, True),
                        "method": (_is_str, False), "body": (_is_str, False)},
+    "fs.search": {"pattern": (_is_str, True), "path": (_is_str, False)},
+    "git.status": {"repo": (_is_str, False)},
+    "git.log": {"repo": (_is_str, False)},
+    "git.diff": {"repo": (_is_str, False)},
+    "net.summarize": {"url": (_is_str, True)},
 }
 
 
@@ -278,6 +326,53 @@ class ToolResult:
 
 
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+# O_NONBLOCK so a FIFO swapped in after the type check cannot hang the call.
+_READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+
+
+@contextlib.contextmanager
+def _walk(dir_fd: int) -> Iterator[Iterator[tuple[str, list[str], list[str], int]]]:
+    """Walk below ``dir_fd`` by descriptor without following symlinks.
+
+    Closed on the way out, so stopping early leaves no directory open.
+    """
+    walker = os.fwalk(".", dir_fd=dir_fd, follow_symlinks=False)
+    try:
+        yield walker
+    finally:
+        close = getattr(walker, "close", None)
+        if close is not None:
+            close()
+
+
+def _open_regular(parent: int, name: str) -> int | None:
+    """Open ``name`` in ``parent`` for reading if it is a regular file.
+
+    Returns None for a missing file or anything that is not a regular
+    file. The type is checked before opening, so a device or a FIFO is
+    never opened at all, and again by descriptor after, so a swap in
+    between is caught. A symlink is a ``PathEscape``.
+    """
+    try:
+        before = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(before.st_mode):
+        raise PathEscape(f"{name!r} is a symlink")
+    if not stat.S_ISREG(before.st_mode):
+        return None
+    try:
+        fd = os.open(name, _READ_FLAGS, dir_fd=parent)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise PathEscape(f"{name!r} is a symlink") from None
+        return None
+    after = os.fstat(fd)
+    if not stat.S_ISREG(after.st_mode) or (after.st_dev, after.st_ino) != (
+            before.st_dev, before.st_ino):
+        os.close(fd)
+        return None
+    return fd
 
 
 _PROTECTED_FOLDED = frozenset(name.casefold() for name in sandbox.PROTECTED_NAMES)
@@ -431,6 +526,8 @@ class ExecutionBroker:
         self._egress = egress
         # None means connector.call always refuses: no vault, no credentials.
         self._vault = vault
+        # None means net.summarize always refuses: no model, no summary.
+        self._summarizer: Callable[[Evidence], str] | None = None
         self._connectors: dict[str, Connector] = {}
         self._task_connectors: dict[str, frozenset[str]] = {}
         self._egress_hosts: dict[str, frozenset[str]] = {}
@@ -474,6 +571,15 @@ class ExecutionBroker:
         """Trusted registration of a destination. Not reachable from a task."""
         self._connectors[connector.name] = connector
 
+    def set_summarizer(self, summarizer: Callable[[Evidence], str]) -> None:
+        """Trusted registration of the bounded model behind net.summarize.
+
+        It is given fixed-schema ``Evidence`` and returns one summary
+        string, or raises. A ``PermanentFailure`` (a reply that is not
+        exactly one summary) is final; anything else may be retried.
+        """
+        self._summarizer = summarizer
+
     def close_workspace(self, task_id: str) -> None:
         ws = self._workspaces.pop(task_id, None)
         self._grants.pop(task_id, None)
@@ -500,6 +606,11 @@ class ExecutionBroker:
             "shell.run": self._tool_shell_run,
             "net.fetch": lambda req, ws: self._run_job_sync(self._job_net_fetch(req)),
             "connector.call": lambda req, ws: self._run_job_sync(self._job_connector_call(req)),
+            "fs.search": self._tool_fs_search,
+            "git.status": self._tool_git,
+            "git.log": self._tool_git,
+            "git.diff": self._tool_git,
+            "net.summarize": lambda req, ws: self._run_job_sync(self._job_net_summarize(req)),
         }
 
     def session(self, ctx: ExecutionContext) -> ToolSession:
@@ -684,6 +795,7 @@ class ExecutionBroker:
 
     def _net_job_factory(self, tool: str) -> Callable[[ToolRequest], NetJob] | None:
         return {"net.fetch": self._job_net_fetch,
+                "net.summarize": self._job_net_summarize,
                 "connector.call": self._job_connector_call}.get(tool)
 
     def _flush_job(self, job: NetJob) -> None:
@@ -797,18 +909,11 @@ class ExecutionBroker:
         if not parts:
             return ToolResult(False, request.tool, error="not a file")
         with ws.dir_fd(parts[:-1]) as parent:
-            try:
-                fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
-            except FileNotFoundError:
-                return ToolResult(False, request.tool, error="not a file")
-            except OSError as exc:
-                if exc.errno == errno.ELOOP:
-                    raise PathEscape(f"{parts[-1]!r} is a symlink") from None
+            fd = _open_regular(parent, parts[-1])
+            if fd is None:
                 return ToolResult(False, request.tool, error="not a file")
             with os.fdopen(fd, "rb") as fh:
                 info = os.fstat(fh.fileno())
-                if not stat.S_ISREG(info.st_mode):
-                    return ToolResult(False, request.tool, error="not a file")
                 if info.st_size > MAX_READ_BYTES:
                     raise QuotaExceeded(f"file larger than the {MAX_READ_BYTES} byte read cap")
                 content = fh.read(MAX_READ_BYTES).decode("utf-8", errors="replace")
@@ -846,10 +951,18 @@ class ExecutionBroker:
             raise QuotaExceeded(f"workspace byte ceiling {ws.max_bytes} reached")
 
         with ws.dir_fd(parts[:-1], create=True) as parent:
+            # Checked before opening: O_TRUNC on a device, or a write to a
+            # FIFO, must never happen. O_NONBLOCK covers a swap after this.
+            with contextlib.suppress(FileNotFoundError):
+                existing = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+                if stat.S_ISLNK(existing.st_mode):
+                    raise PathEscape(f"{parts[-1]!r} is a symlink")
+                if not stat.S_ISREG(existing.st_mode):
+                    raise BrokerError("target is not a regular file")
             try:
                 fd = os.open(parts[-1],
-                             os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
-                             0o600, dir_fd=parent)
+                             os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+                             | os.O_NONBLOCK, 0o600, dir_fd=parent)
             except OSError as exc:
                 if exc.errno == errno.ELOOP:
                     raise PathEscape(f"{parts[-1]!r} is a symlink") from None
@@ -860,6 +973,121 @@ class ExecutionBroker:
                 fh.write(content.encode("utf-8"))
         return ToolResult(True, request.tool, {"bytes": len(content)})
 
+    def _tool_fs_search(self, request: ToolRequest, ws: Workspace) -> ToolResult:
+        """Find lines containing a literal string, under a workspace directory.
+
+        A literal, not a regular expression, so a pattern cannot be made to
+        run for ever. The walk is by descriptor and never follows a symlink;
+        only regular files are opened, as in fs.read. ``.git`` directories
+        are skipped. Every limit is reported in the result, not hidden.
+        """
+        pattern = request.params["pattern"]
+        if not pattern or len(pattern) > MAX_PATTERN_CHARS or "\n" in pattern:
+            raise InvalidParams(
+                f"fs.search: pattern must be 1 to {MAX_PATTERN_CHARS} characters on one line")
+        start = request.params.get("path", ".")
+        ws.resolve(start)
+        parts = ws.parts(start)
+        prefix = PurePosixPath(*parts) if parts else PurePosixPath()
+        matches: list[dict[str, Any]] = []
+        skipped: dict[str, int] = {"symlink": 0, "not_regular": 0, "too_large": 0, "binary": 0}
+        scanned = files = 0
+        truncated = False
+        with contextlib.ExitStack() as stack:
+            try:
+                top = stack.enter_context(ws.dir_fd(parts))
+            except FileNotFoundError:
+                return ToolResult(False, request.tool, error="not a directory")
+            walker = stack.enter_context(_walk(top))
+            for dirpath, dirnames, filenames, dfd in walker:
+                dirnames[:] = sorted(d for d in dirnames if d.casefold() != ".git")
+                for name in sorted(filenames):
+                    if truncated:
+                        break
+                    files += 1
+                    if files > ws.max_files:
+                        truncated = True
+                        break
+                    try:
+                        fd = _open_regular(dfd, name)
+                    except PathEscape:
+                        skipped["symlink"] += 1
+                        continue
+                    if fd is None:
+                        skipped["not_regular"] += 1
+                        continue
+                    with os.fdopen(fd, "rb") as fh:
+                        size = os.fstat(fh.fileno()).st_size
+                        if size > MAX_READ_BYTES:
+                            skipped["too_large"] += 1
+                            continue
+                        if scanned + size > MAX_SEARCH_BYTES:
+                            truncated = True
+                            break
+                        data = fh.read(MAX_READ_BYTES)
+                    scanned += len(data)
+                    if b"\0" in data:
+                        skipped["binary"] += 1
+                        continue
+                    rel = str(prefix / PurePosixPath(dirpath) / name)
+                    text = data.decode("utf-8", errors="replace")
+                    for number, line in enumerate(text.splitlines(), start=1):
+                        if pattern in line:
+                            if len(matches) >= MAX_SEARCH_MATCHES:
+                                truncated = True
+                                break
+                            matches.append({"path": rel, "line": number,
+                                            "text": clean(line)[:MAX_MATCH_CHARS]})
+                if truncated:
+                    break
+        return ToolResult(True, request.tool, {
+            "matches": matches, "truncated": truncated, "files_scanned": min(files, ws.max_files),
+            "bytes_scanned": scanned, "skipped": skipped})
+
+    # ---- read-only git (#240)
+    #
+    # git is not run in the sandbox: on Linux there is none, and the tool
+    # must not depend on one to be safe. Instead nothing the repository
+    # holds can choose what runs. The repository is checked first
+    # (``_git_repository``), the command line is fixed and never takes a
+    # value from the request, configuration from the system and the home
+    # directory is switched off, and every config key that can name a
+    # program is either refused in the repository or overridden here.
+
+    def _tool_git(self, request: ToolRequest, ws: Workspace) -> ToolResult:
+        git = shutil.which("git", path=GIT_PATH)
+        if git is None:
+            raise BrokerError("git is not installed")
+        worktree, gitdir = _git_repository(ws, request.params.get("repo", "."))
+        env = _git_environment(ws.root, worktree, gitdir)
+        base = [git, *_GIT_SAFETY]
+        commands = {
+            "git.status": ["status", "--porcelain=v1", "--branch",
+                           "--untracked-files=normal", "--ignore-submodules=all"],
+            "git.log": ["log", "--no-show-signature", "--no-color", "--no-decorate",
+                        "--no-mailmap", f"--max-count={GIT_LOG_ENTRIES}",
+                        "--format=%H%x09%an%x09%aI%x09%s"],
+            "git.diff": ["diff", "--no-ext-diff", "--no-textconv", "--no-color",
+                         "--ignore-submodules=all", "HEAD", "--"],
+        }
+        with self._cancel_flag(request.task_id) as cancel:
+            if request.tool in ("git.status", "git.diff"):
+                # These two look at the work tree through the index, so the
+                # index must name nothing outside it.
+                listed = sandbox._execute([*base, "ls-files", "-z", "--cached"],
+                                          cwd=str(worktree), env=env,
+                                          timeout=GIT_TIMEOUT_SECONDS, cap=GIT_MAX_INDEX_BYTES,
+                                          cancel=cancel)
+                if listed.truncated or listed.timed_out:
+                    raise UnsafeRepository("the index is too large to check")
+                if listed.returncode != 0:
+                    return _git_result(request.tool, listed)
+                _check_index_paths(listed.stdout)
+            done = sandbox._execute([*base, *commands[request.tool]], cwd=str(worktree),
+                                    env=env, timeout=GIT_TIMEOUT_SECONDS, cap=GIT_MAX_OUTPUT,
+                                    cancel=cancel)
+        return _git_result(request.tool, done)
+
     # ---- network tools: prepare and finish on the loop, perform in a thread
     #
     # These two tools touch the database (write-ahead, taint, receipts) and
@@ -869,9 +1097,12 @@ class ExecutionBroker:
     # nothing; the gateway's audit events are buffered and flushed by the
     # caller. The same code runs on the synchronous path.
 
-    def _job_net_fetch(self, request: ToolRequest) -> NetJob:
+    def _job_net_fetch(self, request: ToolRequest, *, summarize: bool = False) -> NetJob:
         if self._egress is None:
             return NetJob.refused(request.tool, "EgressDenied: no egress gateway")
+        summarizer = self._summarizer
+        if summarize and summarizer is None:
+            return NetJob.refused(request.tool, "no summarizer model is configured")
         gateway = self._egress
         hosts = self._egress_hosts.get(request.task_id, frozenset())
         url = request.params["url"]
@@ -880,23 +1111,42 @@ class ExecutionBroker:
 
         def perform() -> Any:
             try:
-                return gateway.fetch(url, hosts, request.task_id, audit=job.buffer)
+                fetched = gateway.fetch(url, hosts, request.task_id, audit=job.buffer)
             except EgressDenied as exc:
                 return exc
+            if summarizer is None or not summarize:
+                return fetched
+            # The model sees the fixed-schema Evidence only, never the raw
+            # body. Its failure is reported, not raised: the fetch happened.
+            try:
+                return fetched, summarizer(fetched.evidence)
+            except Exception as exc:
+                return fetched, exc
 
         def finish(outcome: Any) -> ToolResult:
             if isinstance(outcome, EgressDenied):
                 return ToolResult(False, request.tool, error=f"EgressDenied: {outcome}")
             if self.policy is not None:
                 self.policy.taint(request.task_id, "read content fetched from the network")
-            return ToolResult(True, request.tool, {
-                "url": outcome.url, "status": outcome.status, "hops": outcome.hops,
-                "content_type": outcome.content_type,
-                "evidence": outcome.evidence.as_payload(),
-            })
+            fetched, summary = outcome if summarize else (outcome, None)
+            detail = {
+                "url": fetched.url, "status": fetched.status, "hops": fetched.hops,
+                "content_type": fetched.content_type,
+                "evidence": fetched.evidence.as_payload(),
+            }
+            if isinstance(summary, Exception):
+                return ToolResult(False, request.tool,
+                                  {**detail, "permanent": isinstance(summary, PermanentFailure)},
+                                  error=f"{type(summary).__name__}: {summary}")
+            if summarize:
+                detail["summary"] = summary
+            return ToolResult(True, request.tool, detail)
 
         job.perform, job.finish = perform, finish
         return job
+
+    def _job_net_summarize(self, request: ToolRequest) -> NetJob:
+        return self._job_net_fetch(request, summarize=True)
 
     def _note_intent(self, task_id: str, url: str) -> None:
         """Recorded before anything goes out, and fail-closed: if the audit
@@ -981,6 +1231,24 @@ class ExecutionBroker:
         job.perform, job.finish = perform, finish
         return job
 
+    @contextlib.contextmanager
+    def _cancel_flag(self, task_id: str) -> Iterator[threading.Event]:
+        """A flag a stop or a revoke sets to end this task's running command."""
+        cancel = threading.Event()
+        with self._shell_lock:
+            if self._revoked:
+                cancel.set()             # revoked between the check and now
+            self._shell_cancels.setdefault(task_id, set()).add(cancel)
+        try:
+            yield cancel
+        finally:
+            with self._shell_lock:
+                flags = self._shell_cancels.get(task_id)
+                if flags is not None:
+                    flags.discard(cancel)
+                    if not flags:
+                        del self._shell_cancels[task_id]
+
     def _tool_shell_run(self, request: ToolRequest, ws: Workspace) -> ToolResult:
         """Run a command, confined by the kernel rather than by us.
 
@@ -990,26 +1258,15 @@ class ExecutionBroker:
         """
         argv = request.params["argv"]
 
-        cancel = threading.Event()
-        with self._shell_lock:
-            if self._revoked:
-                cancel.set()             # revoked between the check and now
-            self._shell_cancels.setdefault(request.task_id, set()).add(cancel)
-        try:
-            result = sandbox.run(
-                argv, ws.root,
-                timeout=float(request.params.get("timeout", 30.0)),
-                cancel=cancel,
-            )
-        except sandbox.SandboxUnavailable as exc:
-            raise BrokerError(f"refusing to run unconfined: {exc}") from exc
-        finally:
-            with self._shell_lock:
-                flags = self._shell_cancels.get(request.task_id)
-                if flags is not None:
-                    flags.discard(cancel)
-                    if not flags:
-                        del self._shell_cancels[request.task_id]
+        with self._cancel_flag(request.task_id) as cancel:
+            try:
+                result = sandbox.run(
+                    argv, ws.root,
+                    timeout=float(request.params.get("timeout", 30.0)),
+                    cancel=cancel,
+                )
+            except sandbox.SandboxUnavailable as exc:
+                raise BrokerError(f"refusing to run unconfined: {exc}") from exc
 
         return ToolResult(
             ok=result.ok,
@@ -1104,6 +1361,186 @@ def _provider_id(connector: Connector, fetched: Any) -> str | None:
         return None
     return str(value)[:200] if isinstance(value, str | int) and not isinstance(value, bool) \
         else None
+
+
+# ------------------------------------------------------- read-only git (#240)
+
+# Before every git command. Each switches off a way the repository's files
+# or the environment could make git run a program, write, or reach out.
+_GIT_SAFETY = (
+    "--no-pager", "--no-replace-objects", "--literal-pathspecs",
+    "-c", "core.fsmonitor=false",
+    "-c", "core.hooksPath=/dev/null",
+    "-c", "protocol.allow=never",
+    "-c", "core.pager=cat",
+    "-c", "core.attributesFile=/dev/null",
+    "-c", "core.excludesFile=/dev/null",
+    "-c", "core.untrackedCache=false",
+    "-c", "submodule.recurse=false",
+    "-c", "log.showSignature=false",
+    "-c", "color.ui=false",
+    "-c", "gc.auto=0",
+    "-c", "maintenance.auto=false",
+    "-c", "core.quotePath=true",
+)
+
+# The only keys a repository's own config may hold. Every key git reads to
+# name a program (core.fsmonitor, core.pager, diff and filter drivers,
+# gpg.program, credential helpers, aliases, include paths, extensions)
+# is absent, so a repository that sets one is refused before git starts.
+_GIT_CONFIG_KEYS = frozenset({
+    "core.repositoryformatversion", "core.filemode", "core.bare", "core.logallrefupdates",
+    "core.ignorecase", "core.precomposeunicode", "core.symlinks", "core.autocrlf",
+    "core.eol", "user.name", "user.email", "init.defaultbranch",
+})
+_GIT_CONFIG_SUBSECTION_KEYS = frozenset({
+    "remote.url", "remote.fetch", "branch.remote", "branch.merge", "branch.rebase",
+})
+_GIT_SECTION = re.compile(r'\[\s*([A-Za-z0-9.-]+)(?:\s+"((?:[^"\\]|\\.)*)")?\s*\]\s*(?:[#;].*)?')
+_GIT_KEY = re.compile(r"([A-Za-z][A-Za-z0-9-]*)\s*(?:=.*)?")
+
+# Inside a git directory, any of these points git at files elsewhere.
+_GIT_FORBIDDEN = ("commondir", "config.worktree", "objects/info/alternates")
+
+
+def _git_environment(root: Path, worktree: Path, gitdir: Path) -> dict[str, str]:
+    """The whole environment git gets. No system or home configuration."""
+    return {
+        "PATH": GIT_PATH, "HOME": str(root), "LANG": "C.UTF-8",
+        "GIT_DIR": str(gitdir), "GIT_WORK_TREE": str(worktree),
+        "GIT_CEILING_DIRECTORIES": str(root.parent),
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_ATTR_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
+        "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_PROTOCOL_FROM_USER": "0", "GIT_PAGER": "cat", "PAGER": "cat",
+    }
+
+
+def check_git_config(raw: bytes) -> None:
+    """Refuse a repository config holding anything but the reviewed keys.
+
+    The parser is deliberately stricter than git's: a line it does not
+    understand is a refusal, so git can never read a key this did not see.
+    """
+    if len(raw) > GIT_MAX_CONFIG_BYTES:
+        raise UnsafeRepository("the repository config is larger than the cap")
+    try:
+        text = raw.decode("utf-8").replace("\r\n", "\n")
+    except UnicodeDecodeError:
+        raise UnsafeRepository("the repository config is not UTF-8") from None
+    if any(ord(ch) < 32 and ch not in "\t\n" for ch in text) or "\x7f" in text:
+        raise UnsafeRepository("the repository config holds control characters")
+    section: tuple[str, bool] | None = None
+    for number, raw_line in enumerate(text.split("\n"), start=1):
+        line = raw_line.strip()
+        if not line or line[0] in "#;":
+            continue
+        if line.startswith("["):
+            m = _GIT_SECTION.fullmatch(line)
+            if m is None:
+                raise UnsafeRepository(f"config line {number} is not a plain section header")
+            name, quoted = m.group(1).lower(), m.group(2) is not None
+            if "." in name:
+                if quoted:
+                    raise UnsafeRepository(f"config line {number} is not a plain section header")
+                name, quoted = name.split(".", 1)[0], True
+            section = (name, quoted)
+            continue
+        m = _GIT_KEY.fullmatch(line)
+        if m is None or section is None:
+            raise UnsafeRepository(f"config line {number} is not a plain key")
+        key = f"{section[0]}.{m.group(1).lower()}"
+        allowed = _GIT_CONFIG_SUBSECTION_KEYS if section[1] else _GIT_CONFIG_KEYS
+        if key not in allowed:
+            raise UnsafeRepository(f"the repository config sets {key}, which is not allowed")
+
+
+def _gitfile_target(ws: Workspace, parts: list[str], repo_fd: int) -> list[str]:
+    """Where a ``.git`` file points, as workspace parts, or refuse."""
+    fd = _open_regular(repo_fd, ".git")
+    if fd is None:
+        raise UnsafeRepository(".git is not a regular file")
+    with os.fdopen(fd, "rb") as fh:
+        raw = fh.read(4097)
+    m = re.fullmatch(rb"gitdir: ([^\n\0]+)\n?", raw[:4096]) if len(raw) <= 4096 else None
+    if m is None:
+        raise UnsafeRepository(".git is a file but not a plain gitdir pointer")
+    target = os.fsdecode(m.group(1)).rstrip("\r")
+    joined = os.path.normpath(os.path.join(str(ws.root), *parts, target))
+    for root in dict.fromkeys((str(ws.root), str(ws.root.resolve()))):
+        relative = os.path.relpath(joined, root)
+        if ".." not in PurePosixPath(relative).parts:
+            return ws.parts(relative)
+    raise UnsafeRepository(".git points outside the workspace")
+
+
+def _check_git_directory(git_fd: int) -> None:
+    """No symlink, special file or pointer elsewhere anywhere in it."""
+    count = 0
+    with _walk(git_fd) as walker:
+        for dirpath, dirnames, filenames, dfd in walker:
+            for name in (*dirnames, *filenames):
+                count += 1
+                if count > GIT_MAX_ENTRIES:
+                    raise UnsafeRepository("the git directory has too many files to check")
+                mode = os.stat(name, dir_fd=dfd, follow_symlinks=False).st_mode
+                where = str(PurePosixPath(dirpath) / name)
+                if stat.S_ISLNK(mode):
+                    raise UnsafeRepository(f"{where} in the git directory is a symlink")
+                if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+                    raise UnsafeRepository(f"{where} in the git directory is a special file")
+    for name in _GIT_FORBIDDEN:
+        with contextlib.suppress(FileNotFoundError, NotADirectoryError):
+            os.stat(name, dir_fd=git_fd, follow_symlinks=False)
+            raise UnsafeRepository(f"the git directory has {name}, which points elsewhere")
+    fd = _open_regular(git_fd, "config")
+    if fd is not None:
+        with os.fdopen(fd, "rb") as fh:
+            check_git_config(fh.read(GIT_MAX_CONFIG_BYTES + 1))
+
+
+def _git_repository(ws: Workspace, relative: str) -> tuple[Path, Path]:
+    """The work tree and git directory for ``relative``, both checked."""
+    ws.resolve(relative)
+    parts = ws.parts(relative)
+    try:
+        with ws.dir_fd(parts) as repo_fd:
+            try:
+                mode = os.stat(".git", dir_fd=repo_fd, follow_symlinks=False).st_mode
+            except FileNotFoundError:
+                raise UnsafeRepository(f"{relative!r} is not a repository: no .git") from None
+            if stat.S_ISDIR(mode):
+                gitdir = [*parts, ".git"]
+            elif stat.S_ISREG(mode):
+                gitdir = _gitfile_target(ws, parts, repo_fd)
+            else:
+                raise UnsafeRepository(".git is a symlink or a special file")
+    except FileNotFoundError:
+        raise UnsafeRepository(f"{relative!r} is not a repository: no such directory") from None
+    with ws.dir_fd(gitdir) as git_fd:
+        _check_git_directory(git_fd)
+    return ws.root.joinpath(*parts), ws.root.joinpath(*gitdir)
+
+
+def _check_index_paths(listing: bytes) -> None:
+    """Every path the index names stays inside the work tree."""
+    for entry in listing.split(b"\0"):
+        if not entry:
+            continue
+        path = os.fsdecode(entry)
+        parts = PurePosixPath(path).parts
+        if path.startswith("/") or any(p == ".." or p.casefold() == ".git" for p in parts):
+            raise UnsafeRepository("the index names a path outside the work tree")
+
+
+def _git_result(tool: str, done: sandbox._Execution) -> ToolResult:
+    out = clean(done.stdout.decode("utf-8", errors="replace"))
+    err = clean(done.stderr.decode("utf-8", errors="replace")).strip()[-2000:]
+    ok = done.returncode == 0 and not done.timed_out and not done.cancelled
+    return ToolResult(ok, tool, {
+        "output": out, "truncated": done.truncated, "returncode": done.returncode,
+        "timed_out": done.timed_out, "cancelled": done.cancelled,
+    }, error=None if ok else (err or "git failed"))
 
 
 class ToolSession:

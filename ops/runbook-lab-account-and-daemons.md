@@ -68,9 +68,11 @@ cd "$REPO" && uv run python -m lab.cli setup-plan --operator-pubkey ~/.lab-opera
 Then apply it. It creates the non-admin `lab` account (you choose its
 password at the prompt), `/var/homelab` and `/var/log/homelab` owned by
 `lab` with mode 700, root-owned `/etc/homelab`, copies only the public key
-there, and installs every service definition in `ops/launchd` root-owned under
-`/Library/LaunchDaemons` (eight since the backup job, #67, and the dead-man
-switch ping, #79). It does not load them.
+there, and installs every service definition in `ops/launchd/` root-owned
+under `/Library/LaunchDaemons`. It does not load them. Since #67 and #79 that includes the daily backup and
+the dead-man switch ping. Since #239 that
+includes `com.homelab.chat.plist`, which stays unloaded until the pairing step
+in `ops/mac-mini-setup.md` section 23.
 
 ```sh
 sudo "$REPO/.venv/bin/python" -m lab.cli setup-plan --apply \
