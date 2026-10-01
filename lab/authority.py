@@ -65,6 +65,13 @@ TOOL_LEGS: dict[str, frozenset[Leg]] = {
     # A credentialed outside effect: sees a secret and acts externally, so
     # it may only run for trusted input (ADR 0006, the publish plane).
     "connector.call": frozenset({Leg.SENSITIVE_DATA, Leg.EXTERNAL_ACTION}),
+    # Local and read-only: the task's own files, a repository inside them.
+    "fs.search": frozenset(),
+    "git.status": frozenset(),
+    "git.log": frozenset(),
+    "git.diff": frozenset(),
+    # A fetch first, so the same legs as net.fetch; the model is on loopback.
+    "net.summarize": frozenset({Leg.UNTRUSTED_INPUT, Leg.EXTERNAL_ACTION}),
 }
 
 

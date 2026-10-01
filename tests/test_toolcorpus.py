@@ -6,16 +6,16 @@ import collections
 import json
 
 from lab import toolcorpus
-from lab.broker import TOOL_SCHEMAS, validate_params
+from lab.broker import validate_params
 from lab.evals import ROOT, grade, load_tasks
 
 
 def test_the_corpus_is_deterministic_and_balanced() -> None:
     first, second = toolcorpus.build(), toolcorpus.build()
     assert first == second
-    assert len(first) == 10 * len(TOOL_SCHEMAS)
+    assert len(first) == 10 * len(toolcorpus.CORPUS_TOOLS)
     per_tool = collections.Counter(t["check"]["tool"] for t in first)
-    assert set(per_tool) == set(TOOL_SCHEMAS) and set(per_tool.values()) == {10}
+    assert set(per_tool) == set(toolcorpus.CORPUS_TOOLS) and set(per_tool.values()) == {10}
     assert len({t["id"] for t in first}) == len(first)
     assert len({t["prompt"] for t in first}) == len(first)
 
