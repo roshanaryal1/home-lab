@@ -128,7 +128,11 @@ Until that guide exists, this repository documents one machine.
 agreed: a hundred logical agents does not mean a hundred resident
 models. On 32 GB you get one heavy model, with light work alongside it.
 The supervisor enforces this with a semaphore rather than trusting
-convention.
+convention, and the model layer holds the heavy slot as a lock file beside
+the database, so the supervisor and `lab tick` (separate processes) cannot
+both send a heavy request to the model server ([#211](https://github.com/roshanaryal1/home-lab/issues/211)).
+A command run by hand that builds its own controller (`lab bench`, the eval
+and attack runners) does not take that lock; do not run one while the lab is busy.
 
 **Never replay a destructive task after a crash.** A task is marked
 idempotent or it is not. On restart, stranded tasks become
