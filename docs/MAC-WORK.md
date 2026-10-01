@@ -145,6 +145,6 @@ This is the main step of M7, the first release.
 
 ## How to tell it is done
 
-Each issue above closes only when its check passed on the Mac and the result is
-written where the issue says. Code merged with passing CI is not enough for
+Each Mac-dependent issue above closes only when its check passed on the Mac and
+the result is written where the issue says. Code merged with passing CI is not enough for
 these, because CI cannot see this machine.
