@@ -29,7 +29,7 @@ Usage:
     python3 -m lab.cli skills import <dir> --tier TIER --by NAME [--source TEXT]
     python3 -m lab.cli memory proposals|show-proposal|accept|reject
     python3 -m lab.cli skillstore submit|promote|known-good|rollback|history|install ...
-    python3 -m lab.cli prereg m6 [--json]
+    python3 -m lab.cli prereg m2|m6 [--json]
     python3 -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...

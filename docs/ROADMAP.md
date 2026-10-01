@@ -113,6 +113,7 @@ dated before the run.
 The claims for M2, M5 and M6 are pre-registered in
 [docs/PREREGISTRATION-SAFETY.md](PREREGISTRATION-SAFETY.md), with their case
 sets frozen by SHA-256 in `evals/prereg/` before any of that code is built.
+The first runs of M2 and M6 are recorded there under Results.
 
 ## What this does not try to do
 

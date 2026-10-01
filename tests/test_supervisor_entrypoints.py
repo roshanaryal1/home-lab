@@ -28,6 +28,8 @@ KNOWN_SITES = {
     "attacks.py": (1, "the attack harness: a temporary database and a dummy secret only"),
     "ceilings.py": (1, "lab measure-ceilings: a temporary database, fake model and pages, "
                        "and sample tasks that need no approval"),
+    "prereg.py": (1, "lab prereg m2: a temporary database per case, always with an operator "
+                     "public key so approvals are signature-checked"),
 }
 
 
