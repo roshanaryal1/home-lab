@@ -80,6 +80,7 @@ from lab.mcp import (
     CallOutcome,
     McpCancelled,
     McpError,
+    McpOutcomeUnknown,
     McpRefused,
     McpRegistry,
     McpTimeout,
@@ -768,12 +769,32 @@ class ExecutionBroker:
             # The same for MCP: a server the task does not hold, an unsigned
             # server or a tool off the signed allowlist never reaches a person.
             self._precheck_mcp(request)
+            # The budget counts executions, so a call the journal will replay
+            # is not refused by it. A new one past the budget never reaches a
+            # person.
+            if not self._journal_would_replay(ctx, request):
+                self._check_mcp_budget(request.task_id)
         used = self._calls.get(request.task_id, 0)
         if used >= MAX_CALLS_PER_TASK:
             raise QuotaExceeded(f"tool call ceiling {MAX_CALLS_PER_TASK} reached")
         self._calls[request.task_id] = used + 1
         self._authorize(request, ws)
         return handler, request, ws
+
+    def _next_operation(self, ctx: ExecutionContext, request: ToolRequest,
+                        ) -> tuple[str, tuple[str, str], int, str]:
+        """The journal key of this call, without taking its sequence number."""
+        params_sha = hashlib.sha256(canonical(request.params).encode("utf-8")).hexdigest()
+        key = (ctx.lease.lease_id, f"{request.tool}:{params_sha}")
+        seq = self._seq.get(key, 0)
+        return params_sha, key, seq, operation_id(ctx.task_id, request.tool, params_sha, seq)
+
+    def _journal_would_replay(self, ctx: ExecutionContext, request: ToolRequest) -> bool:
+        """True when ``_journal_begin`` will return a recorded result for this call."""
+        if self._journal is None:
+            return False
+        prior = self._journal.get(self._next_operation(ctx, request)[3])
+        return prior is not None and prior.state == "confirmed"
 
     def _journal_begin(self, ctx: ExecutionContext, request: ToolRequest,
                        ) -> tuple[str | None, ToolResult | None]:
@@ -787,11 +808,8 @@ class ExecutionBroker:
             return None, None
         if self._journal is None:
             raise PolicyUnavailable("no operation journal; refusing a non-idempotent call")
-        params_sha = hashlib.sha256(canonical(request.params).encode("utf-8")).hexdigest()
-        key = (ctx.lease.lease_id, f"{request.tool}:{params_sha}")
-        seq = self._seq.get(key, 0)
+        params_sha, key, seq, op_id = self._next_operation(ctx, request)
         self._seq[key] = seq + 1
-        op_id = operation_id(ctx.task_id, request.tool, params_sha, seq)
         prior = self._journal.get(op_id)
         if prior is not None and prior.state == "confirmed":
             result = prior.result or {}
@@ -820,6 +838,14 @@ class ExecutionBroker:
             self._journal.uncertain(op_id, task_id,
                                     f"{type(exc).__name__}: {exc}" if exc else "unknown")
 
+    @staticmethod
+    def _hold_if_uncertain(op_id: str | None, request: ToolRequest,
+                           exc: BaseException) -> None:
+        """A tool that failed after its request went out may have acted. The
+        journal already says uncertain, and the task is held, not failed."""
+        if isinstance(exc, McpOutcomeUnknown) and op_id is not None:
+            raise OutcomeUnknown(op_id, request.tool) from exc
+
     def _dispatch(self, ctx: ExecutionContext, tool: str, params: dict[str, Any]) -> ToolResult:
         """The single entry point, run synchronously.
 
@@ -838,6 +864,7 @@ class ExecutionBroker:
                 result = handler(request, ws)
             except BaseException as exc:
                 self._journal_end(op_id, ctx.task_id, None, exc)
+                self._hold_if_uncertain(op_id, request, exc)
                 raise
             self._journal_end(op_id, ctx.task_id, result, None)
             return call.finish(result)
@@ -889,6 +916,7 @@ class ExecutionBroker:
                 # Includes cancellation: a command cut off mid-run has an
                 # unknown outcome, and is recorded as such.
                 self._journal_end(op_id, ctx.task_id, None, exc)
+                self._hold_if_uncertain(op_id, request, exc)
                 raise
             self._journal_end(op_id, ctx.task_id, result, None)
             return call.finish(result)
@@ -1368,13 +1396,16 @@ class ExecutionBroker:
         if server not in self._task_mcp.get(request.task_id, frozenset()):
             raise ToolNotAllowed(
                 f"task {request.task_id} has no grant for MCP server {server!r}")
-        if self._mcp_calls.get(request.task_id, 0) >= MCP_MAX_CALLS_PER_TASK:
-            raise QuotaExceeded(f"MCP call ceiling {MCP_MAX_CALLS_PER_TASK} reached")
         try:
             return self._mcp.check_call(server, params["name"], params.get("arguments", {}),
                                         self._egress_hosts.get(request.task_id, frozenset()))
         except McpRefused as exc:
             raise ToolNotAllowed(str(exc)) from None
+
+    def _check_mcp_budget(self, task_id: str) -> None:
+        """The per-task ceiling on MCP executions. A journal replay is not one."""
+        if self._mcp_calls.get(task_id, 0) >= MCP_MAX_CALLS_PER_TASK:
+            raise QuotaExceeded(f"MCP call ceiling {MCP_MAX_CALLS_PER_TASK} reached")
 
     def _job_mcp_call(self, request: ToolRequest) -> NetJob:
         """One call to one MCP server tool (#256).
@@ -1389,6 +1420,7 @@ class ExecutionBroker:
             return NetJob.refused(request.tool, "no MCP servers are configured")
         self._precheck_mcp(request)
         task_id = request.task_id
+        self._check_mcp_budget(task_id)      # only a new execution gets this far
         ws = self._workspace_for(task_id)
         hosts = self._egress_hosts.get(task_id, frozenset())
         server, tool = request.params["server"], request.params["name"]
@@ -1408,6 +1440,10 @@ class ExecutionBroker:
             if self.policy is not None:
                 self.policy.taint(task_id, "ran an MCP server tool")
             source = f"mcp:{server}/{tool}"
+            if isinstance(outcome, McpOutcomeUnknown):
+                # Sent, then lost: the dispatcher records it as uncertain and
+                # holds the task. Never a failed result a retry would repeat.
+                raise outcome
             if isinstance(outcome, McpError):
                 return ToolResult(False, request.tool, {
                     "server": server, "tool": tool,

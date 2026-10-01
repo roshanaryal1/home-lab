@@ -35,6 +35,7 @@ from lab.broker import (
     ExecutionBroker,
     ExecutionContext,
     InvalidParams,
+    OutcomeUnknown,
     ToolNotAllowed,
     ToolResult,
     validate_params,
@@ -133,6 +134,22 @@ def open_mcp(broker: ExecutionBroker, keys: tuple[Any, Any], *specs: mcp.ServerS
     broker.set_mcp(registry(keys, *specs, sign=sign, launcher=launcher))
     return broker.open_workspace("t1", {"mcp.call"}, egress,
                                  mcp_servers={s.name for s in specs}).root
+
+
+def operations(queue: TaskQueue) -> list[tuple[str, str]]:
+    rows = queue._conn.execute("SELECT tool, state FROM operations ORDER BY seq").fetchall()
+    return [tuple(r) for r in rows]
+
+
+def approved_unknown(broker: ExecutionBroker, task: str, **params: Any) -> OutcomeUnknown:
+    """Grant the approval, then expect the call to be held as unknown."""
+    with pytest.raises(ApprovalRequired) as asked:
+        call(broker, task, **params)
+    assert broker.policy is not None
+    broker.policy.grant(asked.value.approval_id, decided_by="operator")
+    with pytest.raises(OutcomeUnknown) as held:
+        call(broker, task, **params)
+    return held.value
 
 
 def approvals(queue: TaskQueue) -> int:
@@ -362,11 +379,12 @@ def test_a_tool_the_server_stopped_offering_is_refused(keys: tuple[Any, Any],
 
 @pytest.mark.safety
 def test_an_oversize_message_from_the_server_is_refused_and_the_process_killed(
-        broker: ExecutionBroker, keys: tuple[Any, Any]) -> None:
+        broker: ExecutionBroker, queue: TaskQueue, keys: tuple[Any, Any]) -> None:
+    # The oversize reply came after tools/call was sent: the tool may have run.
     ws = open_mcp(broker, keys, spec("huge"))
-    result = approved(broker, "t1", server="fake", name="echo", arguments={})
-    assert not result.ok and result.detail["refused"] is True
-    assert f"over {mcp.MAX_MESSAGE_BYTES} bytes" in (result.error or "")
+    held = approved_unknown(broker, "t1", server="fake", name="echo", arguments={})
+    assert f"over {mcp.MAX_MESSAGE_BYTES} bytes" in str(held.__cause__)
+    assert operations(queue) == [("mcp.call", "uncertain")]
     assert gone(ws / "server.pid")
 
 
@@ -375,7 +393,7 @@ def test_output_without_a_newline_cannot_grow_past_the_cap(keys: tuple[Any, Any]
                                                            tmp_path: Path) -> None:
     reg = registry(keys, spec("flood"))
     started = time.monotonic()
-    with pytest.raises(mcp.McpRefused, match="over"):
+    with pytest.raises(mcp.McpOutcomeUnknown, match=r"McpRefused.*over"):
         reg.call("fake", "echo", {}, tmp_path)
     assert time.monotonic() - started < 20
     assert gone(tmp_path / "server.pid")
@@ -404,20 +422,40 @@ def test_the_registry_checks_arguments_itself(keys: tuple[Any, Any]) -> None:
 
 
 @pytest.mark.safety
-def test_a_timeout_kills_the_server_process(broker: ExecutionBroker,
-                                            keys: tuple[Any, Any]) -> None:
+def test_a_timeout_after_dispatch_is_held_as_unknown_and_kills_the_server(
+        broker: ExecutionBroker, queue: TaskQueue, keys: tuple[Any, Any]) -> None:
     ws = open_mcp(broker, keys, spec("hang", timeout_seconds=3.0))
     started = time.monotonic()
-    result = approved(broker, "t1", server="fake", name="echo", arguments={})
+    held = approved_unknown(broker, "t1", server="fake", name="echo", arguments={})
     assert time.monotonic() - started < 15
-    assert not result.ok and result.detail["timed_out"] is True
+    assert isinstance(held.__cause__, mcp.McpOutcomeUnknown)
+    assert isinstance(held.__cause__.__cause__, mcp.McpTimeout)
     assert (ws / "calling").exists(), "the server was inside the tool call"
+    assert operations(queue) == [("mcp.call", "uncertain")]
+    assert gone(ws / "server.pid")
+
+    # A retry is never run blindly: the same call is held again, no new server.
+    (ws / "server.pid").unlink()
+    broker._seq.clear()            # as if a new lease repeated the call
+    approved_unknown(broker, "t1", server="fake", name="echo", arguments={})
+    assert not (ws / "server.pid").exists()
+
+
+@pytest.mark.safety
+def test_a_stall_in_the_tool_list_is_an_ordinary_refusal(
+        broker: ExecutionBroker, queue: TaskQueue, keys: tuple[Any, Any]) -> None:
+    # tools/call was never sent, so nothing can have happened.
+    ws = open_mcp(broker, keys, spec("stall_list", timeout_seconds=2.0))
+    result = approved(broker, "t1", server="fake", name="echo", arguments={})
+    assert not result.ok and result.detail["timed_out"] is True
+    assert (ws / "listing").exists() and not (ws / "calling").exists()
+    assert operations(queue) == [("mcp.call", "confirmed")]
     assert gone(ws / "server.pid")
 
 
 @pytest.mark.safety
-def test_cancel_running_kills_the_server_process(broker: ExecutionBroker,
-                                                 keys: tuple[Any, Any]) -> None:
+def test_a_cancel_after_dispatch_is_held_as_unknown_and_kills_the_server(
+        broker: ExecutionBroker, queue: TaskQueue, keys: tuple[Any, Any]) -> None:
     ws = open_mcp(broker, keys, spec("hang"))
 
     def stop_when_calling() -> None:
@@ -433,10 +471,13 @@ def test_cancel_running_kills_the_server_process(broker: ExecutionBroker,
     broker.policy.grant(asked.value.approval_id, decided_by="operator")
     stopper.start()
     started = time.monotonic()
-    result = call(broker, "t1", server="fake", name="echo", arguments={})
+    with pytest.raises(OutcomeUnknown) as held:
+        call(broker, "t1", server="fake", name="echo", arguments={})
     stopper.join()
     assert time.monotonic() - started < 15, "cancel must not wait for the timeout"
-    assert not result.ok and result.detail["cancelled"] is True
+    assert isinstance(held.value.__cause__, mcp.McpOutcomeUnknown)
+    assert isinstance(held.value.__cause__.__cause__, mcp.McpCancelled)
+    assert operations(queue) == [("mcp.call", "uncertain")]
     assert gone(ws / "server.pid")
 
 
@@ -445,7 +486,33 @@ def test_a_revoked_broker_kills_a_running_server(keys: tuple[Any, Any],
                                                  tmp_path: Path) -> None:
     reg = registry(keys, spec("hang"))
     cancel = threading.Event()
-    threading.Timer(0.5, cancel.set).start()
+
+    def revoke_when_calling() -> None:
+        deadline = time.monotonic() + 20
+        while not (tmp_path / "calling").exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        cancel.set()
+
+    threading.Thread(target=revoke_when_calling).start()
+    with pytest.raises(mcp.McpOutcomeUnknown) as raised:
+        reg.call("fake", "echo", {}, tmp_path, cancel=cancel)
+    assert isinstance(raised.value.__cause__, mcp.McpCancelled)
+    assert gone(tmp_path / "server.pid")
+
+
+@pytest.mark.safety
+def test_a_cancel_before_the_tool_call_is_sent_is_a_plain_cancel(
+        keys: tuple[Any, Any], tmp_path: Path) -> None:
+    reg = registry(keys, spec("stall_list"))
+    cancel = threading.Event()
+
+    def revoke_when_listing() -> None:
+        deadline = time.monotonic() + 20
+        while not (tmp_path / "listing").exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        cancel.set()
+
+    threading.Thread(target=revoke_when_listing).start()
     with pytest.raises(mcp.McpCancelled):
         reg.call("fake", "echo", {}, tmp_path, cancel=cancel)
     assert gone(tmp_path / "server.pid")
@@ -461,6 +528,50 @@ def test_calls_per_task_are_capped(broker: ExecutionBroker, keys: tuple[Any, Any
     assert approved(broker, "t1", server="fake", name="add", arguments={"a": 2}).ok
     third = call(broker, "t1", server="fake", name="add", arguments={"a": 3})
     assert not third.ok and "QuotaExceeded" in (third.error or "")
+
+
+@pytest.mark.safety
+def test_a_resumed_task_replays_its_calls_past_the_ceiling_but_runs_no_new_one(
+        broker: ExecutionBroker, queue: TaskQueue, keys: tuple[Any, Any]) -> None:
+    launches = Launches()
+    open_mcp(broker, keys, spec(), launcher=launches)
+    for i in range(mcp.MAX_CALLS_PER_TASK):
+        assert approved(broker, "t1", server="fake", name="add", arguments={"a": i}).ok
+    assert len(launches.calls) == mcp.MAX_CALLS_PER_TASK
+
+    # The task parks on another approval, then resumes under a new lease and
+    # its handler repeats the calls it already made.
+    first = broker.test_contexts["t1"]  # type: ignore[attr-defined]
+    queue.park_for_approval(first.lease, "waiting on something else")
+    queue.resume_after_approval("t1")
+    task = queue.lease()
+    assert task is not None and task.id == "t1" and task.lease is not None
+    broker.test_contexts["t1"] = ExecutionContext(  # type: ignore[attr-defined]
+        "t1", "test", task.attempts, task.lease)
+
+    # Approvals are single use, so the replay is asked for again like any call.
+    replay = approved(broker, "t1", server="fake", name="add", arguments={"a": 0})
+    assert replay.ok and replay.detail["replayed"] is True
+    assert replay.detail["evidence"]["excerpt"] == "0.0"
+    assert len(launches.calls) == mcp.MAX_CALLS_PER_TASK, "a replay starts no server"
+
+    # A genuinely new call is still over the ceiling, and no one is asked.
+    asked = approvals(queue)
+    new = call(broker, "t1", server="fake", name="add", arguments={"a": 99})
+    assert not new.ok and "QuotaExceeded" in (new.error or "")
+    assert approvals(queue) == asked
+    assert len(launches.calls) == mcp.MAX_CALLS_PER_TASK
+
+
+@pytest.mark.safety
+def test_a_replay_still_needs_the_server_grant_and_signature(
+        broker: ExecutionBroker, keys: tuple[Any, Any]) -> None:
+    open_mcp(broker, keys, spec())
+    assert approved(broker, "t1", server="fake", name="add", arguments={"a": 1}).ok
+    broker._seq.clear()            # as if a new lease repeated the call
+    broker.set_mcp(registry(keys, spec(), sign=False))
+    refused = call(broker, "t1", server="fake", name="add", arguments={"a": 1})
+    assert not refused.ok and "unsigned" in (refused.error or "")
 
 
 # ------------------------------------------------------------------ network
@@ -593,8 +704,9 @@ def test_a_json_rpc_error_passes_on_the_code_but_never_the_servers_words(
 
 
 @pytest.mark.parametrize(("mode", "error", "match"), [
-    ("garbage", mcp.McpProtocolError, "not JSON"),
-    ("exit", mcp.McpProtocolError, "closed its output"),
+    # These two break while answering tools/call, so the tool may have run.
+    ("garbage", mcp.McpOutcomeUnknown, r"McpProtocolError: .*not JSON"),
+    ("exit", mcp.McpOutcomeUnknown, r"McpProtocolError: .*closed its output"),
     ("noversion", mcp.McpProtocolError, "protocol version"),
     ("dupe", mcp.McpRefused, "twice"),
     ("many", mcp.McpRefused, "more than"),
@@ -778,6 +890,20 @@ async def test_the_async_path_runs_the_server_off_the_loop(
     result = await session.submit_async("mcp.call", server="fake", name="add",
                                         arguments={"a": 4, "b": 4})
     assert result.ok and result.detail["evidence"]["excerpt"] == "8.0"
+
+
+@pytest.mark.safety
+async def test_the_async_path_holds_a_timeout_after_dispatch_as_unknown(
+        broker: ExecutionBroker, queue: TaskQueue, keys: tuple[Any, Any]) -> None:
+    open_mcp(broker, keys, spec("hang", timeout_seconds=2.0))
+    session = broker.session(broker.test_contexts["t1"])  # type: ignore[attr-defined]
+    with pytest.raises(ApprovalRequired) as asked:
+        await session.submit_async("mcp.call", server="fake", name="echo", arguments={})
+    assert broker.policy is not None
+    broker.policy.grant(asked.value.approval_id, decided_by="operator")
+    with pytest.raises(OutcomeUnknown):
+        await session.submit_async("mcp.call", server="fake", name="echo", arguments={})
+    assert operations(queue) == [("mcp.call", "uncertain")]
 
 
 # --------------------------------------------------------------- supervisor

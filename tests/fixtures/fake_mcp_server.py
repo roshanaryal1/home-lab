@@ -58,6 +58,9 @@ def answer(request: dict[str, object]) -> None:
             "protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
             "serverInfo": {"name": "fake", "version": "0"}}})
     elif method == "tools/list":
+        if MODE == "stall_list":
+            open("listing", "w").close()
+            time.sleep(600)
         listed = tools()
         if MODE == "paged":
             if params.get("cursor") is None:

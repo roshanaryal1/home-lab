@@ -980,7 +980,12 @@ tools. `lab/mcp.py` reaches one only through the broker tool `mcp.call`:
   allow it.
 - **Bounded.** A message over 1 MiB is refused. A task makes at most 20 MCP
   calls. One deadline covers each call. The process group is killed at the
-  deadline, on a stop and after every call.
+  deadline, on a stop and after every call. The 20 counts executions, so a
+  resumed task still gets its recorded results back from the journal.
+- **Uncertain outcomes held.** A failure before `tools/call` is sent is an
+  ordinary refusal. A timeout, cancel, revoke, dead server or broken reply
+  after it is sent leaves the journal entry uncertain and holds the task for
+  reconciliation, so the call is never retried blindly.
 
 Not proven yet: the sandboxed run of a real server on the Mac. Seatbelt
 cannot filter by host name, so a server allowed the network has all of it.
