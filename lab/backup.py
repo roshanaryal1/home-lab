@@ -15,15 +15,25 @@ every artifact blob. Any of those failing is a failed restore.
 Artifacts are content-addressed and immutable, so a backup copies only
 blobs the destination does not already hold: repeated backups to one
 directory are incremental.
+
+``rotate`` keeps a scheduled backup folder from filling the disk. It
+deletes only what it can prove is its own: a manifest with the exact
+name ``backup`` writes, that parses and names its own database file, that
+database, and artifact blobs that only the deleted backups referenced.
+Anything else in the folder is left alone, and no symlink is followed,
+not even one that has a backup's name.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
+import stat
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -57,14 +67,15 @@ def _fsync_dir(path: Path) -> None:
         os.close(fd)
 
 
-def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None) -> Path:
+def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
+           now: datetime | None = None) -> Path:
     """Snapshot ``db_path`` and its artifacts into ``dest``; return the manifest path."""
     db_path = Path(db_path)
     if not db_path.exists():
         raise BackupError(f"no database at {db_path}")
     dest = Path(dest)
     dest.mkdir(mode=0o700, parents=True, exist_ok=True)
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
     name = f"lab-{stamp}"
     final_db = dest / f"{name}.db"
     if final_db.exists():
@@ -228,4 +239,153 @@ def restore_check(manifest_path: Path, into: Path) -> RestoreReport:
         report.fail(f"database cannot be read: {exc}")
     finally:
         conn.close()
+    return report
+
+
+_MANIFEST_NAME = re.compile(r"^lab-(\d{8}T\d{6}Z)\.manifest\.json$")
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+@dataclass
+class RotateReport:
+    kept: list[str] = field(default_factory=list)
+    removed: list[str] = field(default_factory=list)
+    blobs_removed: int = 0
+    left_alone: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _Own:
+    stamp: str
+    manifest: str
+    database: str | None        # None when the database file is already gone
+
+
+def _read_manifest(dir_fd: int, name: str) -> Any:
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
+    with os.fdopen(fd, encoding="utf-8") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise ValueError("not a regular file")
+        return json.loads(stream.read(1024 * 1024))
+
+
+def _own_backups(dir_fd: int, report: RotateReport) -> list[_Own]:
+    own: list[_Own] = []
+    for entry in os.scandir(dir_fd):
+        match = _MANIFEST_NAME.match(entry.name)
+        if not match:
+            continue
+        if not entry.is_file(follow_symlinks=False):
+            report.left_alone.append(f"{entry.name}: not a regular file")
+            continue
+        stamp = match.group(1)
+        db_name = f"lab-{stamp}.db"
+        try:
+            data = _read_manifest(dir_fd, entry.name)
+        except (OSError, ValueError) as exc:
+            report.left_alone.append(f"{entry.name}: unreadable ({type(exc).__name__})")
+            continue
+        if (not isinstance(data, dict) or data.get("manifest_version") != MANIFEST_VERSION
+                or data.get("database") != db_name):
+            report.left_alone.append(f"{entry.name}: not a manifest this tool wrote")
+            continue
+        try:
+            info = os.lstat(db_name, dir_fd=dir_fd)
+        except FileNotFoundError:
+            own.append(_Own(stamp, entry.name, None))
+            continue
+        if not stat.S_ISREG(info.st_mode):
+            report.left_alone.append(f"{entry.name}: its database is not a regular file")
+            continue
+        own.append(_Own(stamp, entry.name, db_name))
+    return sorted(own, key=lambda b: b.stamp, reverse=True)
+
+
+def _blobs_of(dest: Path, item: _Own) -> set[str]:
+    """The artifact digests a backup's database refers to. Raises on any doubt."""
+    if item.database is None:
+        return set()
+    conn = sqlite3.connect(f"file:{dest / item.database}?mode=ro", uri=True)
+    try:
+        if int(conn.execute("PRAGMA user_version").fetchone()[0]) < 4:
+            return set()
+        return {str(sha) for (sha,) in conn.execute("SELECT DISTINCT sha256 FROM artifacts")}
+    finally:
+        conn.close()
+
+
+def _remove_blob(dir_fd: int, sha: str) -> bool:
+    if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+        return False
+    try:
+        store = os.open("artifacts", _DIR_FLAGS, dir_fd=dir_fd)
+    except OSError:
+        return False                 # missing, or a symlink: nothing of ours to remove there
+    try:
+        try:
+            shard = os.open(sha[:2], _DIR_FLAGS, dir_fd=store)
+        except OSError:
+            return False
+        try:
+            try:
+                info = os.lstat(sha, dir_fd=shard)
+            except FileNotFoundError:
+                return False
+            if not stat.S_ISREG(info.st_mode):
+                return False
+            os.unlink(sha, dir_fd=shard)
+            return True
+        finally:
+            os.close(shard)
+    finally:
+        os.close(store)
+
+
+def rotate(dest: Path, keep: int, *, protect: Path | None = None) -> RotateReport:
+    """Delete all but the newest ``keep`` backups in ``dest``.
+
+    ``protect`` (the manifest just written) is always kept. ``dest`` itself
+    must be a real directory, not a symlink. A blob is removed only when a
+    deleted backup referred to it and no kept backup does; if any kept
+    backup cannot be read, no blob is removed at all.
+    """
+    if keep < 1:
+        raise BackupError("keep must be at least 1")
+    dest = Path(dest)
+    try:
+        dir_fd = os.open(dest, _DIR_FLAGS)
+    except OSError as exc:
+        raise BackupError(f"cannot open {dest} as a real directory (a symlink is refused): "
+                          f"{exc.strerror}") from exc
+    report = RotateReport()
+    try:
+        own = _own_backups(dir_fd, report)
+        protected = protect.name if protect is not None else None
+        kept = [b for i, b in enumerate(own) if i < keep or b.manifest == protected]
+        doomed = [b for b in own if b not in kept]
+        report.kept = [b.manifest for b in kept]
+        if not doomed:
+            return report
+
+        unused: set[str] = set()
+        try:
+            in_use = set().union(*(_blobs_of(dest, b) for b in kept))
+            for item in doomed:
+                with contextlib.suppress(sqlite3.DatabaseError, OSError):
+                    unused |= _blobs_of(dest, item)
+            unused -= in_use
+        except (sqlite3.DatabaseError, OSError) as exc:
+            report.left_alone.append(f"artifact blobs: a kept backup is unreadable ({exc})")
+            unused = set()
+
+        for item in doomed:
+            os.unlink(item.manifest, dir_fd=dir_fd)      # first, so a half-removed
+            if item.database is not None:                # backup is never mistaken for one
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(item.database, dir_fd=dir_fd)
+            report.removed.append(item.manifest)
+        report.blobs_removed = sum(_remove_blob(dir_fd, sha) for sha in sorted(unused))
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
     return report

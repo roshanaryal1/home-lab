@@ -220,9 +220,15 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
       `/Volumes/labbackup/home-lab-backups` (mode 700). A backup of a
       throwaway database wrote its manifest there and `restore-check`
       verified it.
-- [ ] `uv run python -m lab.cli backup --to <target>` from a scheduled job;
-      confirm a new `*.manifest.json` appears. Scheduling waits for the
-      launchd work in section 16.
+- [ ] A scheduled backup. Built (#67): `com.homelab.backup.plist` runs
+      `lab backup --keep 14 --alert-config /etc/homelab/alert.json` as `lab`
+      at 02:47. It restore-checks every new backup and fails (and alerts) if
+      the check does not pass, then keeps the newest 14 and deletes only its
+      own older files. Install it, set `LAB_BACKUP_DIR` in the installed copy
+      to `/Volumes/labbackup/home-lab-backups` with that folder owned by
+      `lab` (runbook step 4), run it once with `launchctl kickstart`, and
+      confirm a new `*.manifest.json` appears and `backup.log` says
+      `restore check ok`.
 - [x] First full restore drill: `uv run python -m lab.cli drill restore`
       against the live database. Commit the record from `ops/drills/log/`.
       2026-09-30: PASS against `/var/homelab/lab.db`, run as `lab` with
@@ -427,6 +433,10 @@ the paths, then:
       `lab` cannot write there.
 - [x] Install `com.homelab.watchdog.plist` the same way (it runs as root and
       only needs to signal the supervisor). 2026-09-30.
+- [ ] Install the two newer definitions the same way, both running as `lab`:
+      `com.homelab.backup.plist` (section 10, #67) and
+      `com.homelab.heartbeat.plist` (section 19, #79). Reinstall
+      `com.homelab.selftest.plist` too: it now passes `--report-ok` (#80).
 - [x] `kill -9` the supervisor: launchd restarted it within 40 s
       (`ops/drills/log/2026-09-30T0100Z-supervisor-kill.md`). The queue was
       empty; requeue after a crash was shown by the 2026-09-29 crash drills.
@@ -471,6 +481,16 @@ the paths, then:
 - [ ] Nightly job (a LaunchDaemon like the watchdog) runs the sandbox and
       safety tests (`pytest -m safety`) and `lab audit verify`, then sends the
       result to the phone. A result must arrive every morning, including "ok".
+      Built (#80): `com.homelab.selftest.plist` runs `lab selftest
+      --alert-config /etc/homelab/alert.json --report-ok` at 03:17 as `lab`.
+      A failure sends a `selftest` alert listing what failed; a pass sends
+      one short `selftest_ok: selftest ok: N checks`. The two are separate
+      alert kinds, so an "ok" never holds back a failure alert, and each
+      still obeys `min_interval_seconds` in the alert config. Reinstall the
+      definition (the committed copy changed), then check that the "ok"
+      arrives on the phone the next morning. To see it at once:
+      `sudo launchctl kickstart system/com.homelab.selftest` (it runs the
+      safety tests, so allow a few minutes).
 - [ ] After each OS update, run the same job by hand before leaving the lab
       unattended (a new macOS has already needed a sandbox fix, #25).
 
@@ -510,9 +530,52 @@ the paths, then:
       command refuses a config that group or others can read, and never prints
       the token. Alerts are only as private as Telegram: they are not end-to-end
       encrypted, so they carry status words, not secrets.
-- [ ] Dead-man switch: an external service expects a ping every few minutes
-      from the lab and alerts when it stops. Unplug the network; the alert must
-      arrive within ten minutes.
+- [ ] Dead-man switch (built: `lab/deadman.py`, `lab heartbeat`, #79). An
+      outside service expects a ping every five minutes and alerts the phone
+      when the pings stop. `lab heartbeat` pings only while `lab status`
+      would not say unhealthy, so a stuck lab goes quiet too. It goes out
+      through the egress gateway with only the URL's own host allowed, https
+      only, no redirects. The URL is a secret (whoever has it can keep the
+      switch quiet), so it lives in a file only `lab` can read, and the
+      command never prints it. Any service with a ping URL works
+      (healthchecks.io is one). Steps:
+      1. At the service, create a check with a 5 minute period and a
+         10 minute grace, and point its alert at your phone (its app, or the
+         same Telegram chat). Copy the check's ping URL. It must start with
+         `https://`.
+      2. Put the URL in the file. The file is created empty with the right
+         owner and mode first, so the URL is never readable by anyone else,
+         and the URL is typed at a hidden prompt, never on a command line:
+
+         ```sh
+         sudo install -o lab -g staff -m 600 /dev/null /etc/homelab/heartbeat-url
+         read -s "HC?Ping URL: "; echo
+         printf '%s\n' "$HC" | sudo tee /etc/homelab/heartbeat-url >/dev/null
+         unset HC
+         ls -l /etc/homelab/heartbeat-url
+         sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db heartbeat --url-file /etc/homelab/heartbeat-url
+         ```
+
+         `ls` must show `-rw-------` and owner `lab`. The last line must
+         print `heartbeat: pinged <host>, HTTP 200`, never the URL, and the
+         check at the service must turn green. It refuses a file that group
+         or others can read, a symlink, and a URL that is not https.
+      3. Install `com.homelab.heartbeat.plist` (root-owned, mode 644, in
+         `/Library/LaunchDaemons`) and
+         `sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.heartbeat.plist`.
+         After ten minutes the service shows a ping every five, and
+         `/var/log/homelab/heartbeat.log` has one `pinged` line per run.
+      4. The unplug test: unplug the network cable (and turn off Wi-Fi).
+         The service alerts once the period plus the grace has passed since
+         the last ping, so with a 5 minute period and a 10 minute grace the
+         alert must reach the phone within 15 minutes of the unplug. This
+         item first asked for ten minutes; that needs a 5 minute grace, at
+         the cost of an alert whenever one ping is late. Pick one and note
+         it here. Plug the network back in; the check must go green again by
+         itself. Write the times here.
+      5. Optional, the unhealthy case: on a scratch database whose task has
+         an expired lease (see the alert command item above),
+         `lab heartbeat` exits 2 and prints `not pinged: the lab is unhealthy`.
 - [ ] Stop an active dummy task with `lab control stop` and confirm no later
       tool effect in the audit log.
 

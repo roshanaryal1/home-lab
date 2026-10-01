@@ -11,7 +11,8 @@ file, only when the recorded start time still matches ``ps`` (so a pid
 that was reused by another process is never killed), and never pid 0 or 1.
 
 What the watchdog does not do: judge whether the queue is healthy (that
-is ``lab status``), or alert a person (parked with the M6, #79).
+is ``lab status``), or alert a person (``lab status --alert-config`` and
+the dead-man switch, ``lab heartbeat``, #79).
 """
 
 from __future__ import annotations
@@ -33,6 +34,14 @@ WATCHDOG_INTERVAL_SECONDS = 30
 TICK_LABEL = "com.homelab.tick"
 TICK_INTERVAL_SECONDS = 300
 KEEPAWAKE_LABEL = "com.homelab.keepawake"
+BACKUP_LABEL = "com.homelab.backup"
+BACKUP_KEEP = 14
+# The committed backup definition carries this placeholder; the operator puts
+# the real folder into the installed root-owned copy (runbook step 4). The
+# command refuses to run while the placeholder is still there.
+BACKUP_DIR_PLACEHOLDER = "PASTE_BACKUP_DIR"
+DEADMAN_LABEL = "com.homelab.heartbeat"
+DEADMAN_INTERVAL_SECONDS = 300
 
 
 def heartbeat_path(db: str | Path) -> Path:
@@ -163,10 +172,11 @@ def keepawake_plist(*, python: str, workdir: str, db: str, user: str | None = No
 
 def selftest_plist(*, user: str, python: str, workdir: str, db: str,
                    alert_config: str) -> bytes:
-    """The nightly self-test at 03:17, alerting on failure."""
+    """The nightly self-test at 03:17. It alerts on failure and also sends a
+    short "ok", so a result arrives every morning (#80)."""
     return _plist("com.homelab.selftest",
                   [python, "-m", "lab.cli", "--db", db, "selftest", "--alert-config",
-                   alert_config], workdir, UserName=user,
+                   alert_config, "--report-ok"], workdir, UserName=user,
                   StartCalendarInterval={"Hour": 3, "Minute": 17})
 
 
@@ -176,3 +186,23 @@ def statuscheck_plist(*, user: str, python: str, workdir: str, db: str,
     return _plist("com.homelab.statuscheck",
                   [python, "-m", "lab.cli", "--db", db, "status", "--alert-config",
                    alert_config], workdir, UserName=user, StartInterval=300)
+
+
+def backup_plist(*, user: str, python: str, workdir: str, db: str, alert_config: str,
+                 keep: int = BACKUP_KEEP, backup_dir: str = BACKUP_DIR_PLACEHOLDER) -> bytes:
+    """A daily backup at 02:47 as the lab user (#67): snapshot, prove the new
+    backup restores, keep the newest ``keep``, alert on any failure. The folder
+    comes from ``LAB_BACKUP_DIR``, set by the operator in the installed copy."""
+    return _plist(BACKUP_LABEL,
+                  [python, "-m", "lab.cli", "--db", db, "backup", "--keep", str(keep),
+                   "--alert-config", alert_config], workdir, UserName=user,
+                  StartCalendarInterval={"Hour": 2, "Minute": 47},
+                  EnvironmentVariables={"LAB_BACKUP_DIR": backup_dir})
+
+
+def heartbeat_plist(*, user: str, python: str, workdir: str, db: str, url_file: str) -> bytes:
+    """``lab heartbeat`` every five minutes as the lab user: the dead-man
+    switch ping, sent only while the lab is healthy (#79)."""
+    return _plist(DEADMAN_LABEL,
+                  [python, "-m", "lab.cli", "--db", db, "heartbeat", "--url-file", url_file],
+                  workdir, UserName=user, RunAtLoad=True, StartInterval=DEADMAN_INTERVAL_SECONDS)
