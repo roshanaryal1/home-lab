@@ -215,6 +215,9 @@ MAX_MATCH_CHARS = 300                   # of each matching line returned
 
 # Read-only git (#240).
 GIT_MAX_OUTPUT = 256 * 1024             # per stream
+# The index listing is checked inside the broker and never returned, so it
+# may be larger than what the model sees; this bounds memory only.
+GIT_MAX_INDEX_BYTES = 16 * 1024 * 1024
 GIT_TIMEOUT_SECONDS = 30.0
 GIT_LOG_ENTRIES = 50
 GIT_MAX_ENTRIES = 50_000                # files and directories checked in one git directory
@@ -990,7 +993,12 @@ class ExecutionBroker:
         skipped: dict[str, int] = {"symlink": 0, "not_regular": 0, "too_large": 0, "binary": 0}
         scanned = files = 0
         truncated = False
-        with ws.dir_fd(parts) as top, _walk(top) as walker:
+        with contextlib.ExitStack() as stack:
+            try:
+                top = stack.enter_context(ws.dir_fd(parts))
+            except FileNotFoundError:
+                return ToolResult(False, request.tool, error="not a directory")
+            walker = stack.enter_context(_walk(top))
             for dirpath, dirnames, filenames, dfd in walker:
                 dirnames[:] = sorted(d for d in dirnames if d.casefold() != ".git")
                 for name in sorted(filenames):
@@ -1068,7 +1076,7 @@ class ExecutionBroker:
                 # index must name nothing outside it.
                 listed = sandbox._execute([*base, "ls-files", "-z", "--cached"],
                                           cwd=str(worktree), env=env,
-                                          timeout=GIT_TIMEOUT_SECONDS, cap=GIT_MAX_OUTPUT,
+                                          timeout=GIT_TIMEOUT_SECONDS, cap=GIT_MAX_INDEX_BYTES,
                                           cancel=cancel)
                 if listed.truncated or listed.timed_out:
                     raise UnsafeRepository("the index is too large to check")
@@ -1495,17 +1503,20 @@ def _git_repository(ws: Workspace, relative: str) -> tuple[Path, Path]:
     """The work tree and git directory for ``relative``, both checked."""
     ws.resolve(relative)
     parts = ws.parts(relative)
-    with ws.dir_fd(parts) as repo_fd:
-        try:
-            mode = os.stat(".git", dir_fd=repo_fd, follow_symlinks=False).st_mode
-        except FileNotFoundError:
-            raise UnsafeRepository(f"{relative!r} is not a repository: no .git") from None
-        if stat.S_ISDIR(mode):
-            gitdir = [*parts, ".git"]
-        elif stat.S_ISREG(mode):
-            gitdir = _gitfile_target(ws, parts, repo_fd)
-        else:
-            raise UnsafeRepository(".git is a symlink or a special file")
+    try:
+        with ws.dir_fd(parts) as repo_fd:
+            try:
+                mode = os.stat(".git", dir_fd=repo_fd, follow_symlinks=False).st_mode
+            except FileNotFoundError:
+                raise UnsafeRepository(f"{relative!r} is not a repository: no .git") from None
+            if stat.S_ISDIR(mode):
+                gitdir = [*parts, ".git"]
+            elif stat.S_ISREG(mode):
+                gitdir = _gitfile_target(ws, parts, repo_fd)
+            else:
+                raise UnsafeRepository(".git is a symlink or a special file")
+    except FileNotFoundError:
+        raise UnsafeRepository(f"{relative!r} is not a repository: no such directory") from None
     with ws.dir_fd(gitdir) as git_fd:
         _check_git_directory(git_fd)
     return ws.root.joinpath(*parts), ws.root.joinpath(*gitdir)

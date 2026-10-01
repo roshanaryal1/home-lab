@@ -46,7 +46,7 @@ jobs:
         # Each module must reach the floor on its own, so a well-covered
         # module cannot hide a neglected one.
         run: |
-          for module in queue policy broker sandbox audit artifacts handlers/workspace handlers/web handlers/git_read; do
+          for module in queue policy broker sandbox container audit artifacts handlers/workspace handlers/web handlers/git_read; do
             uv run coverage report --include="lab/$module.py" --fail-under=90 --skip-empty || exit 1
           done
       - name: Safety properties must still be covered
@@ -59,8 +59,8 @@ jobs:
           uv run python -m pytest tests/ -q -m safety --no-header
           FOUND=$(uv run python -m pytest tests/ --collect-only -q -m safety 2>/dev/null | grep -c "::")
           echo "safety tests found: $FOUND"
-          if [ "$FOUND" -lt 370 ]; then
-            echo "expected at least 370 safety tests, found $FOUND"
+          if [ "$FOUND" -lt 399 ]; then
+            echo "expected at least 399 safety tests, found $FOUND"
             exit 1
           fi
 

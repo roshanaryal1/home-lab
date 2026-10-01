@@ -122,8 +122,9 @@ absence in what was read, not proof they do not test it.
 - Its own phone control path, the Telegram bot, sits outside the repo and
   bypasses the broker, approvals and audit log (SECURITY.md).
 - Several protections are designed but not built (SECURITY.md, "What does
-  NOT exist yet"), such as the container executor for untrusted code
-  (#181), and the first deployment already found one gap (#190).
+  NOT exist yet"). The container executor for untrusted code is built as
+  a module but not yet a broker tool or run on the Mac (#181), and the
+  first deployment already found one gap (#190).
 - The safety claims above have been checked on one Mac mini by its owner,
   not by an independent review.
 

@@ -58,11 +58,14 @@ def test_an_output_flood_is_capped_and_does_not_hang(tmp_path) -> None:
 
 
 def test_the_deadline_kills_the_whole_process_group(tmp_path) -> None:
+    # The deadline must leave the shell time to start both children and print
+    # their pids: at 0.5 s a loaded macOS runner timed out before the first
+    # echo, so the test failed without testing the kill at all.
     start = time.monotonic()
     done = sandbox._execute(
         ["/bin/sh", "-c", "sleep 60 & echo $!; sleep 60 & echo $!; wait"],
-        cwd=str(tmp_path), env={"PATH": "/usr/bin:/bin"}, timeout=0.5, cap=4096)
-    assert done.timed_out and time.monotonic() - start < 5
+        cwd=str(tmp_path), env={"PATH": "/usr/bin:/bin"}, timeout=3.0, cap=4096)
+    assert done.timed_out and time.monotonic() - start < 15
     pids = [int(x) for x in done.stdout.split()]
     assert len(pids) == 2 and _wait_dead(pids)
 

@@ -565,6 +565,36 @@ def test_huge_git_output_is_capped(broker) -> None:
     assert len(r.detail["output"].encode()) <= GIT_MAX_OUTPUT
 
 
+def test_a_missing_search_path_is_a_refusal_not_an_exception(broker) -> None:
+    """A model often names a folder that is not there. That must come back
+    as a failed result the handler can report, not an exception that makes
+    the task fail as retryable."""
+    open_ws(broker, "fs.search")
+    r = call(broker, "fs.search", pattern="x", path="missing")
+    assert not r.ok and "not a directory" in (r.error or "")
+
+
+def test_a_missing_repository_is_a_refusal_not_an_exception(broker) -> None:
+    open_ws(broker, "git.status")
+    r = call(broker, "git.status", repo="missing")
+    assert not r.ok and "not a repository" in (r.error or "")
+
+
+@needs_git
+def test_an_index_larger_than_the_output_cap_is_still_checked(broker) -> None:
+    """The index listing never reaches the model, so a repository whose
+    listing is larger than the output cap is checked, not refused."""
+    root = open_ws(broker, "git.status")
+    repo = make_repo(root)
+    names = [f"{'d' * 120}{i:05d}.txt" for i in range(GIT_MAX_OUTPUT // 120 + 200)]
+    for name in names:
+        (repo / name).write_text("x\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "many files")
+    r = call(broker, "git.status")
+    assert r.ok, r.error
+
+
 @needs_git
 @pytest.mark.safety
 def test_git_output_is_cleaned_of_control_characters(broker) -> None:
