@@ -335,4 +335,5 @@ is what keeps an agent mistake survivable.
 Once the lab is deployed, the checks that need the machine run in one sitting:
 `ops/mac-session.sh` runs each of them in order and writes one report. See
 [`ops/mac-session.md`](ops/mac-session.md) for what each check proves and which
-issue its result goes into.
+issue its result goes into. [`docs/MAC-WORK.md`](docs/MAC-WORK.md) lists every
+step that still needs the Mac mini, in order, and why.
