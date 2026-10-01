@@ -132,10 +132,84 @@ measured.
 
 Checklist for the mini is in `ops/mac-mini-setup.md`, section 9.
 
+## Implementation (2026-10-01, #181)
+
+`lab/container.py` builds the container tier. It is a module with a tested
+seam, not yet a broker tool.
+
+**What a run does.** One container per call, under a name the executor
+chooses. The command line is built by one pure function,
+`build_run_argv`, and is always an argument list:
+
+```
+container run --name lab-<task>-<random> --network none --read-only
+  --tmpfs /tmp --cpus 2 --memory 1024M --volume <workspace>:/work
+  --workdir /work --env HOME=/work --env PATH=... --env TMPDIR=/tmp
+  <image@sha256:...> <command...>
+```
+
+- `--network none` is always there. The tool's default is network on, as
+  measured above, and no caller input reaches the option list.
+- The task workspace is the only host mount. `/tmp` is a tmpfs in the
+  guest's own memory, and the root file system is read-only.
+- CPU and memory default to 2 and 1024 MB, with ceilings of 4 and
+  2048 MB. A busy 1024 MB guest costs about 2 GiB of host memory.
+- The guest gets only `HOME`, `PATH`, `TMPDIR` and variables on a short
+  allowlist (`LANG`, `TZ` and a few Python switches). Any other name is
+  refused, not dropped.
+
+**What it refuses, before anything starts.** An image not pinned by
+`sha256` digest. A workspace that is a symlink, is not strictly inside the
+lab's workspace root, does not exist, or has a `:` or `,` in its path. A
+command that is not a list of strings. A host with no `container` CLI.
+There is no fallback: untrusted code that cannot get a container does not
+run.
+
+**Removal on every path.** After the run, a `finally` block runs
+`container delete --force <name>`: on a normal exit, a failing command, a
+timeout, a stop (the same cancel flag `shell.run` uses) and an exception.
+Killing the CLI client does not stop the guest, so the forced delete is
+the control. If the delete fails, a listing decides whether the container
+is gone; if that is uncertain, the result says it was not removed and the
+error is logged.
+
+**This is what closes #223 for untrusted code.** Under Seatbelt, a process
+that calls `setsid()` leaves the process group and survives the kill. In
+a container it is still inside the VM, and deleting the container ends
+every process in it. The decision on #223 was to leave those survivors to
+this tier; the tests prove the delete runs on every path.
+
+**Tests.** `tests/test_container.py` uses a fake runtime that records each
+command line, and a stand-in CLI script that exercises the real process
+handling on any host. Two tests run a hostile script in a real container:
+it tries HTTP, TCP, a Python socket and DNS, lists `/Users`, writes to
+`/etc` and reads `/etc/passwd`, and the test asserts every probe failed,
+that `/work` is the only virtiofs mount, and that the container is gone
+afterwards. The second starts a `setsid` process and checks it ends with
+the container. They skip unless the host is a Mac with the CLI and
+`LAB_CONTAINER_IMAGE` names an image pinned by digest. They have not run
+on the M6 yet.
+
+**Why not a broker tool yet.** A broker tool needs a schema in
+`broker.TOOL_SCHEMAS`. That table also generates the model's grammar and
+the pre-registered tool-call corpus (`evals/toolcalls-v1.jsonl`, 70
+tasks over seven tools), so an eighth tool changes a measured artifact.
+That belongs in its own change. The tool will be a thin wrapper over
+`ContainerExecutor.run`: approve tier, journaled as non-idempotent, and
+classified as untrusted input in `authority.TOOL_LEGS`. Until then the
+broker still has no tool that runs untrusted code.
+
+**Flags to confirm on the Mac.** The spellings follow the `container`
+command reference: `--read-only`, `--tmpfs`, `--cpus`, `--memory`,
+`--volume`, `--workdir`, `--env`, `delete --force` and `list --all
+--quiet`. Only `-v` and `--network none` were exercised in the
+measurement above. The real-container tests are the check.
+
 ## Consequences
 
-- No code change in this PR. `lab/sandbox.py` keeps its documented
-  limits.
+- No code change in the PR that accepted this ADR. `lab/sandbox.py`
+  keeps its documented limits. The container tier followed in #181; see
+  "Implementation".
 - The rollout ADR (item 4.1) treats "executes untrusted code" as a
   separate, later stage that requires the container tier.
 - If the measurement shows a container is too costly next to the heavy
