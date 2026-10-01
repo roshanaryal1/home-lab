@@ -969,13 +969,13 @@ def test_net_summarize_runs_on_the_synchronous_path_too(broker, tmp_path) -> Non
 # ------------------------------------------------------------ register_all
 
 
-def _model() -> BoundedModel:
+def _model(db: object = None) -> BoundedModel:
     return BoundedModel(SPEC, MockAdapter(['{"summary": "x"}']))
 
 
 def test_register_all_registers_the_local_tools_with_minimal_grants(tmp_path, monkeypatch):
     from lab import handlers, loop
-    monkeypatch.setattr(loop, "model_from_env", lambda: None)
+    monkeypatch.setattr(loop, "model_from_env", lambda db=None: None)
     sup, _ = make_supervisor(tmp_path)
     handlers.register_all(sup)
     assert sup._tools[workspace.KIND] == workspace.TOOLS

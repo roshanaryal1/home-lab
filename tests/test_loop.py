@@ -163,10 +163,37 @@ def test_cli_tick_without_the_operator_key_fails_closed(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.delenv("LAB_OPERATOR_PUBKEY", raising=False)
-    monkeypatch.setattr(loop, "model_from_env", lambda: _model('{"summary": "x"}')[0])
+    monkeypatch.setattr(loop, "model_from_env", lambda db=None: _model('{"summary": "x"}')[0])
     db = tmp_path / "lab.db"
     with TaskQueue(db, owner="seed") as q:
         _three_failures(q)
     assert main(["--db", str(db), "tick"]) == 1
     assert "no operator key" in capsys.readouterr().err
     assert main(["--db", str(db), "tick", "--allow-unsigned"]) == 0
+
+
+def test_the_served_model_takes_the_shared_heavy_slot_with_its_measured_size(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """#211: the loop used heavy=False and an 8,000 MB default, so the
+    served model never took the heavy slot and was under-counted by 9 GB."""
+    from lab.model import HEAVY_MODEL_WEIGHTS_MB
+    monkeypatch.setenv("LAB_MODEL_URL", "http://127.0.0.1:8080/v1")
+    monkeypatch.setenv("LAB_MODEL_NAME", "served")
+    monkeypatch.setenv("LAB_MODEL_REVISION", REV)
+    monkeypatch.delenv("LAB_MODEL_WEIGHTS_MB", raising=False)
+    monkeypatch.setattr(loop, "SLOT_WAIT_SECONDS", 0.1)
+    db = tmp_path / "lab.db"
+    model = loop.model_from_env(db)
+    assert model is not None
+    assert model.spec.heavy and model.spec.weights_mb == HEAVY_MODEL_WEIGHTS_MB == 17_180
+    assert model.controller.slot_lock == loop.model_slot_path(db) == tmp_path / "lab.db.model.lock"
+    other = loop.model_from_env(db)
+    assert other is not None
+    with (model.controller.admit(model.spec, [{"role": "user", "content": "x"}], 16),
+          pytest.raises(Exception, match="another process"),
+          other.controller.admit(other.spec, [{"role": "user", "content": "x"}], 16)):
+        pass
+    monkeypatch.setenv("LAB_MODEL_WEIGHTS_MB", "9000")
+    sized = loop.model_from_env()
+    assert sized is not None and sized.spec.weights_mb == 9000
+    assert sized.controller.slot_lock is None

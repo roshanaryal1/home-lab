@@ -28,8 +28,10 @@ must guarantee does not depend on which model sits behind it.
 
 from __future__ import annotations
 
+import fcntl
 import http.client
 import json
+import os
 import re
 import threading
 import time
@@ -37,6 +39,7 @@ import urllib.parse
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 from lab.broker import BrokerError, validate_params
@@ -53,6 +56,10 @@ LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 # its weights loaded, and Metal's hard ceiling is 24.96 GiB, so this budget
 # is the binding limit and leaves about 16K tokens of context.
 DEFAULT_BUDGET_MB = 20_500
+# The served heavy model's resident size with its weights loaded, measured on
+# the M6 (ADR 0001). The loop uses it when LAB_MODEL_WEIGHTS_MB is not set, so
+# its accounting matches the model the server actually holds (#211).
+HEAVY_MODEL_WEIGHTS_MB = 17_180
 
 
 class ModelError(RuntimeError):
@@ -112,12 +119,22 @@ class AdmissionController:
     """Decides whether a request may run. One instance per machine."""
 
     def __init__(self, budget_mb: int = DEFAULT_BUDGET_MB, max_seconds: float = 300.0,
-                 count_tokens: Callable[[str], int] = estimate_tokens) -> None:
+                 count_tokens: Callable[[str], int] = estimate_tokens, *,
+                 slot_lock: str | Path | None = None,
+                 slot_wait_seconds: float = 0.0) -> None:
+        """``slot_lock`` names a file whose flock is the heavy slot for every
+        process that passes the same path, so two processes sharing one model
+        server cannot both run a heavy request (#211). Without it the slot
+        holds within this process only. ``slot_wait_seconds`` is how long a
+        heavy request waits for the slot before it is refused; 0 refuses at once.
+        """
         self.budget_mb = budget_mb
         self.max_seconds = max_seconds
+        self.slot_lock = None if slot_lock is None else Path(slot_lock)
+        self.slot_wait_seconds = max(0.0, slot_wait_seconds)
         self._count = count_tokens
         self._lock = threading.Lock()
-        self._heavy_busy = False
+        self._heavy = threading.Lock()
         self._resident: dict[str, int] = {}     # model name -> weights MB currently loaded
 
     def load(self, spec: ModelSpec) -> None:
@@ -157,17 +174,39 @@ class AdmissionController:
                 raise AdmissionRefused(
                     f"this request would need {resident_after} MB resident against a "
                     f"{self.budget_mb} MB budget")
-            if spec.heavy:
-                if self._heavy_busy:
-                    raise AdmissionRefused("the heavy inference slot is in use")
-                self._heavy_busy = True
             self._resident[spec.name] = spec.weights_mb
-        try:
+        if not spec.heavy:
             yield Ticket(prompt_tokens, max_tokens, seconds, resident_after)
+            return
+        with self._heavy_slot():
+            yield Ticket(prompt_tokens, max_tokens, seconds, resident_after)
+
+    @contextmanager
+    def _heavy_slot(self) -> Iterator[None]:
+        deadline = time.monotonic() + self.slot_wait_seconds
+        acquired = (self._heavy.acquire(timeout=self.slot_wait_seconds) if self.slot_wait_seconds
+                    else self._heavy.acquire(blocking=False))
+        if not acquired:
+            raise AdmissionRefused("the heavy inference slot is in use")
+        fd = -1
+        try:
+            if self.slot_lock is not None:
+                fd = os.open(self.slot_lock, os.O_RDWR | os.O_CREAT, 0o600)
+                while True:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= deadline:
+                            raise AdmissionRefused(
+                                f"the heavy inference slot is in use by another process "
+                                f"({self.slot_lock})") from None
+                        time.sleep(0.05)
+            yield
         finally:
-            if spec.heavy:
-                with self._lock:
-                    self._heavy_busy = False
+            if fd >= 0:
+                os.close(fd)        # closing the descriptor releases the flock
+            self._heavy.release()
 
 
 @dataclass(frozen=True)

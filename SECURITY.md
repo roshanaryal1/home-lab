@@ -385,6 +385,16 @@ Implemented and tested:
   by `--apply`; they are the evidence the boundary exists, and they are run
   on the mini (#70). The account name is validated as a POSIX name, and the
   private key appears only in a check that expects "Permission denied".
+- **Which jobs run as root, and why** (#235). The supervisor, `lab tick`, the
+  status check and the self-test run as the lab account. Two jobs run as root.
+  The watchdog has to: it signals a supervisor owned by another account.
+  `lab keepawake` does not have to: it only reads the database and starts
+  `caffeinate`. It stays root until the operator confirms on the mini that
+  `caffeinate` under the lab account still holds a power assertion from a
+  LaunchDaemon. Then its plist gets `UserName=lab`
+  (`service.keepawake_plist(user="lab")`). Root opening a database the lab account controls was
+  tested for the symlink case: with SQLite 3.53.1 a symlinked `-shm` makes
+  the open fail, and nothing is followed or written.
 - **Sleep prevention and logs** (`lab/keepawake.py`, `lab/logsetup.py`, H5a).
   `lab keepawake` is read-only on the database: it holds `caffeinate -i`
   while a task is queued, leased or running or the log moved within the

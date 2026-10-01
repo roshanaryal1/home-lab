@@ -292,6 +292,13 @@ The installed service definitions in `/Library/LaunchDaemons` are copies. A code
 update does not change them, so first look at what the update touches, then
 decide whether they need reinstalling.
 
+Do the whole section in one Terminal window. The blocks below use `COMMIT`, `UV`
+and `OLD` from the first block, and a new window starts without them. Write down
+the `deployed now` hash the first block prints: it is the commit to roll back
+to. If you have to open a new window before the checkout, run the first block
+again. After the checkout, do not run it again, because `OLD` would then be the
+new commit. Set the three by hand instead, with `OLD` set to the hash you wrote down.
+
 ```sh
 COMMIT="PASTE_THE_NEW_COMMIT"
 UV="$HOME/.local/bin/uv"
