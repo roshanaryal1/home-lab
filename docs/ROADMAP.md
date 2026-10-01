@@ -103,9 +103,7 @@ before it is measured, in the style of `docs/PREREGISTRATION.md`. For
 example: M2, how many of N injected chat messages reach an approve-tier tool
 without a signature (the target is 0); M6, how many of a fixed set of
 malicious skills become active without a signed promotion. Any amendment is
-dated before the run. The claims for M2, M5 and M6 still need their dated
-pre-registration, tracked in [#242](https://github.com/roshanaryal1/home-lab/issues/242),
-and it must land before their code merges.
+dated before the run.
 
 The claims for M2, M5 and M6 are pre-registered in
 [docs/PREREGISTRATION-SAFETY.md](PREREGISTRATION-SAFETY.md), with their case
