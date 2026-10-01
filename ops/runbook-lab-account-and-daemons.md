@@ -292,6 +292,10 @@ The installed service definitions in `/Library/LaunchDaemons` are copies. A code
 update does not change them, so first look at what the update touches, then
 decide whether they need reinstalling.
 
+Do the whole section in one Terminal window. The blocks below use `COMMIT`, `UV`
+and `OLD` from the first block, and a new window starts without them. If you
+have to open a new window, run the first block again.
+
 ```sh
 COMMIT="PASTE_THE_NEW_COMMIT"
 UV="$HOME/.local/bin/uv"
