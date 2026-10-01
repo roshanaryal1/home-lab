@@ -52,6 +52,7 @@ a task runner:
 |---|---|---|
 | Observation: notice work from the event stream, emit proposals | [#32](https://github.com/roshanaryal1/home-lab/issues/32) | this repo's closed issues and merged PRs become proposals; the event log yields a proposal when tasks of one kind keep failing alike, when closed issues look alike, or when a measurement has no artifact |
 | Router: post / blog / paper by evidence weight | [#33](https://github.com/roshanaryal1/home-lab/issues/33) | rubric built over the evidence ledger: deterministic rules, refuses thin evidence upward, inspectable chain; still needs a human to review every route |
+| Chat: a message from the owner's paired chat becomes a task, the reply comes from its result | [#239](https://github.com/roshanaryal1/home-lab/issues/239) | built and tested against a fake Telegram server through the egress gateway; only the paired chat is answered, approving still needs the operator's signature on the Mac; not installed on the mini yet, and the old raw-shell bot stays until the owner retires it (setup section 23) |
 | Publish: post/email on your behalf | [#86](https://github.com/roshanaryal1/home-lab/issues/86) | reviewed publishing built and tested against a dummy provider: approval bound to destination and draft hash, write-ahead receipts, idempotency keys, reconciliation of lost responses; no real destination has been used |
 
 Build order and reasoning are in ADR 0004; the rules that limit what an
@@ -197,6 +198,7 @@ uv run python -m lab.cli tasks                    # task counts by state
 uv run python -m lab.cli control pause|resume|drain|stop --by you   # the whole-lab switch; resume takes --key operator.key; `control show` reads it
 uv run python -m lab.cli watchdog [--max-age 90] [--dry-run]   # kill a hung supervisor; launchd restarts it
 uv run python -m lab.cli cancel <task> --by you   # cancel work that has not started
+uv run python -m lab.cli chat [--once] [--chat-id N]   # the paired Telegram chat: messages become tasks; cannot approve or resume
 uv run python -m lab.cli selftest [--alert-config F]   # chain, backup restore, health, safety tests; alerts on failure
 uv run python -m lab.cli setup-plan [--apply]      # print the lab-account setup; --apply needs root on macOS
 uv run python -m lab.cli keepawake [--once] [--grace 600]   # hold caffeinate only while work is pending

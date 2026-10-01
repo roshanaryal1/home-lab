@@ -24,6 +24,9 @@ flowchart TB
         queue --> supervisor --> gate --> sandbox
     end
 
+    chatin["Chat channel<br/>lab/chat.py, issue #239<br/>one paired chat, via the egress gateway"]
+    chatin -->|"message as a tainted task"| queue
+
     subgraph model["Model layer: ADR 0001, measured on the M6"]
         heavy["Qwen3-Coder-30B-A3B, MLX 4-bit DWQ<br/>16 GiB measured, ONE heavy inference slot"]
     end
@@ -50,7 +53,7 @@ flowchart TB
     classDef built fill:#d4edda,stroke:#2d6a4f,color:#1b4332
     classDef missing fill:#f8d7da,stroke:#842029,color:#58151c
     classDef designonly fill:#fff3cd,stroke:#997404,color:#664d03
-    class queue,supervisor,gate,sandbox built
+    class queue,supervisor,gate,sandbox,chatin built
     class obs,router,publish missing
     class heavy,mem designonly
 ```
@@ -92,6 +95,7 @@ re-losing.
 | Resource ceilings per task | `lab/worker.py`, `lab/supervisor.py` | Built for reviewed handlers: RSS sampled over the worker process group and `RLIMIT_CPU`, breach kills, fails without retry and is audited. Values unmeasured until the M6 | [#16](https://github.com/roshanaryal1/home-lab/issues/16) |
 | `dscl` account enumeration | `lab/sandbox.py` | Accepted, not narrowed; untrusted code is routed to a disposable container instead | [ADR 0007](decisions/0007-isolation-for-untrusted-code.md), [#27](https://github.com/roshanaryal1/home-lab/issues/27) |
 | Operational metrics | `lab/metrics.py`, `lab status` | Built: queue depth and ages, worker health, counters for denials, retries, lease losses and forced terminations, all queries over the event log with no second store; model metrics wait for 5.1 | [#89](https://github.com/roshanaryal1/home-lab/issues/89) |
+| Chat channel | `lab/chat.py`, `lab chat`, `ops/launchd/com.homelab.chat.plist` | Built and tested against a fake Telegram Bot API behind the real egress gateway: a message from the one paired private chat becomes a tainted `chat` task and the reply comes from its result; any other chat creates nothing and is audited; `/approve` only shows the intent and the signed command for the Mac; `/pause`, `/stop`, `/cancel` and `/deny` only remove authority; the update offset is stored, so nothing is handled twice. The handler is a model answer with no tools until M3. Not installed on the M6; the raw-shell bot it replaces is retired by an operator step (setup section 23) | [#239](https://github.com/roshanaryal1/home-lab/issues/239) |
 | Operator controls | `lab/control.py`, `lab control`, `lab cancel` | Built: pause, resume, drain and stop as one database row obeyed by the supervisor (a resume is operator-signed and bound to its generation); stop runs the emergency stop and persists across restart. Watchdog, alerts and dead-man switch need the M6 | [#79](https://github.com/roshanaryal1/home-lab/issues/79) |
 | Evidence ledger | `lab/ledger.py`, `lab ledger` | Built: research-task record, claims with a status separate from the task's, quote-checked evidence snapshots, a review pass required before a draft is reviewable; the router (7.2) is not yet built on it | [#90](https://github.com/roshanaryal1/home-lab/issues/90) |
 | Utility evals | `lab/evals.py`, `evals/tasks.jsonl` | 24 fixed tasks graded deterministically; sealed provenance record; rerun from the record alone. Run on the M6 (records in `evals/runs/`), plus a 70-task held-out tool-call set for the pre-registered H2 and H2b (`docs/PREREGISTRATION.md`) | [#81](https://github.com/roshanaryal1/home-lab/issues/81) |

@@ -57,6 +57,8 @@ def test_ops_copies_of_the_plists_are_current(tmp_path: Path) -> None:
         python=py, workdir=wd, db=db)
     assert (root / "com.homelab.tick.plist").read_bytes() == service.tick_plist(
         user="lab", python=py, workdir=wd, db=db)
+    assert (root / "com.homelab.chat.plist").read_bytes() == service.chat_plist(
+        user="lab", python=py, workdir=wd, db=db)
 
 
 def test_a_running_supervisor_beats(tmp_path: Path) -> None:
