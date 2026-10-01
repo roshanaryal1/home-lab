@@ -100,7 +100,7 @@ def test_tick_refuses_the_unsigned_ways_in_on_a_deployed_machine(
     spec = ModelSpec("m", "a" * 40, "a" * 40, context_tokens=8192, max_output_tokens=512,
                      weights_mb=1000, heavy=False)
     monkeypatch.setattr(loop, "model_from_env",
-                        lambda: BoundedModel(spec, MockAdapter(['{"summary": "x"}'])))
+                        lambda db=None: BoundedModel(spec, MockAdapter(['{"summary": "x"}'])))
     db = tmp_path / "lab.db"
     with TaskQueue(db, owner="seed"):
         pass
