@@ -53,7 +53,7 @@ LAB_CONTAINER_IMAGE='<name@sha256:...>' ./ops/mac-session.sh
 | `alert` | #79, #80 | A real alert must reach your phone. |
 | `selftest` | #80 | Reads the nightly self-test log launchd wrote. |
 | `skillrun` | #255 | Runs a skill script through `skill.run` in a real Apple container. Needs `LAB_CONTAINER_IMAGE`. |
-| `mcp` | #256 | Starts each signed MCP server under real Seatbelt and compares its tools with the signed snapshot. Skipped when no server is configured. |
+| `mcp` | #256 | Starts each signed MCP server under real Seatbelt and compares its tools with the signed snapshot. Skipped when no server is configured. This step arrives with the MCP change (#256). |
 | `concurrency` | #211 | Two real model requests at once: time, memory, swap. |
 | `drills` | #78 | `kill -9` and `kill -STOP` of the real supervisor under launchd. |
 | `network` | #79 | Manual: unplug the network and time the dead-man alert. |
