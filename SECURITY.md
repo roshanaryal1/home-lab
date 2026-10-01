@@ -895,6 +895,10 @@ Apple container, a Linux guest in its own VM:
 - **One mount.** The task workspace, read-write at `/work`. The root file
   system is read-only and `/tmp` is a tmpfs in the guest's memory. Nothing
   else on the host is visible.
+- **Never root.** The guest runs as `65534:65534` (`--user`), a numeric
+  uid and gid that is not 0. The user comes from trusted configuration, and
+  root or a named user is refused before anything starts (owner's decision,
+  2026-10-01).
 - **Pinned image, small environment, bounded size.** The image must be pinned
   by `sha256` digest. The guest gets `HOME`, `PATH`, `TMPDIR` and a short
   allowlist; any other variable is refused. CPU and memory are capped (4 CPUs,
