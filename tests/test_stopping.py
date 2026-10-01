@@ -2,7 +2,10 @@
 
 Done when: after an injected policy error the worker recovers and the
 task is released; after lease loss or a stop, no later tool call
-succeeds and no child process survives.
+succeeds and no child process survives. That holds for worker processes, which the
+stop kills. It does not hold for a `shell.run` command that is already running (the
+broker runs it in a thread that cannot be cancelled, #228), nor for a process that
+leaves the command's process group with setsid() (#223).
 """
 
 from __future__ import annotations
@@ -37,7 +40,11 @@ async def _pid_from_workspace(sup: Supervisor, task_id: str) -> int:
     for _ in range(200):
         ws = sup.broker._workspaces.get(task_id)
         if ws is not None and (ws.root / "pid").exists():
-            return int((ws.root / "pid").read_text())
+            # The worker creates the file before it writes the pid (#198): an
+            # empty read means "not yet", not a failure.
+            text = (ws.root / "pid").read_text().strip()
+            if text.isdigit():
+                return int(text)
         await asyncio.sleep(0.02)
     raise AssertionError("worker never reported its pid")
 
@@ -186,3 +193,31 @@ async def test_a_long_tool_call_does_not_starve_the_heartbeat(tmp_path, monkeypa
     assert result.ok
     assert ticks >= 10, f"event loop blocked during the call ({ticks} ticks)"
     sup.close()
+
+
+@pytest.mark.asyncio
+async def test_pid_helper_waits_out_an_empty_pid_file(tmp_path) -> None:
+    # #198: the worker creates the pid file empty and writes it a moment later;
+    # the helper used to crash with int('') when it read in between.
+    from types import SimpleNamespace
+    (tmp_path / "pid").write_text("")
+    sup = SimpleNamespace(broker=SimpleNamespace(
+        _workspaces={"t": SimpleNamespace(root=tmp_path)}))
+
+    async def write_later() -> None:
+        await asyncio.sleep(0.1)
+        (tmp_path / "pid").write_text("4242")
+
+    writer = asyncio.create_task(write_later())
+    assert await _pid_from_workspace(sup, "t") == 4242
+    await writer
+
+
+@pytest.mark.asyncio
+async def test_pid_helper_still_fails_when_no_pid_ever_arrives(tmp_path) -> None:
+    from types import SimpleNamespace
+    (tmp_path / "pid").write_text("")
+    sup = SimpleNamespace(broker=SimpleNamespace(
+        _workspaces={"t": SimpleNamespace(root=tmp_path)}))
+    with pytest.raises(AssertionError, match="never reported its pid"):
+        await _pid_from_workspace(sup, "t")

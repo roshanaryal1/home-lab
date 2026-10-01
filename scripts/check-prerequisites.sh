@@ -28,17 +28,6 @@ fi
 if command -v git >/dev/null 2>&1; then ok "Git: $(git --version)"; else fail Git; fi
 if command -v uv >/dev/null 2>&1; then ok "uv: $(uv --version 2>/dev/null || printf installed)"; else fail 'uv (install it before running uv sync)'; fi
 
-if command -v python3 >/dev/null 2>&1; then
-  python_version="$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null || true)"
-  if python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 13) else 1)' >/dev/null 2>&1; then
-    ok "Python: $python_version"
-  else
-    printf 'INFO: system Python is %s; uv will provide Python 3.13+ when configured.\n' "${python_version:-unknown}"
-  fi
-else
-  printf '%s\n' 'INFO: python3 is not on PATH; uv can provide the required interpreter.'
-fi
-
 memory_gb=''
 if command -v sysctl >/dev/null 2>&1; then
   memory_bytes="$(sysctl -n hw.memsize 2>/dev/null || true)"
@@ -51,9 +40,9 @@ fi
 if [ -n "$memory_gb" ]; then
   ok "unified memory: ${memory_gb} GB"
   case "$memory_gb" in
-    16) printf '%s\n' 'RECOMMENDED MODEL TIER: 16 GB — Qwen3 4B Instruct 4-bit' ;;
-    32) printf '%s\n' 'RECOMMENDED MODEL TIER: 32 GB — Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ' ;;
-    64) printf '%s\n' 'RECOMMENDED MODEL TIER: 64 GB — benchmark the 30B model or a larger candidate before changing the default' ;;
+    16) printf '%s\n' 'MODEL TIER (untested): 16 GB: only the small Qwen3 4B Instruct 4-bit model; nothing larger has been tried at this size' ;;
+    32) printf '%s\n' 'MODEL TIER (measured): 32 GB: Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ' ;;
+    64) printf '%s\n' 'MODEL TIER (untested): 64 GB: the 32 GB model works; benchmark anything larger before changing the default' ;;
     *) printf '%s\n' "MODEL TIER: no tested tier is recorded for ${memory_gb} GB; choose conservatively and benchmark first." ;;
   esac
 else
