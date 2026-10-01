@@ -25,7 +25,7 @@ from lab.cli import main
 from lab.egress import EgressGateway, Response, socket_transport
 from lab.queue import TaskQueue
 
-SECRET = "3f9c2a71-58be-4d0e-9a6b-c1d2e3f4a5b6"
+SECRET = "check-0000-only-in-tests"
 URL = f"https://hc-ping.example.com/{SECRET}"
 PUBLIC = "93.184.216.34"
 
