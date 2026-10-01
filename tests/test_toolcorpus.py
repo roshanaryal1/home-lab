@@ -6,7 +6,7 @@ import collections
 import json
 
 from lab import toolcorpus
-from lab.broker import validate_params
+from lab.broker import TOOL_SCHEMAS, validate_params
 from lab.evals import ROOT, grade, load_tasks
 
 
@@ -48,3 +48,11 @@ def test_the_committed_files_are_what_the_generator_writes() -> None:
         expected = toolcorpus.build(schema_in_prompt=schema_in_prompt)
         assert [t.id for t in tasks] == [t["id"] for t in expected]
         assert path.read_text(encoding="utf-8") == toolcorpus.render(expected)
+
+
+def test_a_new_broker_tool_does_not_change_the_frozen_corpus() -> None:
+    """The corpus and its schema prefix name the seven measured tools, even
+    though the broker now holds more (memory.propose, #253)."""
+    assert "memory.propose" in TOOL_SCHEMAS
+    assert set(toolcorpus.CORPUS_TOOLS) < set(TOOL_SCHEMAS)
+    assert "memory.propose" not in toolcorpus.schema_prefix()

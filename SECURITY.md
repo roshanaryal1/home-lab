@@ -326,6 +326,34 @@ Implemented and tested:
   keeps a tombstone with its hash; correcting replaces it and links back.
   Limits: a memory a task already copied elsewhere (a file, a prompt)
   is not recalled by revoking it, and there is no embedding retrieval yet.
+- **Memory proposals** (`lab/memory.py`, broker tool `memory.propose`,
+  migration 15, #253). A task may propose a memory, but only through the
+  broker: `memory.propose` is a granted tool with notify tier, a fixed
+  schema (text, source, reason, optional source hash; any other field is
+  refused), no Rule of Two legs, and the usual `broker_call` audit with a
+  parameter hash. The proposal is stored as pending in its own table,
+  which the search index never reads, and it has no expiry, so waiting
+  never turns it into memory. Its text is untrusted data: control and
+  bidi characters are stripped, it is bounded (4000 characters, 500 for
+  source and reason, 20 pending per task) and stored with its source id
+  and hash. Whether it came from a tainted task is read from the task's
+  own row, never from the handler, and a task the lab does not know
+  counts as tainted. The only way to active is `lab memory accept`, which
+  signs the decision with the operator private key; `Memory.accept`
+  verifies it with the operator public key over the proposal id, the hash
+  of the exact stored text, the source, the taint mark and the owner's
+  name, and has no unsigned mode. Where `/etc/homelab/operator.pub` is
+  installed it is the only key decisions verify against, so the lab
+  account cannot point the check at a key it made. The accepted memory is
+  curated, names the owner as promoter and links back to the proposal.
+  A tainted proposal is shown as UNTRUSTED and needs `--untrusted-ok`;
+  the signature covers that mark. Rejecting needs no signature, since it
+  removes nothing trusted. Proposing, accepting, refusing an unsigned
+  accept and rejecting are all audit events. Limits: the signature is
+  checked when the proposal is accepted, not again on every search, so
+  something with write access to the database can still insert a curated
+  row directly, as it always could; keeping that out of the agent's reach
+  is the separate lab account (#70). Chat does not propose memories yet.
 - **Router rubric** (`lab/rubric.py`, item 7.2, closes #33). Routes a
   research task by evidence weight alone, with no model call: a post
   needs one usable claim; a blog needs at least three distinct incident

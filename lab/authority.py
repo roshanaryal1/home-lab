@@ -72,6 +72,9 @@ TOOL_LEGS: dict[str, frozenset[Leg]] = {
     "git.diff": frozenset(),
     # A fetch first, so the same legs as net.fetch; the model is on loopback.
     "net.summarize": frozenset({Leg.UNTRUSTED_INPUT, Leg.EXTERNAL_ACTION}),
+    # Writes a pending row in the lab's own database that nothing reads as
+    # memory until the owner signs it in (#253): no secret, nothing outside.
+    "memory.propose": frozenset(),
 }
 
 

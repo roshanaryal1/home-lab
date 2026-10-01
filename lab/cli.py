@@ -25,6 +25,7 @@ Usage:
     python3 -m lab.cli artifacts verify
     python3 -m lab.cli ledger show|review|verify ...
     python3 -m lab.cli memory search|inspect|add-curated|add-evidence|correct|revoke|delete|sweep
+    python3 -m lab.cli memory proposals|show-proposal|accept|reject
     python3 -m lab.cli skillstore submit|promote|known-good|rollback|history|install ...
     python3 -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
@@ -54,6 +55,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
 from lab import (
     accountplan,
     alert,
@@ -73,6 +76,7 @@ from lab import (
     skills,
     supervisor,
 )
+from lab import memory as memory_mod
 from lab import model as model_mod
 from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
@@ -503,6 +507,23 @@ def build_parser() -> argparse.ArgumentParser:
         m_end.add_argument("--by", required=True)
         m_end.add_argument("--reason", required=True)
     mem_sub.add_parser("sweep", help="retire expired memories")
+    mem_sub.add_parser("proposals", help="memories tasks proposed, waiting for a decision")
+    m_sp = mem_sub.add_parser("show-proposal", help="the exact text, source and taint mark")
+    m_sp.add_argument("id", type=int)
+    m_acc = mem_sub.add_parser("accept", help="make a proposal curated memory (signed)")
+    m_acc.add_argument("id", type=int)
+    m_acc.add_argument("--by", required=True)
+    m_acc.add_argument("--key", type=Path, default=None,
+                       help="operator private key (or $LAB_OPERATOR_KEY); signs the decision")
+    m_acc.add_argument("--operator-pubkey", type=Path, default=None,
+                       help="operator public key to verify with (or $LAB_OPERATOR_PUBKEY); "
+                       "ignored in favour of the deployed key where one is installed")
+    m_acc.add_argument("--untrusted-ok", action="store_true",
+                       help="required to accept a proposal from a tainted task")
+    m_rej = mem_sub.add_parser("reject", help="turn a proposal down (no signature needed)")
+    m_rej.add_argument("id", type=int)
+    m_rej.add_argument("--by", required=True)
+    m_rej.add_argument("--reason", required=True)
 
     stc = sub.add_parser("selftest", help="verify the audit chain, a backup restore, health and "
                          "the safety tests; alert on failure")
@@ -1122,11 +1143,87 @@ def cmd_memory(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace)
         elif cmd == "delete":
             memory.delete(args.id, args.by, args.reason, ledger=ledger)
             print(f"memory {args.id} deleted; the row remains as a tombstone")
-        else:
+        elif cmd == "sweep":
             print(f"{memory.sweep_expired()} expired memory(ies) retired")
+        else:
+            return _memory_proposal_command(memory, args)
     except (MemoryRefused, LedgerError) as exc:
         print(f"memory: {exc}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _operator_public_key(override: Path | None) -> Ed25519PublicKey:
+    """The key an owner decision is verified with.
+
+    Where the deployed key exists (root-owned, outside the lab account's
+    reach) it is the only one accepted, so code running as the lab account
+    cannot point the check at a key it made itself. Elsewhere (dummy data)
+    it is ``--operator-pubkey`` or ``$LAB_OPERATOR_PUBKEY``. No key, no accept.
+    """
+    deployed = supervisor.DEPLOYED_OPERATOR_KEY
+    if deployed.exists():
+        if override is not None and override.resolve() != deployed.resolve():
+            raise operator_keys.OperatorKeyError(
+                f"{deployed} is installed here; decisions verify against it, not {override}")
+        return operator_keys.load_public(deployed)
+    path = override or os.environ.get("LAB_OPERATOR_PUBKEY")
+    if not path:
+        raise operator_keys.OperatorKeyError(
+            "accepting a proposal needs the operator public key: --operator-pubkey or "
+            "$LAB_OPERATOR_PUBKEY")
+    return operator_keys.load_public(Path(path))
+
+
+def _print_proposal(row: sqlite3.Row) -> None:
+    for key in ("state", "task_id", "source_id", "source_sha256", "text_sha256", "proposed_at",
+                "decided_by", "decided_at", "decision_reason", "memory_id"):
+        print(f"{key:<16}{_escape(row[key])}")
+    print(f"{'trust':<16}" + ("UNTRUSTED: proposed by a tainted task; its text may be an "
+                              "outsider's" if row["tainted"] else "operator task"))
+    print(f"reason\n  {_escape(row['reason'])}")
+    print(f"text\n  {_escape(row['text'])}")
+
+
+def _memory_proposal_command(memory: Memory, args: argparse.Namespace) -> int:
+    cmd = args.memory_command
+    if cmd == "proposals":
+        rows = memory.proposals()
+        for r in rows:
+            mark = "TAINTED" if r["tainted"] else "trusted"
+            print(f"#{r['id']} [{mark}] task {_escape(r['task_id'][:12])} "
+                  f"{_escape(r['source_id'])}: {_escape(r['text'][:80])}")
+        print(f"{len(rows)} pending proposal(s)")
+        if rows:
+            print("Read one in full before deciding:  memory show-proposal <id>")
+        return 0
+    row = memory.proposal(args.id)
+    if cmd == "show-proposal":
+        _print_proposal(row)
+        return 0
+    if cmd == "reject":
+        memory.reject(args.id, _escape(args.by), _escape(args.reason))
+        print(f"proposal {args.id} rejected")
+        return 0
+    if row["tainted"] and not args.untrusted_ok:
+        print(f"memory: proposal {args.id} came from a tainted task; read it with "
+              "show-proposal and pass --untrusted-ok to accept it anyway", file=sys.stderr)
+        return 1
+    key_path = args.key or os.environ.get("LAB_OPERATOR_KEY")
+    if not key_path:
+        print("memory: accepting a proposal needs the operator private key (--key or "
+              "$LAB_OPERATOR_KEY)", file=sys.stderr)
+        return 1
+    by = _escape(args.by)
+    try:
+        signer = operator_keys.load_private(Path(key_path))
+        public = _operator_public_key(args.operator_pubkey)
+    except operator_keys.OperatorKeyError as exc:
+        print(f"memory: {exc}", file=sys.stderr)
+        return 1
+    memory_id = memory.accept(args.id, by, memory_mod.sign_acceptance(signer, row, by), public)
+    print(f"proposal {args.id} accepted as curated memory {memory_id}, promoted by {by!r}"
+          + (" (from a tainted task)" if row["tainted"] else ""))
     return 0
 
 

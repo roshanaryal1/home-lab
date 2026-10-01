@@ -356,8 +356,10 @@ def main(argv: list[str]) -> int:
                              args.context_tokens, args.max_output_tokens, args.weights_mb)
             fmt = None
             if args.grammar:
-                from lab import grammar
-                fmt = grammar.response_format()
+                from lab import grammar, toolcorpus
+                # The measured configuration: the corpus's seven tools, not
+                # whatever the broker holds today.
+                fmt = grammar.response_format(frozenset(toolcorpus.CORPUS_TOOLS))
             record = run_suite(make_config(args.endpoint, spec, seed=args.seed,
                                            tasks_path=args.tasks, response_format=fmt))
         else:
