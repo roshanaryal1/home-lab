@@ -39,6 +39,7 @@ than quietly resolved.
 | 11. sqlite-vec / FTS retrieval | FTS5 baseline built with inspect, correct, revoke and delete ([#85](https://github.com/roshanaryal1/home-lab/issues/85)); embeddings must beat it on a measured task first |
 | 12. Benchmark and tune before adding anything else | benchmarked on the M6 (`evals/bench/`, setup section 14); first tuning test run as pre-registered H3 (prompt cache 1 against 4: no gain, not adopted, `docs/PREREGISTRATION.md`) |
 | M3. Three real tools ([#240](https://github.com/roshanaryal1/home-lab/issues/240)) | workspace files (notify), read-only git (autonomous) and web fetch with summary (notify) built as reviewed handlers in `lab/handlers/`, each with only the broker tools it needs, and tested with hostile input on Linux (`tests/test_local_tools.py`); not yet run on the M6. Task ceilings from measured peaks wait for these to run real work there, [#180](https://github.com/roshanaryal1/home-lab/issues/180) |
+| Repositories in a workspace ([ADR 0008](docs/decisions/0008-tools-report-control-plane-decides.md)) | A repository enters a task's workspace only through `workspace.acquire`: approve tier, from an operator-signed source on this machine, at an exact commit id. The copy carries no hooks, remote or symlinks, and every copy is recorded with its source, commit, tree, workspace and task (`lab repo acquired`). The `repo.read` handler copies a commit and runs one read-only git command on it. It is registered only when `LAB_REPO_SOURCES` names a file whose every entry is signed. Tested on Linux with real git (`tests/test_workspace_acquire.py`). Not yet run on the M6. |
 | Skill scripts and MCP tools through handlers ([#255](https://github.com/roshanaryal1/home-lab/issues/255), [#256](https://github.com/roshanaryal1/home-lab/issues/256)) | The owner decided on 2026-10-01 to grant `skill.run` and `mcp.call` to reviewed handlers now, still at the approve tier. Each handler holds its one tool, and every call waits for the operator's signature. The `skill.run` handler is registered only when `LAB_CONTAINER_IMAGE` is set. The `mcp.call` handler is registered only when `LAB_MCP_SERVERS` names a file whose every entry is signed, and it gets no network. Tested on Linux with a fake container runtime and a fake MCP server (`tests/test_grant_skill_mcp.py`). Not yet run on the M6. |
 
 Steps 1, 2 and 4 are machine-independent and run anywhere. Everything
@@ -238,6 +239,7 @@ uv run python -m lab.cli skillstore submit|promote|known-good|rollback|history|i
 uv run python -m lab.cli prereg m2|m6 [--json]   # run pre-registered Claim M2 or M6 on its frozen cases, refused if the case file changed
 uv run python -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE   # receipts for credentialed sends; ask the provider about a lost response
 uv run python -m lab.cli mcp snapshot <server> [--allow a,b] [--key K --by you]   # what the operator signs for an MCP server. `mcp list [--check]` shows each server's state
+uv run python -m lab.cli repo sign <name> <path> --key K --by you   # sign a repository source for workspace.acquire. `repo list` shows each source's state, `repo acquired [--task ID]` where every copied repository came from
 uv run python -m lab.cli memory search|inspect|add-evidence|correct|revoke|delete   # inspectable FTS5 memory
 uv run python -m lab.cli route <task> [--want paper]   # post, blog, paper or nothing, by evidence weight; thin evidence refused upward
 uv run python -m lab.cli shadow --cases evals/shadow_cases.jsonl   # measure the rubric on labeled cases; a model candidate is compared in shadow, never applied
@@ -266,7 +268,7 @@ lab/policy.py        capability tiers, approvals (operator-signed), the gate
 lab/authority.py     the Rule of Two, enforced per task (ADR 0006)
 lab/origin.py        where a task's input came from, and the taint that follows it
 lab/broker.py        typed tools, workspaces, per-call audit
-lab/handlers/        reviewed handlers, the only code a worker loads: workspace files, read-only git, web summary, skill.run, mcp.call
+lab/handlers/        reviewed handlers, the only code a worker loads: workspace files, read-only git, web summary, skill.run, mcp.call, repo.read
 lab/egress.py        the only outbound path: default-deny, resolve-then-pin
 lab/vault.py, connectors.py, publish.py   secrets injected per call, one destination each, receipts and reconciliation
 lab/audit.py         append-only hash chain and signed checkpoints

@@ -41,6 +41,9 @@ Usage:
     python3 -m lab.cli chat [--once] [--chat-id N]
     python3 -m lab.cli mcp list [--check]
     python3 -m lab.cli mcp snapshot <server> [--allow a,b] [--key KEYFILE --by roshan]
+    python3 -m lab.cli repo sign <name> <path> --key KEYFILE --by roshan
+    python3 -m lab.cli repo list
+    python3 -m lab.cli repo acquired [--task ID]
 """
 
 from __future__ import annotations
@@ -80,6 +83,7 @@ from lab import (
     selftest,
     service,
     skills,
+    sources,
     supervisor,
 )
 from lab import memory as memory_mod
@@ -475,6 +479,30 @@ def build_parser() -> argparse.ArgumentParser:
     mc_snap.add_argument("--key", type=Path, default=None,
                          help="the operator's private key, which signs the entry")
     mc_snap.add_argument("--by", default="", help="who signs (required with --key)")
+
+    rp = sub.add_parser("repo", help="operator-signed repository sources and where each "
+                                     "acquired repository came from (ADR 0008)")
+    rp.add_argument("--sources", type=Path,
+                    default=Path(os.environ.get("LAB_REPO_SOURCES",
+                                                "/etc/homelab/sources.json")),
+                    help="the JSON list of source entries "
+                         "(default: $LAB_REPO_SOURCES or /etc/homelab/sources.json)")
+    rp.add_argument("--operator-pubkey", type=Path,
+                    default=(Path(os.environ["LAB_OPERATOR_PUBKEY"])
+                             if os.environ.get("LAB_OPERATOR_PUBKEY") else None),
+                    help="the key every entry must be signed with "
+                         "(default: $LAB_OPERATOR_PUBKEY)")
+    rp_sub = rp.add_subparsers(dest="repo_command", required=True)
+    rp_sign = rp_sub.add_parser("sign", help="print a signed source entry to add to the file")
+    rp_sign.add_argument("name")
+    rp_sign.add_argument("path", help="absolute path of a git repository on this machine")
+    rp_sign.add_argument("--key", type=Path, required=True,
+                         help="the operator's private key, which signs the entry")
+    rp_sign.add_argument("--by", required=True, help="who signs")
+    rp_sub.add_parser("list", help="configured sources and whether each is signed")
+    rp_acq = rp_sub.add_parser("acquired", help="every repository placed in a workspace: "
+                                                "source, revision, tree, workspace, task")
+    rp_acq.add_argument("--task", default=None, help="only this task")
 
     sk = sub.add_parser("skillstore", help="versioned skills: submit, promote, roll back, install")
     sk.add_argument("--store", type=Path, default=None)
@@ -1064,6 +1092,56 @@ def cmd_mcp(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_repo(args: argparse.Namespace) -> int:
+    """``sign`` and ``list`` read the sources file only. ``acquired`` reads the
+    database read-only: it opens no queue and applies no migration."""
+    try:
+        if args.repo_command == "sign":
+            entry = sources.sign_source(operator_keys.load_private(args.key),
+                                        sources.SourceSpec(name=args.name, path=args.path),
+                                        args.by)
+            print(json.dumps(entry.as_entry(), indent=2, ensure_ascii=True))
+            return 0
+        if args.repo_command == "acquired":
+            return _repo_acquired(args)
+        registry = sources.SourceRegistry(
+            sources.load_sources(args.sources),
+            operator_keys.load_public(args.operator_pubkey) if args.operator_pubkey else None)
+        for name in registry.names:
+            print(f"{name:<16} {registry.state(name):<15} {_escape(registry.spec(name).path)}")
+        if not registry.names:
+            print("no repository sources are configured")
+        unsigned = [n for n in registry.names if registry.state(n) != "signed"]
+        return 1 if unsigned else 0
+    except (sources.SourceError, operator_keys.OperatorKeyError) as exc:
+        print(f"repo: {_escape(exc)}", file=sys.stderr)
+        return 1
+
+
+def _repo_acquired(args: argparse.Namespace) -> int:
+    if not args.db.exists():
+        print(f"No database at {args.db}", file=sys.stderr)
+        return 1
+    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = sources.acquisitions(conn, args.task)
+    except sqlite3.DatabaseError as exc:
+        print(f"repo: cannot read the record: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    for row in rows:
+        print(f"{row['acquired_at']}  task {_escape(row['task_id'])}  "
+              f"{_escape(row['source'])}@{row['revision']}  tree {row['tree'][:12]}  "
+              f"-> {_escape(row['workspace'])}/{_escape(row['directory'])}  "
+              f"(entry {row['source_sha256'][:12]} signed by {_escape(row['signed_by'])}, "
+              f"{_escape(row['source_path'])})")
+    if not rows:
+        print("no repository has been acquired")
+    return 0
+
+
 def _mcp_launcher() -> mcp.Launcher:
     """The sandboxed launcher. A seam for tests on hosts without Seatbelt."""
     return mcp.seatbelt_launcher
@@ -1543,6 +1621,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_operator(args)
     if args.command == "mcp":
         return cmd_mcp(args)
+    if args.command == "repo":
+        return cmd_repo(args)
     if args.command == "status":
         return cmd_status(args)
     if args.command == "watchdog":

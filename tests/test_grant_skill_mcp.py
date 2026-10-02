@@ -436,6 +436,7 @@ OTHER_CALLS: dict[str, dict[str, Any]] = {
     "memory.propose": {"text": "x", "source": "y", "reason": "z"},
     "skill.run": {"skill": "summarise", "script": "scripts/run.sh"},
     "mcp.call": {"server": "fake", "name": "add", "arguments": {}},
+    "workspace.acquire": {"source": "project", "revision": "a" * 40},
 }
 
 

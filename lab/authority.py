@@ -85,6 +85,11 @@ TOOL_LEGS: dict[str, frozenset[Leg]] = {
     # runs with the task's workspace, a minimal environment and no network
     # unless the signed entry and the task's egress list both allow it.
     "mcp.call": frozenset({Leg.UNTRUSTED_INPUT}),
+    # Copies a repository from an operator-signed source on this machine into
+    # the task's workspace (ADR 0008). No network and no secret, but the
+    # repository's files were written by whoever wrote the repository, so a
+    # task that acquires one holds untrusted input whatever its origin.
+    "workspace.acquire": frozenset({Leg.UNTRUSTED_INPUT}),
 }
 
 

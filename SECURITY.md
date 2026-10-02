@@ -1013,6 +1013,54 @@ Not proven yet: the sandboxed run of a real server on the Mac. Seatbelt
 cannot filter by host name, so a server allowed the network has all of it.
 That is why it needs both the signature and the task's grant.
 
+### Repositories in a workspace (ADR 0008)
+
+A repository enters a task's workspace only through the broker tool
+`workspace.acquire`. Nothing else puts one there: no shell command, no file
+copy.
+
+- **Signed sources.** The operator lists each source with a name and the
+  absolute path of a git repository on this machine, a mirror the operator
+  keeps up to date (`lab repo sign`). The entry is signed with the operator
+  key. Unsigned, badly signed or edited entries cannot be used, and nothing
+  can be used without an operator public key. A task is granted named sources
+  at registration.
+- **Exact commit, approve tier.** The call names a source, a full 40-character
+  commit id and one plain directory name at the top of the workspace. A branch,
+  a tag or a short id is refused before anyone is asked. A person sees the
+  source, the commit and the directory, and the approval is bound to the
+  signed entry, so a source signed again needs a new approval.
+- **Nothing comes along.** The copy goes through git's pack protocol, so the
+  source's object store is never linked and an alternates file cannot follow.
+  No template, so no hooks. Only the local file transport is allowed, for that
+  one command. In the copy, symlinks are checked out as plain files, the
+  remote is removed, and the commit is checked out detached. The copy must
+  pass the same checks `git.read` applies, and it must fit the workspace
+  ceilings. It is built in a hidden staging directory and only renamed into
+  place when every check passed. A failure leaves nothing.
+- **Recorded.** Every copy writes one row in `workspace_acquisitions`: task,
+  source, source path, the digest of the signed entry and who signed it,
+  commit, tree, workspace and directory, with an audit event in the same
+  transaction. `lab repo acquired` prints them. The task is tainted, because
+  the repository's files were written by whoever wrote the repository.
+- **Journaled.** The call is non-idempotent in the operation journal. A stop
+  or a timeout during the copy removes the staging directory, so nothing was
+  placed and the call is an ordinary failure. Only a crash of the supervisor
+  during the copy leaves the journal uncertain and holds the task. If the
+  provenance row cannot be written, the copy is removed again and the call
+  raises, so a repository never stays in a workspace without its record.
+
+**One handler holds it.** `repo.read` (`lab/handlers/repo_read.py`) copies a
+commit and runs one read-only git command on it. It holds `workspace.acquire`
+and the three read-only git tools, nothing else. The daemon reads the sources
+file named by `LAB_REPO_SOURCES`. If any entry in it does not verify, or there
+is no operator key, the daemon refuses to start. The tests are in
+`tests/test_workspace_acquire.py`.
+
+Not built: fetching from the network. That needs a git transport through the
+egress gateway. Until then the operator updates the mirror. Not proven yet:
+the copy as the `lab` account from a mirror the operator owns, on the Mac.
+
 ## Fixed
 
 1. Unbounded task leasing. Measured at 19 leased against 1 running slot;

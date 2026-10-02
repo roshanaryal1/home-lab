@@ -93,7 +93,7 @@ def dir_with(tmp_path: Path, name: str, sql: str) -> Path:
 
 def test_fresh_database_is_at_the_latest_version(tmp_path: Path) -> None:
     with TaskQueue(tmp_path / "lab.db") as q:
-        assert current_version(q._conn) == latest_version() == 15
+        assert current_version(q._conn) == latest_version() == 16
         names = {r["name"] for r in q._conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'")}
         assert set(TABLES) <= names
@@ -445,7 +445,7 @@ def test_migration_15_keeps_memories_and_adds_an_unsearchable_proposal_table(
                  "VALUES ('curated', 'kept fact', ?, 's', 'trusted', 'roshan')", ("a" * 64,))
     conn.close()
     with TaskQueue(db) as q:
-        assert current_version(q._conn) == 15
+        assert current_version(q._conn) == latest_version()
         row = q._conn.execute("SELECT text, proposal_id FROM memories").fetchone()
         assert tuple(row) == ("kept fact", None)
         assert q._conn.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -463,3 +463,27 @@ def test_migration_15_keeps_memories_and_adds_an_unsearchable_proposal_table(
         # The full-text index covers memories only, so a proposal is not in it.
         assert q._conn.execute(
             "SELECT COUNT(*) FROM memories_fts WHERE memories_fts MATCH 'x'").fetchone()[0] == 0
+
+
+# ------------------------------------ migration 16: repository provenance (ADR 0008)
+
+
+def test_migration_16_adds_a_provenance_table_that_refuses_a_partial_record(
+        tmp_path: Path) -> None:
+    db = _at_version(tmp_path, 15)
+    with TaskQueue(db) as q:
+        assert current_version(q._conn) == latest_version()
+        insert = ("INSERT INTO workspace_acquisitions (task_id, source, source_path, "
+                  "source_sha256, signed_by, revision, tree, directory, workspace) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        good = ("t", "project", "/srv/project", "a" * 64, "roshan", "b" * 40, "c" * 40,
+                "repo", "task-t-1")
+        q._conn.execute(insert, good)
+        for index, bad in ((3, "short"), (4, ""), (5, "main"), (6, "d" * 64), (7, ""),
+                           (1, "x" * 65)):
+            row = list(good)
+            row[index] = bad
+            with pytest.raises(sqlite3.IntegrityError):
+                q._conn.execute(insert, tuple(row))
+        assert q._conn.execute(
+            "SELECT acquired_at FROM workspace_acquisitions").fetchone()[0]

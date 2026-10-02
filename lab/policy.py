@@ -41,9 +41,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 
 from lab import operator as operator_keys
+from lab import sources
 from lab.audit import append_event
 from lab.memory import Memory
 from lab.queue import NOW_MS, Task, _ts, _utcnow
+from lab.sources import SourceSpec
 
 
 class Tier(StrEnum):
@@ -174,6 +176,26 @@ class PolicyEngine:
         ``memory.propose`` comes here; the owner decides later, elsewhere."""
         return Memory(self._conn).propose(task_id, text, source_id, reason,
                                           source_sha256=source_sha256)
+
+    def record_acquisition(self, task_id: str, spec: SourceSpec, revision: str, tree: str,
+                           directory: str, workspace: str) -> int:
+        """Write where a repository in a workspace came from (ADR 0008).
+
+        The provenance row and its audit event commit together. The broker's
+        ``workspace.acquire`` comes here once the copy is in place.
+        """
+        def write() -> int:
+            row = sources.record(self._conn, task_id, spec, revision, tree, directory,
+                                 workspace)
+            append_event(self._conn, task_id, "workspace_acquired", detail={
+                "provenance": row, "source": spec.name, "source_sha256": spec.digest(),
+                "revision": revision, "tree": tree, "dir": directory})
+            return row
+
+        if self._conn.in_transaction:
+            return write()
+        with self._tx():
+            return write()
 
     def audit(self, task_id: str | None, kind: str, detail: dict[str, Any]) -> None:
         """Append a non-transition event to the hash-chained audit log."""
