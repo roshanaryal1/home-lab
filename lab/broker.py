@@ -61,6 +61,7 @@ import re
 import shutil
 import stat
 import threading
+import time
 import urllib.parse
 import uuid
 from collections.abc import Callable, Iterator
@@ -91,6 +92,7 @@ from lab.memory import MemoryRefused
 from lab.policy import Decision, PolicyEngine, Tier, canonical
 from lab.queue import LeaseToken
 from lab.skillstore import SkillStore, SkillStoreError
+from lab.sources import REVISION, SourceRefused, SourceRegistry, SourceSpec
 from lab.untrusted import MAX_LIMIT, Evidence, clean, extract_evidence
 from lab.vault import Redactor, SecretUnavailable, Vault
 
@@ -215,6 +217,11 @@ TOOL_TIERS: dict[str, Tier] = {
     # entry and the tool's signed fingerprint, so a re-signed server needs a
     # new approval.
     "mcp.call": Tier.APPROVE,
+    # Places a repository from an operator-signed source in the task's
+    # workspace at an exact revision, and records where it came from (ADR
+    # 0008). Approve tier: a person sees the source, the revision and the
+    # directory, and the approval is bound to the signed source entry.
+    "workspace.acquire": Tier.APPROVE,
 }
 
 
@@ -239,6 +246,7 @@ TOOL_EFFECTS: dict[str, str] = {
     "memory.propose": IDEMPOTENT,   # the same text from the same task is one proposal
     "skill.run": NON_IDEMPOTENT,    # untrusted code can do anything to the workspace
     "mcp.call": NON_IDEMPOTENT,     # a server tool can do anything: journaled
+    "workspace.acquire": NON_IDEMPOTENT,  # writes the workspace and a provenance row
 }
 
 # Tools that work on the database. SQLite's one connection lives on the
@@ -272,6 +280,14 @@ MAX_SKILL_ARG_CHARS = 1024
 SKILL_DEFAULT_TIMEOUT = 30.0
 MAX_SKILL_OUTPUT_CHARS = containers.MAX_OUTPUT_BYTES
 SKILL_RUN_PREFIX = "skill-run-"
+
+# workspace.acquire (ADR 0008). One deadline covers the whole copy.
+ACQUIRE_TIMEOUT_SECONDS = 120.0
+ACQUIRE_MAX_OUTPUT = 64 * 1024
+ACQUIRE_STAGING_PREFIX = ".acquire-"
+ACQUIRE_DEFAULT_DIR = "repo"
+# One plain directory at the top of the workspace, never a dot name.
+_ACQUIRE_DIR = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63}$")
 
 # What each tool accepts: field -> (validator, required). Unknown fields
 # are refused, so a model cannot pass options the broker never reviewed.
@@ -327,6 +343,8 @@ TOOL_SCHEMAS: dict[str, dict[str, tuple[_Validator, bool]]] = {
     # called ``tool``: that is the session's own argument (``submit(tool, ...)``).
     "mcp.call": {"server": (_is_str, True), "name": (_is_str, True),
                  "arguments": (_is_json_object, False)},
+    "workspace.acquire": {"source": (_is_str, True), "revision": (_is_str, True),
+                          "dir": (_is_str, False)},
 }
 
 
@@ -611,6 +629,9 @@ class ExecutionBroker:
         self._mcp: McpRegistry | None = None
         self._task_mcp: dict[str, frozenset[str]] = {}
         self._mcp_calls: dict[str, int] = {}
+        # None means workspace.acquire always refuses: no signed sources (ADR 0008).
+        self._sources: SourceRegistry | None = None
+        self._task_sources: dict[str, frozenset[str]] = {}
         self._workspaces: dict[str, Workspace] = {}
         self._calls: dict[str, int] = {}
         self._grants: dict[str, set[str]] = {}
@@ -620,7 +641,8 @@ class ExecutionBroker:
     def open_workspace(self, task_id: str, allowed_tools: set[str],
                        egress_hosts: frozenset[str] | set[str] = frozenset(),
                        connectors: frozenset[str] | set[str] = frozenset(),
-                       mcp_servers: frozenset[str] | set[str] = frozenset()) -> Workspace:
+                       mcp_servers: frozenset[str] | set[str] = frozenset(),
+                       repo_sources: frozenset[str] | set[str] = frozenset()) -> Workspace:
         """Give a task its own directory and an explicit tool allowlist.
 
         The allowlist is per task and default-deny: a tool not named here
@@ -638,6 +660,10 @@ class ExecutionBroker:
         unknown_mcp = set(mcp_servers) - known_mcp
         if unknown_mcp:
             raise ToolNotAllowed(f"unknown MCP servers: {sorted(unknown_mcp)}")
+        known_sources = set(self._sources.names) if self._sources is not None else set()
+        unknown_sources = set(repo_sources) - known_sources
+        if unknown_sources:
+            raise ToolNotAllowed(f"unknown repository sources: {sorted(unknown_sources)}")
         # Named here, never by the task; private to the lab user.
         path = self.workspace_root / f"task-{task_id}-{uuid.uuid4().hex[:8]}"
         path.mkdir(mode=0o700, parents=False, exist_ok=False)
@@ -650,6 +676,7 @@ class ExecutionBroker:
             raise ToolNotAllowed(f"unknown connectors: {sorted(unknown_connectors)}")
         self._task_connectors[task_id] = frozenset(connectors)
         self._task_mcp[task_id] = frozenset(mcp_servers)
+        self._task_sources[task_id] = frozenset(repo_sources)
         self._mcp_calls[task_id] = 0
         self._calls[task_id] = 0
         return ws
@@ -666,6 +693,15 @@ class ExecutionBroker:
     def mcp_registry(self) -> McpRegistry | None:
         """The registry ``set_mcp`` installed, for trusted registration code."""
         return self._mcp
+
+    def set_sources(self, registry: SourceRegistry) -> None:
+        """Trusted registration of the operator's signed repository sources (ADR 0008)."""
+        self._sources = registry
+
+    @property
+    def sources_registry(self) -> SourceRegistry | None:
+        """The registry ``set_sources`` installed, for trusted registration code."""
+        return self._sources
 
     def set_summarizer(self, summarizer: Callable[[Evidence], str]) -> None:
         """Trusted registration of the bounded model behind net.summarize.
@@ -689,6 +725,7 @@ class ExecutionBroker:
         self._egress_hosts.pop(task_id, None)
         self._task_connectors.pop(task_id, None)
         self._task_mcp.pop(task_id, None)
+        self._task_sources.pop(task_id, None)
         self._mcp_calls.pop(task_id, None)
         self._calls.pop(task_id, None)
         if ws is not None:
@@ -719,6 +756,8 @@ class ExecutionBroker:
             "memory.propose": self._tool_memory_propose,
             "skill.run": lambda req, ws: self._run_job_sync(self._job_skill_run(req)),
             "mcp.call": lambda req, ws: self._run_job_sync(self._job_mcp_call(req)),
+            "workspace.acquire":
+                lambda req, ws: self._run_job_sync(self._job_workspace_acquire(req)),
         }
 
     def session(self, ctx: ExecutionContext) -> ToolSession:
@@ -779,6 +818,13 @@ class ExecutionBroker:
             # person.
             if not self._journal_would_replay(ctx, request):
                 self._check_mcp_budget(request.task_id)
+        if request.tool == "workspace.acquire":
+            # The same again: an unsigned source, a source the task does not
+            # hold or a revision that is not a commit id never reaches a person.
+            # A directory already in use is refused too, unless the journal will
+            # replay this call, which then found it in use because it made it.
+            self._precheck_acquire(request,
+                                   fresh=not self._journal_would_replay(ctx, request))
         used = self._calls.get(request.task_id, 0)
         if used >= MAX_CALLS_PER_TASK:
             raise QuotaExceeded(f"tool call ceiling {MAX_CALLS_PER_TASK} reached")
@@ -945,7 +991,8 @@ class ExecutionBroker:
                 "net.summarize": self._job_net_summarize,
                 "connector.call": self._job_connector_call,
                 "skill.run": self._job_skill_run,
-                "mcp.call": self._job_mcp_call}.get(tool)
+                "mcp.call": self._job_mcp_call,
+                "workspace.acquire": self._job_workspace_acquire}.get(tool)
 
     def _flush_job(self, job: NetJob) -> None:
         """Write the gateway events the thread buffered, on the loop's thread.
@@ -1038,6 +1085,11 @@ class ExecutionBroker:
                 spec = self._precheck_mcp(request)
                 preconditions = {**(preconditions or {}), "server_sha256": spec.digest(),
                                  "tool_sha256": spec.tools[request.params["name"]]}
+            if request.tool == "workspace.acquire":
+                # Bound to the signed source entry, so a source the operator
+                # re-signs, or points at another path, needs a new approval.
+                source, _ = self._precheck_acquire(request, fresh=False)
+                preconditions = {**(preconditions or {}), "source_sha256": source.digest()}
             verdict = self.policy.authorize_tool(
                 request.task_id, request.tool, request.params, tier, preconditions,
             )
@@ -1464,6 +1516,92 @@ class ExecutionBroker:
                 "description": extract_evidence(outcome.description, source_type="document",
                                                 source_id=f"{source}#description").as_payload(),
             }, error="the MCP tool reported an error" if outcome.is_error else None)
+
+        job.perform, job.finish = perform, finish
+        return job
+
+    # ---- workspace.acquire (ADR 0008): a signed source, an exact revision
+    #
+    # The only way a repository enters a workspace. Every check that can fail
+    # without copying runs in ``_prepare``, so a person is never asked to
+    # approve a refusal. The copy runs in a thread under the task's cancel
+    # flag, into a hidden staging directory that is checked as git.read checks
+    # a repository and only then renamed into place. The provenance row and
+    # the taint are written on the loop's thread, in ``finish``.
+
+    def _precheck_acquire(self, request: ToolRequest, *,
+                          fresh: bool) -> tuple[SourceSpec, str]:
+        """The verified source and the directory to fill, or a refusal.
+
+        ``fresh`` also refuses a directory that already exists. It is off when
+        the journal will replay the call: that directory is this call's own.
+        """
+        params = request.params
+        name = params["source"]
+        if self._sources is None:
+            raise ToolNotAllowed("no repository sources are configured")
+        if name not in self._task_sources.get(request.task_id, frozenset()):
+            raise ToolNotAllowed(
+                f"task {request.task_id} has no grant for repository source {name!r}")
+        try:
+            spec = self._sources.verified(name)
+        except SourceRefused as exc:
+            raise ToolNotAllowed(str(exc)) from None
+        if not REVISION.fullmatch(params["revision"]):
+            raise InvalidParams("workspace.acquire: revision must be a full 40-character "
+                                "commit id, never a branch or a tag")
+        directory = params.get("dir", ACQUIRE_DEFAULT_DIR)
+        if not _ACQUIRE_DIR.fullmatch(directory) or _is_protected([directory]):
+            raise InvalidParams(f"workspace.acquire: {directory[:80]!r} is not a plain "
+                                "directory name at the top of the workspace")
+        ws = self._workspace_for(request.task_id)
+        if fresh and os.path.lexists(ws.root / directory):
+            raise InvalidParams(f"workspace.acquire: {directory!r} already exists")
+        return spec, directory
+
+    def _job_workspace_acquire(self, request: ToolRequest) -> NetJob:
+        spec, directory = self._precheck_acquire(request, fresh=True)
+        git = shutil.which("git", path=GIT_PATH)
+        if git is None:
+            return NetJob.refused(request.tool, "git is not installed")
+        task_id, revision = request.task_id, request.params["revision"]
+        ws = self._workspace_for(task_id)
+        staging = f"{ACQUIRE_STAGING_PREFIX}{uuid.uuid4().hex[:12]}"
+        job = NetJob(request.tool)
+
+        def perform() -> Any:
+            try:
+                with self._cancel_flag(task_id) as cancel:
+                    tree = _acquire(git, spec, revision, ws, staging, cancel)
+                files, used = ws.usage()
+                if files > ws.max_files or used > ws.max_bytes:
+                    raise QuotaExceeded(
+                        f"the repository needs {files} files and {used} bytes, over the "
+                        f"workspace ceiling of {ws.max_files} files and {ws.max_bytes} bytes")
+                with ws.dir_fd([]) as root:
+                    if os.path.lexists(ws.root / directory):
+                        raise InvalidParams(f"workspace.acquire: {directory!r} already exists")
+                    os.rename(staging, directory, src_dir_fd=root, dst_dir_fd=root)
+                return tree, files, used
+            except (BrokerError, OSError) as exc:
+                return exc
+            finally:
+                _remove_entry(ws, staging)      # gone already once it was renamed
+
+        def finish(outcome: Any) -> ToolResult:
+            detail: dict[str, Any] = {"source": spec.name, "revision": revision,
+                                      "dir": directory, "source_sha256": spec.digest()}
+            if isinstance(outcome, Exception):
+                return ToolResult(False, request.tool, detail,
+                                  error=f"{type(outcome).__name__}: {clean(str(outcome))[:500]}")
+            tree, files, used = outcome
+            assert self.policy is not None, "_authorize refuses every call without policy"
+            provenance = self.policy.record_acquisition(task_id, spec, revision, tree,
+                                                        directory, ws.root.name)
+            # The repository's files were written by whoever wrote the repository.
+            self.policy.taint(task_id, f"placed repository {spec.name} in its workspace")
+            return ToolResult(True, request.tool, {**detail, "tree": tree, "files": files,
+                                                   "bytes": used, "provenance": provenance})
 
         job.perform, job.finish = perform, finish
         return job
@@ -1910,6 +2048,78 @@ def _git_repository(ws: Workspace, relative: str) -> tuple[Path, Path]:
     with ws.dir_fd(gitdir) as git_fd:
         _check_git_directory(git_fd)
     return ws.root.joinpath(*parts), ws.root.joinpath(*gitdir)
+
+
+class AcquireFailed(BrokerError):
+    """The copy did not finish. Nothing was placed in the workspace."""
+
+
+def _acquire_environment(root: Path) -> dict[str, str]:
+    """The whole environment git gets for a copy. No system or home configuration."""
+    return {
+        "PATH": GIT_PATH, "HOME": str(root), "LANG": "C.UTF-8",
+        "GIT_CEILING_DIRECTORIES": str(root.parent),
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_ATTR_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
+        "GIT_NO_REPLACE_OBJECTS": "1", "GIT_PROTOCOL_FROM_USER": "0",
+        "GIT_PAGER": "cat", "PAGER": "cat",
+    }
+
+
+def _acquire(git: str, spec: SourceSpec, revision: str, ws: Workspace, staging: str,
+             cancel: threading.Event) -> str:
+    """Copy ``revision`` of the source into ``staging``, check it, and return its tree.
+
+    The clone goes through git's pack protocol (``--no-local``), so nothing of
+    the source's object store is linked or copied as files, and an alternates
+    file cannot come along. No template, so no hooks. The local file transport
+    is the only one allowed, for this one command. Then, inside the copy:
+    symlinks are checked out as plain files, the remote is removed so the copy
+    points nowhere outside, and the exact commit is checked out detached. The
+    result must pass the same checks git.read applies before it runs.
+    """
+    target = ws.root / staging
+    deadline = time.monotonic() + ACQUIRE_TIMEOUT_SECONDS
+    base = _acquire_environment(ws.root)
+
+    def run(*args: str, inside: bool = True, safety: tuple[str, ...] = (),
+            cap: int = ACQUIRE_MAX_OUTPUT) -> bytes:
+        env = dict(base)
+        if inside:
+            env.update(GIT_DIR=str(target / ".git"), GIT_WORK_TREE=str(target))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AcquireFailed(f"the copy took longer than {ACQUIRE_TIMEOUT_SECONDS:.0f} s")
+        done = sandbox._execute([git, *_GIT_SAFETY, *safety, *args],
+                                cwd=str(target if inside else ws.root), env=env,
+                                timeout=remaining, cap=cap, cancel=cancel)
+        if done.cancelled:
+            raise AcquireFailed("cancelled by a stop")
+        if done.timed_out:
+            raise AcquireFailed(f"the copy took longer than {ACQUIRE_TIMEOUT_SECONDS:.0f} s")
+        if done.returncode != 0:
+            err = clean(done.stderr.decode("utf-8", errors="replace")).strip()[-500:]
+            raise AcquireFailed(f"git {args[0]} failed: {err or done.returncode}")
+        if done.truncated:
+            raise AcquireFailed(f"git {args[0]} wrote more than can be checked")
+        return done.stdout
+
+    run("clone", "--no-local", "--no-checkout", "--quiet", "--template=", "--",
+        spec.path, str(target), inside=False,
+        safety=("-c", "protocol.file.allow=always", "-c", f"safe.directory={spec.path}"))
+    run("config", "core.symlinks", "false")
+    try:
+        found = run("rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}")
+    except AcquireFailed:
+        raise AcquireFailed(f"{revision} is not a commit in source {spec.name!r}") from None
+    if found.decode("ascii", "replace").strip() != revision:
+        raise AcquireFailed(f"{revision} is not a commit in source {spec.name!r}")
+    tree = run("rev-parse", "--verify", f"{revision}^{{tree}}").decode("ascii").strip()
+    run("remote", "remove", "origin")
+    run("checkout", "--quiet", "--detach", revision)
+    _git_repository(ws, staging)
+    _check_index_paths(run("ls-files", "-z", "--cached", cap=GIT_MAX_INDEX_BYTES))
+    return tree
 
 
 def _check_index_paths(listing: bytes) -> None:

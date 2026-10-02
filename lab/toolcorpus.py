@@ -52,6 +52,7 @@ NOT_IN_CORPUS = {
     # are the operator's choice and change with the config, so a call to one
     # is not a fixed prompt a held-out corpus can grade.
     "mcp.call": "added after registration, and its tools come from the signed config (#256)",
+    "workspace.acquire": "added after registration (ADR 0008)",
 }
 PER_TOOL = 10
 PLAIN = "toolcalls-v1.jsonl"

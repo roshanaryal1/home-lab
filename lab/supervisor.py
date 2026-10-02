@@ -45,6 +45,7 @@ from lab.mcp import McpError, McpRegistry, load_servers
 from lab.operator import load_public
 from lab.policy import Decision, PolicyEngine
 from lab.queue import LeaseLost, LeaseToken, PayloadTooLarge, Task, TaskQueue
+from lab.sources import SourceError, SourceRegistry, load_sources
 from lab.vault import Vault
 from lab.worker import CeilingExceeded, check_reference, run_in_worker
 
@@ -170,6 +171,10 @@ class SupervisorConfig:
     # A server can be called only if its entry verifies against the operator
     # public key above, so without that key no MCP server can run (#256).
     mcp_servers_file: str | Path | None = None
+    # JSON list of operator-signed repository sources (lab.sources.load_sources).
+    # workspace.acquire copies only from a source whose entry verifies against
+    # the operator public key above (ADR 0008).
+    repo_sources_file: str | Path | None = None
     # A worker slot that fails this many times in a row stops and marks
     # the supervisor unhealthy, rather than spinning on a broken
     # dependency (item 1.8).
@@ -232,6 +237,9 @@ class Supervisor:
         if config.mcp_servers_file:
             self.broker.set_mcp(McpRegistry(load_servers(Path(config.mcp_servers_file)),
                                             self._control_key))
+        if config.repo_sources_file:
+            self.broker.set_sources(SourceRegistry(
+                load_sources(Path(config.repo_sources_file)), self._control_key))
         self.artifacts = ArtifactStore(
             config.artifact_root or Path(config.db_path).parent / "artifacts",
             self.queue._conn)
@@ -240,6 +248,7 @@ class Supervisor:
         self._egress_hosts: dict[str, frozenset[str]] = {}
         self._connector_grants: dict[str, frozenset[str]] = {}
         self._mcp_grants: dict[str, frozenset[str]] = {}
+        self._source_grants: dict[str, frozenset[str]] = {}
         self.stats = SupervisorStats()
         self._handlers: dict[str, Handler] = {}
         self._stopping = asyncio.Event()
@@ -265,7 +274,8 @@ class Supervisor:
                  sensitive_data: bool = False, external_action: bool = False,
                  egress_hosts: frozenset[str] | set[str] = frozenset(),
                  connectors: frozenset[str] | set[str] = frozenset(),
-                 mcp_servers: frozenset[str] | set[str] = frozenset()) -> None:
+                 mcp_servers: frozenset[str] | set[str] = frozenset(),
+                 repo_sources: frozenset[str] | set[str] = frozenset()) -> None:
         """Register reviewed handler code and the tools it may request.
 
         The allowlist lives here, in trusted registration, not on the
@@ -280,6 +290,7 @@ class Supervisor:
         self._egress_hosts[agent_kind] = parse_allowlist(egress_hosts)
         self._connector_grants[agent_kind] = frozenset(connectors)
         self._mcp_grants[agent_kind] = frozenset(mcp_servers)
+        self._source_grants[agent_kind] = frozenset(repo_sources)
 
     def register_reviewed(self, agent_kind: str, ref: str,
                           tools: frozenset[str] | set[str] = frozenset(), *,
@@ -287,7 +298,8 @@ class Supervisor:
                           external_action: bool = False,
                           egress_hosts: frozenset[str] | set[str] = frozenset(),
                           connectors: frozenset[str] | set[str] = frozenset(),
-                          mcp_servers: frozenset[str] | set[str] = frozenset()) -> None:
+                          mcp_servers: frozenset[str] | set[str] = frozenset(),
+                          repo_sources: frozenset[str] | set[str] = frozenset()) -> None:
         """Register a reviewed handler that runs in its own worker process.
 
         ``ref`` is ``lab.handlers.<module>:<function>``; anything else is
@@ -317,7 +329,8 @@ class Supervisor:
 
         self.register(agent_kind, in_worker, tools, sensitive_data=sensitive_data,
                       external_action=external_action, egress_hosts=egress_hosts,
-                      connectors=connectors, mcp_servers=mcp_servers)
+                      connectors=connectors, mcp_servers=mcp_servers,
+                      repo_sources=repo_sources)
 
     def _handler_for(self, task: Task) -> Handler | None:
         return self._handlers.get(task.agent_kind or "", None)
@@ -597,7 +610,8 @@ class Supervisor:
                 task.id, set(self._tools.get(task.agent_kind or "", ())),
                 self._egress_hosts.get(task.agent_kind or "", frozenset()),
                 self._connector_grants.get(task.agent_kind or "", frozenset()),
-                self._mcp_grants.get(task.agent_kind or "", frozenset()))
+                self._mcp_grants.get(task.agent_kind or "", frozenset()),
+                self._source_grants.get(task.agent_kind or "", frozenset()))
         ctx = ExecutionContext(task_id=task.id, agent_kind=task.agent_kind or "",
                                attempt=task.attempts, lease=token)
         ceiling = asyncio.timeout(self.config.task_timeout_seconds)
@@ -757,7 +771,8 @@ def main(argv: list[str] | None = None) -> int:
         from lab import handlers
         sup = Supervisor(SupervisorConfig(db_path=args.db,
                                           require_operator_key=not args.allow_unsigned,
-                                          mcp_servers_file=handlers.mcp_servers_file_from_env()))
+                                          mcp_servers_file=handlers.mcp_servers_file_from_env(),
+                                          repo_sources_file=handlers.repo_sources_file_from_env()))
         try:
             handlers.register_all(sup)
         except BaseException:
@@ -779,8 +794,8 @@ def main(argv: list[str] | None = None) -> int:
     except MissingOperatorKey as exc:
         print(f"supervisor: {exc}", file=sys.stderr)
         return 2
-    except McpError as exc:
-        # A malformed or unsigned MCP servers file stops the daemon at start.
+    except (McpError, SourceError) as exc:
+        # A malformed or unsigned MCP servers or sources file stops the daemon at start.
         print(f"supervisor: {exc}", file=sys.stderr)
         return 2
     return 0

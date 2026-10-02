@@ -89,13 +89,22 @@ keyboard so no secret travels through the repository.
   `lab mcp snapshot <server> --allow <tools> --key <operator key> --by <you>`
   and add the signed entry to `/etc/homelab/mcp.json`. Nothing runs from an
   unsigned entry.
+- **Repository sources (ADR 0008), if you want any.** Keep a mirror of each
+  repository on the Mac, readable by `lab`. For each, run
+  `lab repo sign <name> <path> --key <operator key> --by <you>` and add the
+  printed entry to `/etc/homelab/sources.json`. Check with `lab repo list`.
+  Then set `LAB_REPO_SOURCES` to that file in the supervisor plist, as below.
+  Check that one `repo.read` task copies a commit as `lab` from a mirror you
+  own. If git refuses the mirror for its owner, fix the mirror's ownership or
+  permissions, not the check.
 - **Turn on the two granted handlers, if you want them.** The supervisor only
   registers the `skill.run` handler when `LAB_CONTAINER_IMAGE` is set, and the
   `mcp.call` handler when `LAB_MCP_SERVERS` names the signed server file. Add
-  both to the `EnvironmentVariables` of the installed
+  both, and `LAB_REPO_SOURCES` if you signed sources, to the
+  `EnvironmentVariables` of the installed
   `com.homelab.supervisor.plist`, then reload it. If any entry in the server
-  file is unsigned, the supervisor exits with code 2 and does not start. Check
-  `lab.cli status` says `IDLE` afterwards.
+  or sources file is unsigned, the supervisor exits with code 2 and does not
+  start. Check `lab.cli status` says `IDLE` afterwards.
 
 ## 3. Real-container and real-sandbox checks
 
@@ -150,7 +159,7 @@ This is the main step of M7, the first release.
   uses a 5 minute grace.
 - **Decisions made later the same day (ADR 0008).** Containers stay behind
   `skill.run`. A repository enters a workspace only through an explicit
-  `workspace.acquire` step that records provenance (not built yet). An MCP
+  `workspace.acquire` step that records provenance (built 2026-10-02). An MCP
   error reply is a failure, and only a call whose outcome is unknown is held.
 - **Make each paper citable (#83).** A Zenodo account and a release. No Mac
   needed, but it needs your account.

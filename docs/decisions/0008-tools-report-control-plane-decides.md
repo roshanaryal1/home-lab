@@ -52,6 +52,18 @@ puts one there. Building `workspace.acquire` is follow-up work. It is
 approve tier, journaled, and fetching from the network goes through the
 egress gateway.
 
+*Update, 2026-10-02: built.* `workspace.acquire` is a broker tool, approve
+tier, journaled (`lab/broker.py`). Sources are signed entries in the file
+named by `LAB_REPO_SOURCES` (`lab/sources.py`, `lab repo sign`). The
+revision must be a full commit id. The copy has no hooks, no remote and no
+symlinks, and it passes the `git.read` checks before it is placed. Each copy
+is a row in `workspace_acquisitions` (migration 16), printed by
+`lab repo acquired`. The `repo.read` handler copies a commit and runs one
+read-only git command on it. One change from the text above: sources are
+local repositories only. A git transport through the egress gateway does not
+exist, so nothing is fetched from the network. The operator keeps the mirror
+up to date. The tests are in `tests/test_workspace_acquire.py`.
+
 ## 3. An MCP error is a failure, not a hold
 
 An MCP server that replies with an error (a JSON-RPC error, a tool error,
