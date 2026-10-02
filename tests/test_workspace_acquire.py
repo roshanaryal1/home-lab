@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from lab import broker as broker_module
 from lab import cli, handlers, loop, sources
 from lab import operator as op
 from lab.authority import TOOL_LEGS, AgentCapability, Leg, check, held_legs
@@ -330,6 +332,43 @@ def test_a_repository_over_the_workspace_ceiling_is_refused_and_removed(
     broker._workspaces["t1"].max_files = 3
     result = approved(broker, source="project", revision=mirror.second)
     assert not result.ok and "QuotaExceeded" in (result.error or "")
+    assert leftovers(root) == [] and provenance(queue) == []
+
+
+@pytest.mark.safety
+def test_a_copy_whose_provenance_cannot_be_written_is_removed(
+        broker: ExecutionBroker, queue: TaskQueue, keys: tuple[Any, Any, Path],
+        mirror: Mirror, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = open_ws(broker, keys, signed(keys, mirror))
+    with pytest.raises(ApprovalRequired) as asked:
+        submit(broker, source="project", revision=mirror.first)
+    assert broker.policy is not None
+    broker.policy.grant(asked.value.approval_id, decided_by="operator")
+
+    def fail(*args: Any, **kwargs: Any) -> int:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(broker.policy, "record_acquisition", fail)
+    with pytest.raises(sqlite3.OperationalError):
+        submit(broker, source="project", revision=mirror.first)
+    assert leftovers(root) == [] and provenance(queue) == []
+
+
+@pytest.mark.safety
+def test_a_stop_during_the_copy_leaves_nothing_and_is_a_known_failure(
+        broker: ExecutionBroker, queue: TaskQueue, keys: tuple[Any, Any, Path],
+        mirror: Mirror) -> None:
+    root = open_ws(broker, keys, signed(keys, mirror))
+    with pytest.raises(ApprovalRequired) as asked:
+        submit(broker, source="project", revision=mirror.first)
+    assert broker.policy is not None
+    broker.policy.grant(asked.value.approval_id, decided_by="operator")
+    job = broker._job_workspace_acquire(
+        broker_module.ToolRequest("workspace.acquire",
+                                  {"source": "project", "revision": mirror.first}, "t1"))
+    broker.revoke()                 # an emergency stop while the copy runs
+    result = job.finish(job.perform())
+    assert not result.ok and "cancelled by a stop" in (result.error or "")
     assert leftovers(root) == [] and provenance(queue) == []
 
 

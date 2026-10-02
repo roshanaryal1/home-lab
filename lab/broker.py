@@ -1596,8 +1596,13 @@ class ExecutionBroker:
                                   error=f"{type(outcome).__name__}: {clean(str(outcome))[:500]}")
             tree, files, used = outcome
             assert self.policy is not None, "_authorize refuses every call without policy"
-            provenance = self.policy.record_acquisition(task_id, spec, revision, tree,
-                                                        directory, ws.root.name)
+            try:
+                provenance = self.policy.record_acquisition(task_id, spec, revision, tree,
+                                                            directory, ws.root.name)
+            except BaseException:
+                # No record, no copy: a repository never stays without its provenance.
+                _remove_entry(ws, directory)
+                raise
             # The repository's files were written by whoever wrote the repository.
             self.policy.taint(task_id, f"placed repository {spec.name} in its workspace")
             return ToolResult(True, request.tool, {**detail, "tree": tree, "files": files,

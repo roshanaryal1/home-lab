@@ -1043,8 +1043,12 @@ copy.
   commit, tree, workspace and directory, with an audit event in the same
   transaction. `lab repo acquired` prints them. The task is tainted, because
   the repository's files were written by whoever wrote the repository.
-- **Journaled.** The call is non-idempotent in the operation journal. A copy
-  cut off part way leaves the journal uncertain and holds the task.
+- **Journaled.** The call is non-idempotent in the operation journal. A stop
+  or a timeout during the copy removes the staging directory, so nothing was
+  placed and the call is an ordinary failure. Only a crash of the supervisor
+  during the copy leaves the journal uncertain and holds the task. If the
+  provenance row cannot be written, the copy is removed again and the call
+  raises, so a repository never stays in a workspace without its record.
 
 **One handler holds it.** `repo.read` (`lab/handlers/repo_read.py`) copies a
 commit and runs one read-only git command on it. It holds `workspace.acquire`
