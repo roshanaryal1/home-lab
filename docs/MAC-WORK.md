@@ -148,8 +148,10 @@ This is the main step of M7, the first release.
   signature, the egress list and the approve tier. `skill.run` and `mcp.call`
   are granted to reviewed handlers, still at the approve tier. The heartbeat
   uses a 5 minute grace.
-- **Decisions still open.** Whether containers become a general broker tool
-  or stay behind `skill.run`. How a repository gets into a git workspace.
+- **Decisions made later the same day (ADR 0008).** Containers stay behind
+  `skill.run`. A repository enters a workspace only through an explicit
+  `workspace.acquire` step that records provenance (not built yet). An MCP
+  error reply is a failure, and only a call whose outcome is unknown is held.
 - **Make each paper citable (#83).** A Zenodo account and a release. No Mac
   needed, but it needs your account.
 - **An independent security review.** The safety claims have only been checked
