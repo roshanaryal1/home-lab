@@ -30,6 +30,7 @@ import json
 import secrets
 import shutil
 import socket
+import statistics
 import subprocess
 import tempfile
 import threading
@@ -44,6 +45,7 @@ from lab.container import (
     ContainerExecutor,
     ContainerResult,
     build_list_argv,
+    check_image,
 )
 from lab.prereg import DOC, ROOT, PreregError, load_frozen
 
@@ -57,15 +59,16 @@ PUBLIC = "93.184.216.34"
 
 
 class Observer:
-    """Counts what reaches this host: TCP connections and UDP datagrams, any interface."""
+    """Counts TCP connections and UDP datagrams that reach this host's own address."""
 
-    def __init__(self) -> None:
+    def __init__(self, address: str) -> None:
+        # The one address the scripts aim at, so only that is bound, not every interface.
         self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.tcp.bind(("0.0.0.0", 0))
+        self.tcp.bind((address, 0))
         self.port = self.tcp.getsockname()[1]
         self.tcp.listen(16)
         self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.udp.bind(("0.0.0.0", self.port))
+        self.udp.bind((address, self.port))
         self.seen: list[str] = []
         self._stop = threading.Event()
         self._lock = threading.Lock()
@@ -126,6 +129,7 @@ def host_address() -> str:
 
 def _out(case_id: str, command: str) -> str:
     return (f"{command}\nrc=$?\necho \"ATTEMPT {case_id} rc=$rc\"\n"
+            f"[ \"$rc\" -eq 127 ] && echo \"MISSING_TOOL {case_id}\"\n"
             f"[ \"$rc\" -eq 0 ] && echo \"OUT_OK {case_id}\"\n")
 
 
@@ -173,7 +177,9 @@ def host_script(case_id: str, area: Path, canary: Path) -> str:
               "mount -t tmpfs none /mnt",
         "09": f"ln {canary} /work/hardlink-a; ln /etc/passwd /work/hardlink-b",
     }
-    return f"#!/bin/sh\n{commands[n]}\necho \"HOSTCASE-DONE {case_id}\"\n"
+    visible = (f"for p in {canary} {watch} /Users /Volumes /private/etc/hosts; do "
+               f"[ -e \"$p\" ] && echo \"HOST_VISIBLE $p\"; done\n")
+    return (f"#!/bin/sh\n{visible}{commands[n]}\necho \"HOSTCASE-DONE {case_id}\"\n")
 
 
 def survivor_script(case_id: str) -> str:
@@ -216,6 +222,7 @@ class M5Report:
     results: list[CaseResult]
     controls: dict[str, bool]
     host_visible: str
+    median_wall_seconds: float = 0.0
 
     @property
     def failures(self) -> int:
@@ -257,6 +264,9 @@ def grade_network(result: ContainerResult, observed: int, case_id: str) -> tuple
     elif set(ifaces) - {"lo"}:
         failed = True
         notes.append(f"the guest has a non-loopback interface: {ifaces}")
+    if f"MISSING_TOOL {case_id}" in out:
+        failed = True
+        notes.append("a tool the attempt needs is missing from the image, so it did not try")
     if f"OUT_OK {case_id}" in out:
         failed = True
         notes.append("an outbound command succeeded in the guest")
@@ -291,6 +301,9 @@ def grade_host(result: ContainerResult, before: dict[str, Any], after: dict[str,
     if "launchd" in text or "WindowServer" in text:
         failed = True
         notes.append("host process names appeared in the guest's output")
+    if "HOST_VISIBLE" in result.stdout:
+        failed = True
+        notes.append("a host path is visible inside the guest")
     if f"HOSTCASE-DONE {case_id}" not in result.stdout:
         failed = True
         notes.append("the script did not run to its end")
@@ -303,10 +316,16 @@ def grade_host(result: ContainerResult, before: dict[str, Any], after: dict[str,
 # ------------------------------------------------------------------ the runner
 
 
+WALLS: list[float] = []
+
+
 def _run(executor: ContainerExecutor, workspace: Path, script: str, name: str) -> ContainerResult:
     (workspace / "attempt.sh").write_text(script)
-    return executor.run(workspace, ["sh", "/work/attempt.sh"], task_id=name,
-                        timeout=GUEST_TIMEOUT)
+    started = time.monotonic()
+    result = executor.run(workspace, ["sh", "/work/attempt.sh"], task_id=name,
+                          timeout=GUEST_TIMEOUT)
+    WALLS.append(time.monotonic() - started)
+    return result
 
 
 def _listed(cli: str) -> list[str]:
@@ -354,25 +373,28 @@ def run_m5(image: str, cases: Path = M5_CASES, doc: Path = DOC) -> M5Report:
     digest, rows = load_frozen(cases, doc)
     if len(rows) != 30:
         raise PreregError(f"expected 30 cases, found {len(rows)}")
+    check_image(image)                       # refuses before anything is created
     runtime = AppleContainerRuntime()
     cli = runtime.cli()
     if cli is None:
         raise PreregError("no container runtime on this host")
     base = Path(tempfile.mkdtemp(prefix="m5-"))
-    root = base / "workspaces"
-    area = base / "host-area"
-    root.mkdir()
-    (area / "watch").mkdir(parents=True)
-    token = "M5-CANARY-" + secrets.token_hex(12)
-    canary = area / "canary.txt"
-    canary.write_text(token + "\n")
-    observer = Observer()
-    host = host_address()
-    executor = ContainerExecutor(runtime, root, ContainerConfig(image=image))
+    observer: Observer | None = None
     results: list[CaseResult] = []
     markers: list[tuple[str, Path, ContainerResult]] = []
+    WALLS.clear()
     removed_at = 0.0
     try:
+        root = base / "workspaces"
+        area = base / "host-area"
+        root.mkdir()
+        (area / "watch").mkdir(parents=True)
+        token = "M5-CANARY-" + secrets.token_hex(12)
+        canary = area / "canary.txt"
+        canary.write_text(token + "\n")
+        host = host_address()
+        observer = Observer(host)
+        executor = ContainerExecutor(runtime, root, ContainerConfig(image=image))
         controls = {"observer_sees_a_connection": _observer_control(observer, host)}
         for row in rows:
             case_id, category = str(row["id"]), str(row["id"]).split("-")[1]
@@ -423,11 +445,13 @@ def run_m5(image: str, cases: Path = M5_CASES, doc: Path = DOC) -> M5Report:
                        CaseResult(r.id, r.category, r.expected, "survivor", True,
                                   r.detail + probe_notes) for r in results]
         controls["survivor_marker_works_while_alive"] = _marker_control(executor, root)
+        observed = f"listener on {host}:{observer.port}, TCP and UDP"
     finally:
-        observer.close()
+        if observer is not None:
+            observer.close()
         shutil.rmtree(base, ignore_errors=True)
-    return M5Report(digest, image, results, controls,
-                    f"listener on {host}:{observer.port}, TCP and UDP")
+    median = statistics.median(WALLS) if WALLS else 0.0
+    return M5Report(digest, image, results, controls, observed, median)
 
 
 def print_report(report: M5Report) -> None:
@@ -439,6 +463,8 @@ def print_report(report: M5Report) -> None:
         print(f"{'ok  ' if ok else 'FAIL'}  control {name}")
     print(f"\ncases file sha256 {report.cases_sha256} (matches the doc)")
     print(f"image {report.image}\nobserver {report.host_visible}")
+    print(f"median wall time per container run (start, script, removal): "
+          f"{report.median_wall_seconds:.2f} s")
     print(f"{len(report.results)} cases, {report.failures} failure(s) (target 0)")
     for name in ("net", "host", "survivor"):
         rows = report.category(name)
@@ -449,4 +475,5 @@ def as_json(report: M5Report) -> str:
     return json.dumps({"cases_sha256": report.cases_sha256, "image": report.image,
                        "failures": report.failures, "controls": report.controls,
                        "observer": report.host_visible,
+                       "median_wall_seconds": round(report.median_wall_seconds, 3),
                        "results": [r.__dict__ for r in report.results]}, indent=2)

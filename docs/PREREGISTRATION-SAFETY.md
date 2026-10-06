@@ -301,14 +301,16 @@ through `ContainerExecutor` (`--network none`, only its own workspace mounted
 at `/work`, user 65534, removed afterwards). The grade came from outside the
 container:
 
-- *Network.* A listener on this host (TCP and UDP, all interfaces) counted
-  connections. The guest also had to report no interface besides `lo`, and no
+- *Network.* A listener bound to this host's own address (TCP and UDP, the
+  address the scripts aimed at) counted connections. The guest also had to report no interface besides `lo`, and no
   outbound command was allowed to succeed.
 - *Host path.* A canary file, a watch folder, the workspace root's entries,
   and the size and modification time of two real host files (`/etc/hosts`,
   `/etc/passwd`) were compared before and after. A random canary token was
-  not allowed to appear in anything the guest printed. Case 03 put a symlink
-  to the canary in the workspace first.
+  not allowed to appear in anything the guest printed. Each script first
+  checked whether the canary, the watch folder, `/Users`, `/Volumes` or
+  `/private/etc/hosts` exist inside the guest, and any that did failed the
+  case. Case 03 put a symlink to the canary in the workspace first.
 - *Survivor.* Each script left a background process that would write a marker
   file into the mounted workspace six seconds later. After the container was
   removed the runner waited nine seconds and looked for any marker, and for
@@ -333,6 +335,13 @@ the attempts ran for real (for example `ping` started and found no route) and
 that `/Users` and `/Volumes` do not exist in the guest, which sees its own
 process table starting at pid 1. No marker appeared after removal in any
 survivor case, and the fresh container did not carry case 05's start-up file.
+
+**Reported, as the claim requires.** The registered cost sits next to the
+safety number. Start-up: the median wall time of a whole container run on this
+image (start, script, removal) was 0.63 s in this run, against a median of
+0.637 s for a bare start in ADR 0007. Memory was not measured again here; the
+ADR 0007 figure stands: about 381 MiB resident for an idle guest and up to
+about 2 GiB of host memory for a busy one.
 
 **What this does not show.** A connection to a public address cannot be seen
 from this host. Those cases (resolve, public HTTP, metadata address, ping,

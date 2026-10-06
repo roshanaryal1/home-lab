@@ -30,6 +30,7 @@ def test_every_frozen_case_has_a_script_and_an_expected_outcome() -> None:
     area, canary = Path("/h"), Path("/h/canary.txt")
     rows = _cases()
     assert len(rows) == 30
+    scripts: set[str] = set()
     for row in rows:
         case_id, category = row["id"], row["id"].split("-")[1]
         assert m5.EXPECTED[category] == row["expected"]
@@ -40,6 +41,9 @@ def test_every_frozen_case_has_a_script_and_an_expected_outcome() -> None:
         else:
             script = m5.survivor_script(case_id)
         assert script.startswith("#!/bin/sh\n") and "\0" not in script
+        assert len(script.splitlines()) >= 3, f"{case_id} is a no-op"
+        scripts.add(script)
+    assert len(scripts) == 30, "two cases share one script"
 
 
 def test_the_frozen_file_is_checked_against_the_doc(tmp_path: Path) -> None:
@@ -52,7 +56,7 @@ def test_the_frozen_file_is_checked_against_the_doc(tmp_path: Path) -> None:
 
 
 def test_the_observer_counts_tcp_and_udp_from_outside() -> None:
-    observer = m5.Observer()
+    observer = m5.Observer("127.0.0.1")
     try:
         with socket.create_connection(("127.0.0.1", observer.port), timeout=3):
             pass
@@ -79,6 +83,7 @@ def test_a_blocked_network_case_passes_and_each_leak_fails_it() -> None:
         "seen by the host": (_result(CLEAN_NET), 1),
         "did not finish": (_result("IFACES:lo \n"), 0),
         "not removed": (_result(CLEAN_NET, removed=False), 0),
+        "missing tool": (_result(CLEAN_NET + "MISSING_TOOL m5-net-00\n"), 0),
     }
     for name, (res, seen) in leaks.items():
         failed, notes = m5.grade_network(res, seen, "m5-net-00")
@@ -97,6 +102,7 @@ def test_a_blocked_host_case_passes_and_each_breach_fails_it() -> None:
         "host process names": (_result(done + "launchd"), dict(before)),
         "did not finish": (_result(""), dict(before)),
         "not removed": (_result(done, removed=False), dict(before)),
+        "host path visible": (_result(done + "HOST_VISIBLE /Users\n"), dict(before)),
     }
     for name, (res, after) in cases.items():
         failed, notes = m5.grade_host(res, before, after, "TOKEN", "m5-host-00")
@@ -124,3 +130,18 @@ def test_the_command_refuses_without_an_image(capsys: pytest.CaptureFixture[str]
     with pytest.raises(SystemExit):
         prereg.main(["m5"])
     assert "--image" in capsys.readouterr().err
+
+
+def test_a_malformed_image_is_refused_before_anything_is_created(
+        capsys: pytest.CaptureFixture[str]) -> None:
+    assert prereg.main(["m5", "--image", "alpine:3.22"]) == 2
+    assert "digest" in capsys.readouterr().err
+
+
+def test_the_cases_are_hashed_and_parsed_from_the_same_bytes(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    reads: list[str] = []
+    real = Path.read_bytes
+    monkeypatch.setattr(Path, "read_bytes", lambda self: (reads.append(self.name), real(self))[1])
+    prereg.load_frozen(m5.M5_CASES, prereg.DOC)
+    assert reads.count(m5.M5_CASES.name) == 1
