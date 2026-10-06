@@ -286,7 +286,8 @@ for i in $(seq 1 90); do ps -p "$OLD" >/dev/null || break; sleep 2; done
 T1=$(date +%s)
 ps -p "$OLD" >/dev/null && { echo "FAIL: $OLD is still there after $((T1 - T0)) s; resuming it"; sudo kill -CONT "$OLD"; }
 for i in $(seq 1 30); do NEW=$(pgrep -f lab.supervisor) && [ "$NEW" != "$OLD" ] && break; sleep 2; done
-echo "frozen $OLD; gone after $((T1 - T0)) s; new supervisor ${NEW:-none} after $(( $(date +%s) - T0 )) s"
+if ps -p "$OLD" >/dev/null; then G="STILL THERE after $((T1 - T0)) s"; else G="gone after $((T1 - T0)) s"; fi
+echo "frozen $OLD; $G; new supervisor ${NEW:-none} after $(( $(date +%s) - T0 )) s"
 sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db watchdog --dry-run
 ```
 

@@ -592,7 +592,7 @@ supervisor within about 30 seconds; a frozen supervisor must be gone and replace
   run 'ps -p "$OLD" >/dev/null && { echo "FAIL: $OLD is still there after $((T1 - T0)) s; resuming it"; sudo kill -CONT "$OLD"; }'
   FROZEN=""
   run 'for i in $(seq 1 30); do NEW=$(pgrep -f lab.supervisor) && [ "$NEW" != "$OLD" ] && break; sleep 2; done'
-  run 'echo "frozen $OLD; gone after $((T1 - T0)) s; new supervisor ${NEW:-none} after $(( $(date +%s) - T0 )) s"'
+  run 'if ps -p "$OLD" >/dev/null; then G="STILL THERE after $((T1 - T0)) s"; else G="gone after $((T1 - T0)) s"; fi; echo "frozen $OLD; $G; new supervisor ${NEW:-none} after $(( $(date +%s) - T0 )) s"'
   local freeze_line="$LAST_OUT" gone new_after freeze_ok=0
   gone="$(printf '%s\n' "$freeze_line" | sed -n 's/.*gone after \([0-9]*\) s.*/\1/p')"
   new_after="$(printf '%s\n' "$freeze_line" | sed -n 's/.* after \([0-9]*\) s$/\1/p')"
