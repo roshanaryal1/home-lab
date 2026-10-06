@@ -90,7 +90,8 @@ keyboard so no secret travels through the repository.
   and add the signed entry to `/etc/homelab/mcp.json`. Nothing runs from an
   unsigned entry. The server runs under Seatbelt. Besides the system
   folders the profile imports, it can read and write its own task workspace
-  and read only what `read_paths` lists. List every folder or file it needs
+  (except `.git/hooks` and shell start-up files such as `.zshrc` and `.profile`, where
+  writes are denied) and read only what `read_paths` lists. List every folder or file it needs
   that is not under the workspace: the one that holds its interpreter and
   libraries (for a Python server, the Python install folder) and its own script
   or module files. List the exact folders or files it needs, even when one is
