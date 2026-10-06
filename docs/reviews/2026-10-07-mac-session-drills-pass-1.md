@@ -22,6 +22,7 @@ What each step proves, and which issue to paste it into: ops/mac-session.md.
 > 2. This is **pass 1 of 2** of the timed drills for #78 and #271, run on deployed commit `4bfa910` (the watchdog fallback and the drill that waits for the first heartbeat). The first drill killed pid 53081; launchd started 66280; the script waited until the watchdog reported `healthy pid 66280`, checked it again, froze exactly that pid, and the watchdog replaced it with 66453 after **96 s**, under the 120 s target. The earlier failure (`docs/reviews/2026-10-06-mac-session.md`) was a supervisor frozen before its first heartbeat.
 > 3. The `kill -9` line says the new supervisor appeared after 0 s: the first poll ran immediately and launchd had already restarted it, so the restart time is under the 2 s poll interval, not measured more finely.
 > 4. Nothing was run here besides the drills (`--only drills`).
+> 5. The transcript prints the script's own variables (`OLD=$VERIFIED`) and not their values. `VERIFIED` was set by the script to the pid whose heartbeat it had just seen, **66280**, and the freeze went to that pid (`frozen 66280` in the result line). To replay by hand, set `VERIFIED=66280`-style to the pid the watchdog reports as `healthy` after the kill drill, as the runbook's step 6 does.
 
 ## 1. Timed kill and freeze drills (#78)
 
