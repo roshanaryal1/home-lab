@@ -20,7 +20,7 @@ What each step proves, and which issue to paste it into: ops/mac-session.md.
 > **Reading notes, added after the run (the transcript below is otherwise unedited).**
 > 1. The hostname and the operator's home path were replaced with `<mac-mini>` and `/Users/<operator>`; nothing else was changed.
 > 2. The installed alert hook is the Telegram command (`lab.telegram_alert`, config `/etc/homelab/telegram-alert.json`, owned by `lab`, mode 600), set up by hand from `ops/mac-mini-setup.md` section 19 earlier the same hour. A first test message ("homelab test alert") reached the phone, and this step sent a second one through the same hook as `lab`, the path `status` and `selftest` use. The operator confirmed it arrived on the phone; that confirmation is the operator's answer at the prompt, not something the script can see.
-> 3. `min_interval_seconds` is 3600, so the hook sends at most one alert an hour for the same text. The bot's first token was pasted into a chat by mistake and revoked before this setup; the token in use is the replacement.
+> 3. The hook's `min_interval_seconds` is 3600. `lab.alert` applies that cooldown per alert *kind* (not per message text) and only when it is given a state file, as `lab status` and `selftest` do. This step calls `alert.send` with kind `test` and no state file, so it is never throttled and every rerun sends a message. The bot's first token was pasted into a chat by mistake and revoked before this setup; the token in use is the replacement.
 > 4. Only the alert step ran (`--only alert`). The dead-man switch and the chat bot are not set up yet.
 
 ## 1. A test alert reaches the phone (#79, #80)
