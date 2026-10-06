@@ -20,6 +20,9 @@ this, so each line below says who observed it. Nothing here was run by the repos
   it finishes.`, and the reply `7d622a1d4990: Hello! How can I assist you today?` arrived. So
   the paired chat reached the broker as a task, the real model answered it, and the result
   went back to the same chat.
+- On the Mac, `lab.cli tasks` as `lab` listed one task, `succeeded 1`, and
+  `/var/log/homelab/supervisor.err` had no new lines. (`lab.cli show` is for approvals and answered
+  `No approval matching` for the task id, which is expected.)
 
 ## What was not checked
 - A message from an account that is not paired, which must get no answer (the setup guide
