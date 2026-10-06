@@ -4,7 +4,7 @@
 - machine: macOS 27.0 (26A428) arm64, deployed commit 4bfa910
 - target: mac-mini
 - result: PASS
-- counts as demonstrated: yes (pass 1 of 2 for the freeze drill; a second pass is required before #78 and #271 close)
+- counts as demonstrated: yes (pass 1 of 2 for the freeze drill; the second passed in 97 s, see `2026-10-07-supervisor-freeze-pass-2.md`)
 
 ## Failure injected
 `sudo kill -STOP` on pid 66280, the supervisor started by the previous drill, after its first heartbeat was seen and checked again immediately before the freeze.
@@ -16,4 +16,4 @@ The watchdog (`StartInterval` 30 s, `DEFAULT_MAX_AGE` 90 s) kills the frozen pro
 The frozen pid was gone after 96 s and a new supervisor (pid 66453) was running at that check. `watchdog --dry-run` then said `healthy pid 66453 (heartbeat 2s old)`. This is the first drill since the watchdog fallback for a supervisor that never wrote a heartbeat was deployed (#275); the 2026-10-06 failure was a supervisor frozen before its first heartbeat.
 
 ## Follow-up
-#271 (needs a second passing run)
+#271 (closed after the second passing run)

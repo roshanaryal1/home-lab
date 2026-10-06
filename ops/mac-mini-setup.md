@@ -126,13 +126,13 @@ matters needs a third destination as well.
 - [x] `launchd` job with `RunAtLoad` and `KeepAlive` for the supervisor.
       2026-09-30: `com.homelab.supervisor` runs as `lab`; after `kill -9`
       launchd restarted it within 40 s (section 16).
-- [ ] A separate watchdog or heartbeat process. `KeepAlive` restarts a
+- [x] A separate watchdog or heartbeat process. `KeepAlive` restarts a
       dead process; it does not notice a wedged one. 2026-09-30: the
       watchdog is installed and a frozen supervisor (`kill -STOP`) had been
       replaced at the first check, 150 s later; the two-minute target was
       not demonstrated then. 2026-10-06 a timed re-drill on commit 4bfa910
-      replaced it after 96 s (pass 1 of 2, section 16, #78, #271). Tick this
-      after a second passing run.
+      replaced it after 96 s and again after 97 s (two passes, 2026-10-06,
+      section 16, #78, #271).
 - [ ] Structured rotating logs (built: `lab/logsetup.py`): set `LAB_LOG_DIR`
       in the supervisor's plist, on the external SSD for the long-term set.
 - [ ] Queue-aware sleep prevention (built: `lab keepawake`): install
@@ -446,15 +446,15 @@ the paths, then:
       non-idempotent tasks in flight. The 2026-09-30 launchd restart drill had
       an empty queue; the 2026-09-29 crash drills showed requeue after
       `SIGKILL` but did not test launchd startup recovery.
-- [ ] Freeze it instead: `kill -STOP <pid>`. The accepted target is recovery
+- [x] Freeze it instead: `kill -STOP <pid>`. The accepted target is recovery
       within two minutes, but the 2026-09-30 drill only observed replacement
       at the 150-second check, so the two-minute criterion was unproven
       (`ops/drills/log/2026-09-30T0100Z-supervisor-freeze.md`). 2026-10-06 the
       drill failed (a supervisor frozen before its first heartbeat was never
       seen, #271), the watchdog was fixed (#275), and the rerun on 4bfa910 passed:
-      replaced after 96 s, **pass 1 of 2**
-      (`ops/drills/log/2026-10-07-supervisor-freeze.md`). Tick this after a
-      second passing run.
+      replaced after 96 s, then again after 97 s in a second run
+      (`ops/drills/log/2026-10-07-supervisor-freeze.md`,
+      `ops/drills/log/2026-10-07-supervisor-freeze-pass-2.md`).
 - [x] `lab watchdog --dry-run` prints `healthy` when idle and running.
       2026-09-30: `healthy pid 33939 (heartbeat 6s old)`.
 - [x] The loop: install `com.homelab.tick.plist` the same way, with
