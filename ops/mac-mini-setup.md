@@ -221,7 +221,9 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
       `/Volumes/labbackup/home-lab-backups` (mode 700). A backup of a
       throwaway database wrote its manifest there and `restore-check`
       verified it.
-- [ ] A scheduled backup. Built (#67): `com.homelab.backup.plist` runs
+- [x] A scheduled backup. Installed and run by launchd on 2026-10-07 (wrote a
+      manifest, `restore check ok`, kept 2; it needed Full Disk Access for the lab
+      interpreter, runbook step 4). Built (#67): `com.homelab.backup.plist` runs
       `lab backup --keep 14 --alert-config /etc/homelab/alert.json` as `lab`
       at 02:47. It restore-checks every new backup and fails (and alerts) if
       the check does not pass, then keeps the newest 14 and deletes only its
