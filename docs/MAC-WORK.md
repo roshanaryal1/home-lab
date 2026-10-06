@@ -88,7 +88,19 @@ keyboard so no secret travels through the repository.
 - **MCP servers (#256), if you want any.** For each server, run
   `lab mcp snapshot <server> --allow <tools> --key <operator key> --by <you>`
   and add the signed entry to `/etc/homelab/mcp.json`. Nothing runs from an
-  unsigned entry.
+  unsigned entry. The server runs under Seatbelt. Besides the system
+  folders the profile imports, it can read and write its own task workspace
+  (except `.git/hooks` and shell start-up files such as `.zshrc` and `.profile`, where
+  writes are denied) and read only what `read_paths` lists. List every folder or file it needs
+  that is not under the workspace: the one that holds its interpreter and
+  libraries (for a Python server, the Python install folder) and its own script
+  or module files. List the exact folders or files it needs, even when one is
+  under a home folder, and never the whole home folder. Do this before you
+  snapshot it. Without it the only symptom is
+  `mcp: the server closed its output`. Checked on the Mac mini 2026-10-07 with a
+  hostile test server: it could not list or read the home folder or `~/.ssh`, write
+  inside the home folder or `/tmp`, open a network connection or resolve a name,
+  and it was given no `*TOKEN*`, `*KEY*` or `*SECRET*` variables.
 - **Repository sources (ADR 0008), if you want any.** Keep a mirror of each
   repository on the Mac, readable by `lab`. For each, run
   `lab repo sign <name> <path> --key <operator key> --by <you>` and add the
