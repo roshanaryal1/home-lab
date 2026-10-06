@@ -224,8 +224,28 @@ removable disk: turn the terminal on under System Settings, Privacy & Security,
 Full Disk Access, quit it completely and reopen it (met on 2026-10-07, #67). That
 grants every command run from that terminal access to protected files, so it is a
 temporary measure for this one change: turn it off again, and restart the terminal,
-as soon as the `chown` has worked. The backup job itself runs as `lab` under launchd
-and does not need it. The job runs at 02:47, writes one backup,
+as soon as the `chown` has worked.
+
+The scheduled job needs a second, permanent grant. Under launchd it has no terminal
+to borrow permission from, and macOS refuses its interpreter access to a removable
+volume (`tccd` logs `Refusing TCCAccessRequest for service
+kTCCServiceSystemPolicyRemovableVolumes ... in background session`), so the job fails
+with `backup: unable to open database file` while the same command run from a
+permitted terminal works. Add the real interpreter, not the venv symlink, under
+System Settings, Privacy & Security, Full Disk Access, with **+** and Cmd+Shift+G:
+`/opt/homelab-python/cpython-3.13.15-macos-aarch64-none/bin/python3.13` (the folder
+that `readlink -f /opt/homelab/.venv/bin/python` prints). Found and fixed on
+2026-10-07 (#67). The grant belongs to the
+binary, not to the `lab` account: every process that runs that interpreter gets it,
+whichever account runs it, and the keep-awake and watchdog daemons run as root with
+the same interpreter. For `lab` services, file permissions still bound what they can
+read; a root-run process is not bounded that way. So a compromised lab service could
+read or change the backups on the T7. Narrowing the grant to a backup-only
+executable is open as #287. A redeploy that changes the Python version changes this
+path and needs the grant again; `readlink -f` prints the new one (it works on current
+macOS).
+
+The job runs at 02:47, writes one backup,
 restores it into a temporary folder and checks every hash, then deletes all but
 the newest 14 backups in that folder. It deletes only its own manifests, their
 databases and blobs only they used, and follows no symlink. Any failure, the
