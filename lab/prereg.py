@@ -931,7 +931,20 @@ def main(argv: list[str]) -> int:
         command.add_argument("--cases", type=Path, default=default)
         command.add_argument("--doc", type=Path, default=DOC)
         command.add_argument("--json", action="store_true")
+    m5 = sub.add_parser("m5", help="run Claim M5 against its frozen case file, in the real "
+                                   "Apple container (needs --image, pinned by digest)")
+    m5.add_argument("--image", required=True)
+    m5.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    if args.claim == "m5":
+        from lab import prereg_m5
+        try:
+            report5 = prereg_m5.run_m5(args.image)
+        except PreregError as exc:
+            print(f"prereg: {exc}", file=sys.stderr)
+            return 2
+        print(prereg_m5.as_json(report5)) if args.json else prereg_m5.print_report(report5)
+        return 1 if report5.failures else 0
     report: M2Report | M6Report
     try:
         report = (run_m2 if args.claim == "m2" else run_m6)(args.cases, args.doc)

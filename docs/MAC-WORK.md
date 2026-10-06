@@ -126,9 +126,9 @@ LAB_CONTAINER_IMAGE='<name@sha256:...>' uv run pytest tests/test_container.py -v
   user (ADR 0007).
 - The `skillrun` and `mcp` steps of the session script are the real-machine
   checks for `skill.run` (#255) and MCP (#256).
-- Run the M5 claim on its frozen case file
-  (`evals/prereg/m5-container-hostile.jsonl`, docs/PREREGISTRATION-SAFETY.md)
-  and add the dated result. M2 and M6 already ran in CI. M5 is about the real
+- The M5 claim ran on 2026-10-07: 30 cases, 0 failures (docs/PREREGISTRATION-SAFETY.md,
+  `uv run python -m lab.cli prereg m5 --image <name@sha256:...>`). Rerun it after any change
+  to the container executor. M2 and M6 ran in CI. M5 is about the real
   container, so it can only run here.
 
 ## 4. Measurements on the real model
