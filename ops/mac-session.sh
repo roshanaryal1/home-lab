@@ -591,10 +591,18 @@ supervisor within about 30 seconds; a frozen supervisor must be gone and replace
       return
     fi
   fi
+  VERIFIED="$NEW"
 
   NEW=""
   run 'sudo -v'
-  run 'OLD=$(pgrep -f lab.supervisor)'
+  # The pid whose heartbeat was just seen, not a fresh pgrep: launchd could have replaced it,
+  # and the replacement would be frozen before its first beat. Checked once more right before.
+  run 'OLD=$VERIFIED'
+  run 'sudo -u lab "$PY" -m lab.cli --db "$DB" watchdog --dry-run'
+  if ! dry && ! printf '%s' "$LAST_OUT" | grep -q "healthy pid $OLD "; then
+    finish FAIL "$kill_line. The supervisor changed between the heartbeat check and the freeze (the heartbeat now says: ${LAST_OUT:-nothing}); rerun the drills"
+    return
+  fi
   run 'T0=$(date +%s)'
   # Set before the stop so a Ctrl-C during the wait still resumes it.
   dry || FROZEN="$OLD"

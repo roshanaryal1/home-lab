@@ -275,23 +275,29 @@ echo "killed $OLD; new supervisor ${NEW:-none} after $(( $(date +%s) - T0 )) s"
 
 Then a frozen one. The watchdog must kill it and launchd must start another; the
 loop times both, so this drill shows whether it happens within the two minutes
-that issue #78 asks for, not only that it happens. The first line waits until the
-supervisor that the kill drill started has written a heartbeat: freezing it before
-that is not a valid test (it was done on 2026-10-06, #271):
+that issue #78 asks for, not only that it happens. It first waits until the
+supervisor that the kill drill started has written a heartbeat, because freezing it
+before that is not a valid test (it was done on 2026-10-06, #271). It freezes that
+same process, and does nothing at all if no heartbeat appears within 60 seconds:
 
 ```sh
 sudo -v
-for i in $(seq 1 30); do sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db watchdog --dry-run | grep -q "^watchdog: healthy pid $(pgrep -f lab.supervisor) " && break; sleep 2; done
 OLD=$(pgrep -f lab.supervisor)
-T0=$(date +%s)
-sudo kill -STOP "$OLD"
-for i in $(seq 1 90); do ps -p "$OLD" >/dev/null || break; sleep 2; done
-T1=$(date +%s)
-ps -p "$OLD" >/dev/null && { echo "FAIL: $OLD is still there after $((T1 - T0)) s; resuming it"; sudo kill -CONT "$OLD"; }
-for i in $(seq 1 30); do NEW=$(pgrep -f lab.supervisor) && [ "$NEW" != "$OLD" ] && break; sleep 2; done
-if ps -p "$OLD" >/dev/null; then G="STILL THERE after $((T1 - T0)) s"; else G="gone after $((T1 - T0)) s"; fi
-echo "frozen $OLD; $G; new supervisor ${NEW:-none} after $(( $(date +%s) - T0 )) s"
-sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db watchdog --dry-run
+OK=0
+for i in $(seq 1 30); do sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db watchdog --dry-run | grep -q "^watchdog: healthy pid $OLD " && { OK=1; break; }; sleep 2; done
+if [ "$OK" != 1 ]; then
+  echo "STOP: no healthy heartbeat from supervisor $OLD after 60 s; nothing was frozen. See #271."
+else
+  T0=$(date +%s)
+  sudo kill -STOP "$OLD"
+  for i in $(seq 1 90); do ps -p "$OLD" >/dev/null || break; sleep 2; done
+  T1=$(date +%s)
+  ps -p "$OLD" >/dev/null && { echo "FAIL: $OLD is still there after $((T1 - T0)) s; resuming it"; sudo kill -CONT "$OLD"; }
+  for i in $(seq 1 30); do NEW=$(pgrep -f lab.supervisor) && [ "$NEW" != "$OLD" ] && break; sleep 2; done
+  if ps -p "$OLD" >/dev/null; then G="STILL THERE after $((T1 - T0)) s"; else G="gone after $((T1 - T0)) s"; fi
+  echo "frozen $OLD; $G; new supervisor ${NEW:-none} after $(( $(date +%s) - T0 )) s"
+  sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db watchdog --dry-run
+fi
 ```
 
 `sudo -v` comes first so a password prompt cannot be counted in the timing.
