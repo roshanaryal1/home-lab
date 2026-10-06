@@ -88,7 +88,14 @@ keyboard so no secret travels through the repository.
 - **MCP servers (#256), if you want any.** For each server, run
   `lab mcp snapshot <server> --allow <tools> --key <operator key> --by <you>`
   and add the signed entry to `/etc/homelab/mcp.json`. Nothing runs from an
-  unsigned entry.
+  unsigned entry. The server runs under Seatbelt and can read only its
+  `read_paths`: list the folder that holds its interpreter and libraries (for
+  a Python server, the Python install folder, not one under a home folder) in
+  the entry before you snapshot it. Without that the only symptom is
+  `mcp: the server closed its output`. Checked on the Mac mini 2026-10-07 with a
+  hostile test server: it could not list or read the home folder or `~/.ssh`, write
+  inside the home folder or `/tmp`, open a network connection or resolve a name,
+  and it was given no `*TOKEN*`, `*KEY*` or `*SECRET*` variables.
 - **Repository sources (ADR 0008), if you want any.** Keep a mirror of each
   repository on the Mac, readable by `lab`. For each, run
   `lab repo sign <name> <path> --key <operator key> --by <you>` and add the
