@@ -635,8 +635,10 @@ Implemented and tested:
   removable backup volume only because the lab's Python interpreter
   (`/opt/homelab-python/.../bin/python3.13`) was given Full Disk Access
   (2026-10-07, #67): macOS refuses a launchd job that access otherwise. The grant
-  applies to every lab process using that interpreter, all running as the
-  non-admin `lab` account. Recovery drills
+  belongs to that binary, not to the `lab` account: every process that runs the
+  interpreter gets it, including the root-run keep-awake and watchdog daemons, so
+  a compromised lab service could read or change the backups on that volume.
+  Narrowing it to a backup-only executable is open as #287. Recovery drills
   (`lab drill`, `ops/drills/`) record every run and count as
   demonstrated only on the Mac mini; the monthly drill there is parked.
 - **Constrained decoding and shadow measurement** (`lab/grammar.py`,

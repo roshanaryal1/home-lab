@@ -437,10 +437,11 @@ the paths, then:
       `lab` cannot write there.
 - [x] Install `com.homelab.watchdog.plist` the same way (it runs as root and
       only needs to signal the supervisor). 2026-09-30.
-- [ ] Install the two newer definitions the same way, both running as `lab`:
+- [x] Install the two newer definitions the same way, both running as `lab`:
       `com.homelab.backup.plist` (section 10, #67) and
       `com.homelab.heartbeat.plist` (section 19, #79). Reinstall
-      `com.homelab.selftest.plist` too: it now passes `--report-ok` (#80).
+      `com.homelab.selftest.plist` too: it now passes `--report-ok` (#80). Done
+      2026-10-07: selftest reinstalled; backup and heartbeat installed and loaded.
 - [x] `kill -9` the supervisor: launchd restarted it within 40 s
       (`ops/drills/log/2026-09-30T0100Z-supervisor-kill.md`). The queue was
       empty; requeue after a crash was shown by the 2026-09-29 crash drills.

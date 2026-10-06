@@ -235,10 +235,15 @@ permitted terminal works. Add the real interpreter, not the venv symlink, under
 System Settings, Privacy & Security, Full Disk Access, with **+** and Cmd+Shift+G:
 `/opt/homelab-python/cpython-3.13.15-macos-aarch64-none/bin/python3.13` (the folder
 that `readlink -f /opt/homelab/.venv/bin/python` prints). Found and fixed on
-2026-10-07 (#67). The grant covers every lab process that uses that interpreter,
-which all run as `lab`, a non-admin account with no personal files whose folders
-stay closed to others by their own permissions. A redeploy that changes the Python
-version changes this path and needs the grant again.
+2026-10-07 (#67). The grant belongs to the
+binary, not to the `lab` account: every process that runs that interpreter gets it,
+whichever account runs it, and the keep-awake and watchdog daemons run as root with
+the same interpreter. For `lab` services, file permissions still bound what they can
+read; a root-run process is not bounded that way. So a compromised lab service could
+read or change the backups on the T7. Narrowing the grant to a backup-only
+executable is open as #287. A redeploy that changes the Python version changes this
+path and needs the grant again; `readlink -f` prints the new one (it works on current
+macOS).
 
 The job runs at 02:47, writes one backup,
 restores it into a temporary folder and checks every hash, then deletes all but
