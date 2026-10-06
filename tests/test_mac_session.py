@@ -45,7 +45,13 @@ case "$*" in
   *restore-check*) echo "ok: 0 audit events, 0 artifact blobs checked, restored to /x" ;;
   *"/usr/bin/find "*) echo /var/log/homelab/selftest.log ;;
   *selftest.log*) echo "ok   audit_chain     0 events" ;;
-  *watchdog*) echo "watchdog: healthy pid 1 (heartbeat 3s old)" ;;
+  *watchdog*)
+    p=$(cat "$STUB_DIR/pid" 2>/dev/null || echo 1)
+    n=$(( $(cat "$STUB_DIR/wd" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$STUB_DIR/wd"
+    if [ "${STUB_NO_BEAT:-0}" = 1 ]; then echo "watchdog: not_running pid 1 (heartbeat 400s old)"
+    elif [ "${STUB_CHANGE_AT:-0}" = "$n" ]; then
+      echo "watchdog: healthy pid 999999 (heartbeat 3s old)"
+    else echo "watchdog: healthy pid $p (heartbeat 3s old)"; fi ;;
 esac
 exit 0''',
     "pmset": 'echo \'   pid 123(caffeinate): [0x1] 00:00:02 PreventUserIdleSystemSleep '
@@ -350,9 +356,52 @@ def test_a_frozen_supervisor_that_is_not_replaced_is_reported_as_still_there(
     # 2026-10-06 on the Mac mini: the frozen pid was still there after the wait, was resumed,
     # and the line still said 'gone after' and showed the same pid as 'new supervisor'.
     stubs = {"pgrep": "echo 4242", "ps": "exit 0"}
+    (tmp_path / "pid").write_text("4242")        # what the watchdog stub reports as healthy
     result, report, calls = run(tmp_path, "--only", "drills", answers="y\n", stubs=stubs)
     assert result.returncode == 1, report            # a failed step makes the script exit 1
     assert "sudo kill -CONT 4242" in calls, "the frozen process must be resumed"
     assert re.search(r"^frozen \d+; STILL THERE after \d+ s;", report, re.M)
     assert not re.search(r"^frozen \d+; gone after", report, re.M)
     assert result_of(report, 1) == "FAIL"
+
+
+def test_the_freeze_drill_waits_for_the_new_supervisors_first_heartbeat(tmp_path: Path) -> None:
+    # 2026-10-06 (#271): the freeze started before the new supervisor had beaten, so the
+    # watchdog never saw it. The drill must wait, and if no heartbeat ever comes it must
+    # say so and not freeze anything.
+    result, report, calls = run(tmp_path, "--only", "drills", answers="y\n",
+                                extra_env={"STUB_NO_BEAT": "1"})
+    assert result.returncode == 1, report
+    assert any(c.startswith("sudo kill -9 ") for c in calls)
+    assert not any(c.startswith("sudo kill -STOP ") for c in calls), "nothing may be frozen"
+    assert result_of(report, 1) == "FAIL"
+    assert "had written no heartbeat 60 s after it started" in report
+
+
+def test_the_dry_run_shows_the_wait_before_the_freeze(tmp_path: Path) -> None:
+    result, report, calls = run(tmp_path, "--dry-run", "--only", "drills")
+    assert result.returncode == 0 and calls == []
+    wait = report.index("watchdog --dry-run 2>&1 | grep -q")
+    assert report.index('sudo kill -9 "$OLD"') < wait < report.index('sudo kill -STOP "$OLD"')
+
+
+def test_the_freeze_drill_freezes_the_verified_pid_and_checks_it_again_first(
+        tmp_path: Path) -> None:
+    _, report, calls = run(tmp_path, "--only", "drills", answers="y\n")
+    stops = [c for c in calls if c.startswith("sudo kill -STOP ")]
+    assert len(stops) == 1
+    # the pid that was frozen is the one the heartbeat check named, not a later pgrep
+    verified = re.findall(r"healthy pid (\d+)", report)
+    # the printed check and the recheck right before the freeze (the wait itself is piped to grep)
+    assert len(set(verified[:2])) == 1, verified
+    assert stops[0].split()[-1] == verified[0]
+    assert report.count("watchdog --dry-run") >= 3
+
+
+def test_a_supervisor_replaced_just_before_the_freeze_is_not_frozen(tmp_path: Path) -> None:
+    # 3rd watchdog call is the recheck right before the freeze: it now names another pid
+    result, report, calls = run(tmp_path, "--only", "drills", answers="y\n",
+                                extra_env={"STUB_CHANGE_AT": "3"})
+    assert result.returncode == 1, report
+    assert not any(c.startswith("sudo kill -STOP ") for c in calls), "nothing may be frozen"
+    assert "supervisor changed between the heartbeat check and the freeze" in report

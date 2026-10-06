@@ -6,9 +6,20 @@ its event loop, and a separate periodic job (the watchdog) kills the
 process when the heartbeat goes stale; launchd then restarts it.
 
 The heartbeat is a small JSON file next to the database: pid, time, and
-the process start time. The watchdog signals only a pid it read from that
-file, only when the recorded start time still matches ``ps`` (so a pid
-that was reused by another process is never killed), and never pid 0 or 1.
+the process start time. The watchdog signals a pid it read from that file only
+when the recorded start time still matches ``ps`` (so a pid that was reused by
+another process is never killed), and never pid 0 or 1.
+
+One more case, because the file alone cannot show it (2026-10-06, #271): a
+supervisor that hangs after a restart, before its first heartbeat, leaves a file
+that names a dead process, or none. Then the watchdog looks for a live process
+whose command line *starts* with a python executable and continues exactly
+``-m lab.supervisor --db <this database>``; one that has run longer than the
+maximum age should have beaten by now and is killed. Just before the signal it
+asks ``ps`` about that pid again, and only signals it if it is still that
+process and has been running at least as long as before, so a pid that was reused
+in between is left alone. If ``ps`` itself fails the verdict says so
+(``lookup_failed``) instead of looking like "nothing found".
 
 What the watchdog does not do: judge whether the queue is healthy (that
 is ``lab status``), or alert a person (``lab status --alert-config`` and
@@ -21,6 +32,7 @@ import contextlib
 import json
 import os
 import plistlib
+import re
 import signal
 import subprocess
 import time
@@ -94,25 +106,111 @@ def read_heartbeat(db: str | Path) -> Heartbeat | None:
 
 @dataclass(frozen=True)
 class Verdict:
-    action: str      # healthy | killed | would_kill | no_heartbeat | not_running | corrupt
+    # healthy | killed | would_kill | starting | no_heartbeat | not_running | corrupt
+    # | lookup_failed (ps could not be run, so the fallback could not look)
+    action: str
     pid: int | None = None
     age: float | None = None
+    uptime: float | None = None     # set when the process was found by its command line
+
+
+def _etime_seconds(text: str) -> float | None:
+    """``ps -o etime`` is ``[[dd-]hh:]mm:ss``."""
+    match = re.fullmatch(r"(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)", text.strip())
+    if match is None:
+        return None
+    days, hours, minutes, seconds = (int(g or 0) for g in match.groups())
+    return float(((days * 24 + hours) * 60 + minutes) * 60 + seconds)
+
+
+def _supervisor_line(db: str | Path) -> re.Pattern[str]:
+    """A command line that starts with a python executable and then continues exactly
+    ``-m lab.supervisor --db <db>``. A process that merely has those words somewhere in
+    its arguments (``python -c ... -m lab.supervisor ...``, an editor, a shell) is not it."""
+    return re.compile(r"^(?:\S*/)?python[\d.]*\s+-m lab\.supervisor --db "
+                      + re.escape(str(db)) + r"(\s|$)")
+
+
+def _ps(*args: str) -> tuple[int, str] | None:
+    """``(exit status, stdout)`` of ``ps``, or None if it could not be run at all."""
+    try:
+        proc = subprocess.run(["ps", *args], capture_output=True, text=True, timeout=10,
+                              check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc.returncode, proc.stdout
+
+
+def supervisor_processes(db: str | Path) -> list[tuple[int, float]] | None:
+    """Live ``(pid, seconds running)`` of this lab's supervisor for ``db``, or None if
+    ``ps`` failed (so the caller can say it could not look, not that nothing is there)."""
+    result = _ps("-axo", "pid=,etime=,command=")
+    if result is None or result[0] != 0:
+        return None
+    needle = _supervisor_line(db)
+    found = []
+    for line in result[1].splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3 or not parts[0].isdigit() or int(parts[0]) == os.getpid():
+            continue
+        uptime = _etime_seconds(parts[1])
+        if uptime is not None and needle.search(parts[2]):
+            found.append((int(parts[0]), uptime))
+    return found
+
+
+def _still_that_supervisor(db: str | Path, pid: int, min_uptime: float) -> bool:
+    """Asked again just before a signal: is ``pid`` still this lab's supervisor, and has it
+    been running at least as long as when it was chosen? A reused pid is a younger process."""
+    result = _ps("-o", "etime=,command=", "-p", str(pid))
+    if result is None or result[0] != 0:
+        return False
+    parts = result[1].strip().split(None, 1)
+    if len(parts) < 2:
+        return False
+    uptime = _etime_seconds(parts[0])
+    return (uptime is not None and uptime >= min_uptime
+            and _supervisor_line(db).search(parts[1]) is not None)
+
+
+def _unseen_supervisor(db: str | Path, max_age: float, dry_run: bool,
+                       otherwise: Verdict) -> Verdict:
+    """The heartbeat names no live process, is missing, or is unreadable. A supervisor that
+    is running anyway, and has been for longer than ``max_age``, should have written one by
+    now: it hung before its first beat (2026-10-06, #271)."""
+    running = supervisor_processes(db)
+    if running is None:
+        return Verdict("lookup_failed", otherwise.pid, otherwise.age)
+    stuck = [(pid, up) for pid, up in running if up > max_age]
+    if stuck:
+        pid, up = max(stuck, key=lambda item: item[1])
+        if dry_run:
+            return Verdict("would_kill", pid, otherwise.age, up)
+        if not _still_that_supervisor(db, pid, up):
+            return otherwise                      # gone, or the pid now belongs to another
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
+        return Verdict("killed", pid, otherwise.age, up)
+    if running:
+        pid, up = running[0]
+        return Verdict("starting", pid, otherwise.age, up)
+    return otherwise
 
 
 def check(db: str | Path, *, max_age: float = DEFAULT_MAX_AGE,
           dry_run: bool = False) -> Verdict:
     path = heartbeat_path(db)
     if not path.exists():
-        return Verdict("no_heartbeat")
+        return _unseen_supervisor(db, max_age, dry_run, Verdict("no_heartbeat"))
     beat = read_heartbeat(db)
     if beat is None:
-        return Verdict("corrupt")
+        return _unseen_supervisor(db, max_age, dry_run, Verdict("corrupt"))
     age = beat.age()
     if age <= max_age:
         return Verdict("healthy", beat.pid, age)
     current = _start_time(beat.pid)
     if current is None or (beat.started is not None and current != beat.started):
-        return Verdict("not_running", beat.pid, age)
+        return _unseen_supervisor(db, max_age, dry_run, Verdict("not_running", beat.pid, age))
     if dry_run:
         return Verdict("would_kill", beat.pid, age)
     with contextlib.suppress(ProcessLookupError):
