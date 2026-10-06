@@ -516,7 +516,9 @@ the paths, then:
       To test it, run `lab status --alert-config` against a scratch database
       holding a task whose lease has expired (a paused or stopped lab is not
       unhealthy, so `lab control` will not trigger it).
-- [ ] Telegram as the channel (built: `lab/telegram_alert.py`, #79). It is a
+- [x] Telegram as the channel (built: `lab/telegram_alert.py`, #79). Set up and
+      checked 2026-10-07: the test alert reached the phone, through the installed
+      hook as `lab` (`docs/reviews/2026-10-07-mac-session-alert.md`). It is a
       command for `lab/alert.py`, so the steps are the two files below plus the
       code being on the machine (see "Updating the deployed code" in
       `ops/runbook-lab-account-and-daemons.md`). Use a **new, alert-only bot**
