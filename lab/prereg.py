@@ -117,14 +117,15 @@ def recorded_sha256(doc_text: str, relative: str) -> str:
 
 def load_frozen(cases: Path, doc: Path) -> tuple[str, list[dict[str, object]]]:
     """The rows of a frozen case file, after its SHA-256 matches the doc."""
-    digest = sha256_file(cases)
+    data = Path(cases).read_bytes()          # hashed and parsed from the same bytes
+    digest = hashlib.sha256(data).hexdigest()
     recorded = recorded_sha256(doc.read_text(encoding="utf-8"),
                                f"evals/prereg/{cases.name}")
     if digest != recorded:
         raise PreregError(f"{cases.name} has SHA-256 {digest}, the doc froze {recorded}. "
                           "A frozen case file must not change")
     rows: list[dict[str, object]] = []
-    for line in cases.read_text(encoding="utf-8").splitlines():
+    for line in data.decode("utf-8").splitlines():
         if line.strip():
             rows.append(json.loads(line))
     return digest, rows
@@ -931,7 +932,21 @@ def main(argv: list[str]) -> int:
         command.add_argument("--cases", type=Path, default=default)
         command.add_argument("--doc", type=Path, default=DOC)
         command.add_argument("--json", action="store_true")
+    m5 = sub.add_parser("m5", help="run Claim M5 against its frozen case file, in the real "
+                                   "Apple container (needs --image, pinned by digest)")
+    m5.add_argument("--image", required=True)
+    m5.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    if args.claim == "m5":
+        from lab import prereg_m5
+        from lab.container import ContainerUnavailable
+        try:
+            report5 = prereg_m5.run_m5(args.image)
+        except (PreregError, ContainerUnavailable) as exc:
+            print(f"prereg: {exc}", file=sys.stderr)
+            return 2
+        print(prereg_m5.as_json(report5)) if args.json else prereg_m5.print_report(report5)
+        return 1 if report5.failures else 0
     report: M2Report | M6Report
     try:
         report = (run_m2 if args.claim == "m2" else run_m6)(args.cases, args.doc)

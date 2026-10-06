@@ -286,4 +286,72 @@ percent for the 18 paired cases alone and near 21 percent for the 14
 unpaired ones. It does not show the boundary holds against every possible
 message.
 
-M5 has no results yet. Its code does not exist.
+### 2026-10-07, M5 claim, first run
+
+**Ran on.** The Mac mini (macOS 27.0, Apple `container` 1.5.0), commit of this
+change, which adds the runner `lab/prereg_m5.py`. Image
+`docker.io/library/alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8`
+(alpine 3.22, pinned by digest). Command:
+`uv run python -m lab.cli prereg m5 --image <that image>`. The runner checked
+that `evals/prereg/m5-container-hostile.jsonl` still has the SHA-256 frozen
+above (`ceba855e...`) before it ran anything.
+
+**Setup.** Each case ran once, as a script in one disposable container
+through `ContainerExecutor` (`--network none`, only its own workspace mounted
+at `/work`, user 65534, removed afterwards). The grade came from outside the
+container:
+
+- *Network.* A listener bound to this host's own address (TCP and UDP, the
+  address the scripts aimed at) counted connections. The guest also had to report no interface besides `lo`, and no
+  outbound command was allowed to succeed.
+- *Host path.* A canary file, a watch folder, the workspace root's entries,
+  and the size and modification time of two real host files (`/etc/hosts`,
+  `/etc/passwd`) were compared before and after. A random canary token was
+  not allowed to appear in anything the guest printed. Each script first
+  checked whether the canary, the watch folder, `/Users`, `/Volumes` or
+  `/private/etc/hosts` exist inside the guest, and any that did failed the
+  case. Case 03 put a symlink to the canary in the workspace first.
+- *Survivor.* Each script left a background process that would write a marker
+  file into the mounted workspace six seconds later. After the container was
+  removed the runner waited nine seconds and looked for any marker, and for
+  the container in `container list --all`. Case 05 also left a start-up file
+  in the guest, and a fresh container was checked for it.
+
+Two controls ran and had to pass: a connection from this host to the listener
+is counted, and a background process does write its marker while its
+container is still alive (so a missing marker after removal means something).
+
+**Result.** 30 cases, 0 failures (target 0), both controls passed.
+
+| Kind | Cases | Failures |
+|---|---|---|
+| Network (`network_blocked`) | 12 | 0 |
+| Host path (`host_path_blocked`) | 10 | 0 |
+| Survivor (`no_surviving_process`) | 8 | 0 |
+
+In every network case the guest had only the loopback interface, and the
+listener on this host saw nothing. A spot check of the raw guest output showed
+the attempts ran for real (for example `ping` started and found no route) and
+that `/Users` and `/Volumes` do not exist in the guest, which sees its own
+process table starting at pid 1. No marker appeared after removal in any
+survivor case, and the fresh container did not carry case 05's start-up file.
+
+**Reported, as the claim requires.** The registered cost sits next to the
+safety number. Start-up: the median wall time of a whole container run on this
+image (start, script, removal) was 0.63 s in this run, against a median of
+0.637 s for a bare start in ADR 0007. Memory was not measured again here; the
+ADR 0007 figure stands: about 381 MiB resident for an idle guest and up to
+about 2 GiB of host memory for a busy one.
+
+**What this does not show.** A connection to a public address cannot be seen
+from this host. Those cases (resolve, public HTTP, metadata address, ping,
+package install, clone, IPv6) rest on the guest having no non-loopback
+interface and on the failures it reported, not on an outside observer. In case
+05, `nc -e` may simply be unsupported by this image's `nc`; case 04 covers the
+same raw TCP path. The scripts are one author's guess at each described
+attack, run on one image and one version of the container tool, so a cleverer
+script could do something these did not. The run shows the boundary held on
+this fixed set of 30 cases. By the rule of three that bounds the failure rate
+near 10 percent at 95 percent confidence on cases like these. It does not show
+the boundary holds against every possible script, or against a kernel or
+hypervisor flaw.
