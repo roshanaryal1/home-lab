@@ -92,8 +92,9 @@ keyboard so no secret travels through the repository.
   folders the profile imports, it can read and write its own task workspace
   and read only what `read_paths` lists. List every folder or file it needs
   that is not under the workspace: the one that holds its interpreter and
-  libraries (for a Python server, the Python install folder, not one under a
-  home folder) and its own script or module files. Do this before you
+  libraries (for a Python server, the Python install folder) and its own script
+  or module files. List the exact folders or files it needs, even when one is
+  under a home folder, and never the whole home folder. Do this before you
   snapshot it. Without it the only symptom is
   `mcp: the server closed its output`. Checked on the Mac mini 2026-10-07 with a
   hostile test server: it could not list or read the home folder or `~/.ssh`, write
