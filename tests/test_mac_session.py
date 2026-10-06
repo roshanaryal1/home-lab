@@ -343,3 +343,16 @@ def test_the_script_is_executable_keeps_going_and_uses_no_em_dash() -> None:
     assert text.endswith("\n") and chr(0x2014) not in text
     assert "set -u" in text
     assert not re.search(r"^\s*set -[a-z]*e", text, re.M), "one failure must not stop the rest"
+
+
+def test_a_frozen_supervisor_that_is_not_replaced_is_reported_as_still_there(
+        tmp_path: Path) -> None:
+    # 2026-10-06 on the Mac mini: the frozen pid was still there after the wait, was resumed,
+    # and the line still said 'gone after' and showed the same pid as 'new supervisor'.
+    stubs = {"pgrep": "echo 4242", "ps": "exit 0"}
+    result, report, calls = run(tmp_path, "--only", "drills", answers="y\n", stubs=stubs)
+    assert result.returncode == 1, report            # a failed step makes the script exit 1
+    assert "sudo kill -CONT 4242" in calls, "the frozen process must be resumed"
+    assert re.search(r"^frozen \d+; STILL THERE after \d+ s;", report, re.M)
+    assert not re.search(r"^frozen \d+; gone after", report, re.M)
+    assert result_of(report, 1) == "FAIL"

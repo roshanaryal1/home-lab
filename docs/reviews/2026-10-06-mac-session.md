@@ -1,9 +1,9 @@
 # Mac mini session report
 
 - started: 20261006T063400Z
-- host: Roshans-Mac-mini.local
+- host: <mac-mini>
 - mode: live
-- REPO=/Users/roshanaryal/Research and Development /home-lab
+- REPO=/Users/<operator>/Research and Development /home-lab
 - DB=/var/homelab/lab.db
 - PY=/opt/homelab/.venv/bin/python
 - MODEL_URL=http://127.0.0.1:8080/v1
@@ -16,6 +16,12 @@
 - steps: context,home,caffeinate,signature,selftest,concurrency,drills
 
 What each step proves, and which issue to paste it into: ops/mac-session.md.
+
+> **Reading notes, added after the run (the transcript below is otherwise unedited).**
+> 1. The hostname and the operator's home path were replaced with `<mac-mini>` and `/Users/<operator>`; nothing else was changed.
+> 2. **Step 7, the freeze drill, did not recover.** The line `frozen 47635; gone after 182 s; new supervisor 47635 after 243 s` is the script's fixed wording, and it is misleading here: the process was never gone and never replaced. After 182 s the same pid 47635 was still there, the script resumed it with `kill -CONT`, and the later 'new supervisor' pid is that same process. The result line is FAIL, which is right. Tracked in #271.
+> 3. **Step 5's heading** is the name of the check ('the nightly self-test ran and passed'). The result is FAIL: `safety_tests` fails every night because pytest is not installed in the deployed environment (#270).
+> 4. Steps run: context, home, caffeinate, signature, selftest, concurrency, drills. Not run: backup, alert, skillrun, mcp and the two manual steps (reasons in PR #272).
 
 ## 1. What is deployed and how the lab is (#241)
 
@@ -92,19 +98,19 @@ Drop Box
 ```
 
 lab can read the home folder, or one listing did not say Permission denied.
-- asked: lab can read /Users/roshanaryal. Run chmod 700 "$HOME" now (your own folder, no sudo)? [y/N]; answer: y
+- asked: lab can read /Users/<operator>. Run chmod 700 "$HOME" now (your own folder, no sudo)? [y/N]; answer: y
 ```text
 $ chmod 700 "$HOME"
 [exit 0]
 ```
 ```text
 $ sudo -u lab /bin/ls "$HOME"
-ls: /Users/roshanaryal: Permission denied
+ls: /Users/<operator>: Permission denied
 [exit 1]
 ```
 ```text
 $ sudo -u lab /bin/ls "$HOME/Public"
-ls: /Users/roshanaryal/Public: Permission denied
+ls: /Users/<operator>/Public: Permission denied
 [exit 1]
 ```
 
@@ -207,7 +213,7 @@ PASS 3 of 3 attempts refused
 
 **Result: PASS.** all three approvals made without the operator key were refused
 
-## 5. The nightly self-test ran and passed (#80)
+## 5. The nightly self-test ran and passed (#80) [check name; this run FAILED, see the result below]
 
 Step `selftest`. Reads the nightly self-test log. It must have been written in the last 26 hours and its recent lines must hold no FAIL.
 
@@ -267,7 +273,7 @@ Step `concurrency`. Sends two chat completions to the loopback model server at t
 $ MODEL_ID=$(curl -sf --max-time 10 "$MODEL_URL/models" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["id"])')
 [exit 0]
 ```
-Model: `/Users/roshanaryal/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ/snapshots/cfcade7221ccd128681961446e5f7906c08cae55`
+Model: `/Users/<operator>/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ/snapshots/cfcade7221ccd128681961446e5f7906c08cae55`
 ```text
 $ BODY=$(python3 -c 'import json,sys;print(json.dumps({"model": sys.argv[1], "messages": [{"role": "user", "content": "Count from 1 to 150, separated by spaces."}], "max_tokens": 400, "temperature": 0}))' "$MODEL_ID")
 [exit 0]
