@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import stat
 import subprocess
 import sys
@@ -662,10 +663,13 @@ def test_the_seatbelt_launcher_hands_the_profile_to_sandbox_exec(
     and runs the rest, so the whole path runs on Linux too."""
     record = tmp_path / "sandbox-exec.json"
     stand_in = tmp_path / "sandbox-exec"
-    stand_in.write_text(
-        f"#!{sys.executable}\nimport json, os, sys\n"
-        f"json.dump(sys.argv[1:], open({str(record)!r}, 'w'))\n"
-        "os.execv(sys.argv[3], sys.argv[3:])\n")
+    # A sh wrapper, not a `#!<python>` script: a shebang cannot carry an interpreter path with
+    # a space in it (the owner's clone is at ".../Research and Development /home-lab"), #271.
+    code = ("import json, os, sys\n"
+            f"json.dump(sys.argv[1:], open({str(record)!r}, 'w'))\n"
+            "os.execv(sys.argv[3], sys.argv[3:])\n")
+    python = shlex.quote(sys.executable)
+    stand_in.write_text(f'#!/bin/sh\nexec {python} -c {shlex.quote(code)} "$@"\n')
     stand_in.chmod(stand_in.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setattr(sandbox, "available", lambda: True)
     monkeypatch.setattr(sandbox, "SANDBOX_EXEC", str(stand_in))
@@ -947,3 +951,11 @@ async def test_the_supervisor_loads_signed_servers_and_grants_them_per_handler(
                                       (task_id,)).fetchone()[0]
     assert tainted == 1
     sup.close()
+
+
+def test_no_test_writes_a_script_whose_shebang_is_the_interpreter_path() -> None:
+    # #273: such a script cannot run from a checkout whose path contains a space.
+    bare = "#!" + "{sys.executable}"
+    offenders = [p.name for p in Path(__file__).parent.glob("test_*.py")
+                 if bare in p.read_text()]
+    assert not offenders, f"use a #!/bin/sh wrapper with the quoted path instead: {offenders}"
