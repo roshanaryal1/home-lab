@@ -216,7 +216,16 @@ sudo -u lab /usr/bin/touch "$BACKUP_VOLUME/home-lab-backups/probe" && sudo -u la
 ```
 
 The `grep` must show the real path, not `PASTE_`, and the last line must print
-`lab can write the backup folder`. The job runs at 02:47, writes one backup,
+`lab can write the backup folder`. If the volume is encrypted, unmounting it to
+apply the setting means unlocking it again (`diskutil apfs unlockVolume <diskNsM>`,
+which asks for its passphrase). If `chown` or `install` still says `Operation not
+permitted` as root, macOS is blocking the terminal app from changing files on a
+removable disk: turn the terminal on under System Settings, Privacy & Security,
+Full Disk Access, quit it completely and reopen it (met on 2026-10-07, #67). That
+grants every command run from that terminal access to protected files, so it is a
+temporary measure for this one change: turn it off again, and restart the terminal,
+as soon as the `chown` has worked. The backup job itself runs as `lab` under launchd
+and does not need it. The job runs at 02:47, writes one backup,
 restores it into a temporary folder and checks every hash, then deletes all but
 the newest 14 backups in that folder. It deletes only its own manifests, their
 databases and blobs only they used, and follows no symlink. Any failure, the
