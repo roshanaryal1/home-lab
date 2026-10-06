@@ -20,7 +20,8 @@ What each step proves, and which issue to paste it into: ops/mac-session.md.
 > **Reading notes, added after the run (the transcript below is otherwise unedited).**
 > 1. The hostname and the operator's home path were replaced with `<mac-mini>` and `/Users/<operator>`; nothing else was changed.
 > 2. This is the passing run after three failed attempts earlier the same hour (reports not committed: each failed with `backup: unable to open database file`). Causes, in order: the T7 was mounted `noowners` so `chown` was refused; after `diskutil enableOwnership` and a remount, the encrypted APFS volume had to be unlocked again (`diskutil apfs unlockVolume`); and `chown` was still refused for root until the terminal app was given Full Disk Access (System Settings, Privacy & Security) and restarted. The folder is now owned by `lab`, mode 700.
-> 3. Only the backup step ran (`--only backup`). It wrote a manifest, restored it into a temporary folder as `lab`, verified it (8 audit events, 0 artifact blobs) and removed the temporary folder. The scheduled 02:47 job (`com.homelab.backup`) is not installed yet.
+> 3. The transcript prints the script's own variable names. `MANIFEST` was set by the script to the manifest the backup printed, `/Volumes/labbackup/home-lab-backups/lab-20261006T232020Z.manifest.json` (see the result line). To replay by hand, set `MANIFEST` to that path before `restore-check`.
+> 4. Only the backup step ran (`--only backup`). It wrote a manifest, restored it into a temporary folder as `lab`, verified it (8 audit events, 0 artifact blobs) and removed the temporary folder. The scheduled 02:47 job (`com.homelab.backup`) is not installed yet.
 
 ## 1. Backup to the backup volume and a restore check (#67)
 
