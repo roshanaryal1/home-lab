@@ -271,6 +271,48 @@ def test_the_copy_points_nowhere_outside_and_runs_nothing(
 
 
 @pytest.mark.safety
+def test_a_submodule_entry_and_odd_names_stay_inside_the_copy_and_fetch_nothing(
+        broker: ExecutionBroker, keys: tuple[Any, Any, Path], mirror: Mirror,
+        tmp_path: Path) -> None:
+    """Built with git plumbing, because git itself will not commit the worst names (a
+    ``.GIT`` or ``.git.`` or look-alike directory is refused at the index on this system)."""
+    def put(mode: str, name: str, content: bytes | str) -> None:
+        if mode == "160000":
+            sha = str(content)
+        else:
+            data = content if isinstance(content, bytes) else content.encode()
+            sha = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=mirror.path,
+                                 input=data, capture_output=True, check=True,
+                                 env=GIT_ENV).stdout.decode().strip()
+        git(mirror.path, "update-index", "--add", "--cacheinfo", f"{mode},{sha},{name}")
+
+    put("160000", "vendor/lib", "1" * 40)
+    put("100644", ".gitmodules",
+        '[submodule "lib"]\n\tpath = vendor/lib\n\turl = https://example.invalid/evil.git\n')
+    put("100644", "..\\evil", "backslashes are just letters on this system\n")
+    put("100644", "sub\\..\\x", "so is this\n")
+    tree = git(mirror.path, "write-tree")
+    head = git(mirror.path, "commit-tree", tree, "-p", mirror.second, "-m", "odd entries")
+    git(mirror.path, "update-ref", "refs/heads/main", head)
+
+    root = open_ws(broker, keys, signed(keys, mirror))
+    result = approved(broker, source="project", revision=head)
+    assert result.ok, result.error
+    copy = root / "repo"
+    # The submodule is an empty directory: nothing was fetched or initialised.
+    assert (copy / "vendor" / "lib").is_dir() and list((copy / "vendor" / "lib").iterdir()) == []
+    assert (copy / ".gitmodules").is_file() and not (copy / ".gitmodules").is_symlink()
+    assert "submodule" not in (copy / ".git" / "config").read_text()
+    assert not (copy / ".git" / "modules").exists()
+    # Backslash names are single file names in the copy's top folder, not paths.
+    assert (copy / "..\\evil").read_text().startswith("backslashes")
+    assert (copy / "sub\\..\\x").is_file()
+    # Nothing was written beside the copy.
+    assert leftovers(root) == ["repo"]
+    assert sorted(p.name for p in root.parent.iterdir()) == [root.name]
+
+
+@pytest.mark.safety
 @pytest.mark.parametrize("revision", ["main", "HEAD", "abc1234", "A" * 40, "1" * 64,
                                       "main~1", "--upload-pack=touch x"])
 def test_only_a_full_commit_id_is_accepted_and_refused_before_anyone_is_asked(
