@@ -106,10 +106,10 @@ this easier for it.
 
 **5. Evidence of recovery.**
 home-lab records recovery drills on the target machine: on 2026-09-30 the
-supervisor was killed (`kill -9`; back at the 40 s check) and frozen
-(`kill -STOP`; replaced by the 150 s check, so the two-minute target is not
-yet demonstrated, #78), and a backup restore passed on a still-empty
-database (`ops/drills/log/`).
+supervisor was killed (`kill -9`) and frozen (`kill -STOP`), first with a
+result that did not meet the two-minute target and exposed a real gap in the
+watchdog (#271), then, after the fix, twice in 96 s and 97 s on 2026-10-06; and
+a backup restore passed on a still-empty database (`ops/drills/log/`).
 Neither README describes an equivalent published drill record; that is an
 absence in what was read, not proof they do not test it.
 

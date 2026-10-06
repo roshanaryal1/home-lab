@@ -4,7 +4,7 @@
 - machine: macOS 27.0 (26A428) arm64, deployed commit 4bfa910
 - target: mac-mini
 - result: PASS
-- counts as demonstrated: yes (pass 1 of 2 for the freeze drill; a second pass is required before #78 and #271 close)
+- counts as demonstrated: yes (pass 1 of 2 for the freeze drill; the second passed in 97 s, see `2026-10-07-supervisor-freeze-pass-2.md`)
 
 ## Failure injected
 `sudo kill -9` on the running supervisor (pid 53081), started by the `com.homelab.supervisor` LaunchDaemon as `lab`.
