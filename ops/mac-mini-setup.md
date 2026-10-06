@@ -798,7 +798,9 @@ never the alert bot and never the old shell bot. Press Start on it once.
 - [ ] `/stop` from the phone, then `lab control show` on the Mac says
       `stopped` and `set by chat:<id>`. Resume with
       `lab control resume --key ~/.lab-operator/operator.key`; the chat cannot.
-- [ ] Retire the raw-shell bot (#184). It runs outside this repository as your
+- [x] Retire the raw-shell bot (#184). Done 2026-10-07: bot deleted in BotFather,
+      LaunchAgent stopped and plist removed, token and TOTP secret deleted from the
+      Keychain, authenticator entry removed; its source folder was left in place. It runs outside this repository as your
       own user, so find its job with `launchctl list | grep -i -E "telegram|bot"`,
       then `launchctl bootout gui/$(id -u)/<its label>` and delete its plist
       from `~/Library/LaunchAgents`. In BotFather, `/revoke` its token (or

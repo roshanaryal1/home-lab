@@ -23,8 +23,8 @@ What is missing for daily use:
 
 - **No chat path through the broker.** The Telegram bot is a TOTP-gated raw
   shell outside the repository; it bypasses the broker and the audit log.
-  Update: the chat channel is built (`lab/chat.py`, #239); installing it and
-  retiring the raw-shell bot are operator steps on the Mac.
+  Update: the chat channel is built (`lab/chat.py`, #239), installed on the Mac
+  mini on 2026-10-07, and the raw-shell bot was retired the same day.
 - **No real handlers.** `lab/handlers/` holds one demo.
 - No tools a person wants (calendar, mail, richer web, code editing), no
   agent-proposed memory, no skill import, and no install path for other
@@ -67,7 +67,7 @@ in order and writes one report
 becomes a task; the reply comes from the task's result; approve-tier actions
 wait for the owner's signature. Done when a test shows the chat path cannot
 reach `shell.run` without an approval and the raw-shell bot is retired or
-clearly separated. Boundary: only the paired chat id is answered. About 3 to
+clearly separated (retired 2026-10-07). Boundary: only the paired chat id is answered. About 3 to
 5 days.
 
 **M3. Three real tools**

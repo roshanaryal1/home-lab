@@ -73,8 +73,8 @@ Why: these put a secret or an identity on the machine. They are done at the
 keyboard so no secret travels through the repository.
 
 - **Chat bot (#239).** Make a new bot in BotFather, pair it, and run the checks
-  in `ops/mac-mini-setup.md` section 23. Then retire the old raw-shell bot
-  (#184), as that section says.
+  in `ops/mac-mini-setup.md` section 23. The old raw-shell bot (#184) was
+  retired on 2026-10-07.
 - **Container image (#181).** Install Apple `container`, pull one small Linux
   image and note it pinned by digest (`name@sha256:...`). The tests below read
   it from `LAB_CONTAINER_IMAGE`.
