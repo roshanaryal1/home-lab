@@ -956,6 +956,7 @@ async def test_the_supervisor_loads_signed_servers_and_grants_them_per_handler(
 def test_no_test_writes_a_script_whose_shebang_is_the_interpreter_path() -> None:
     # #273: such a script cannot run from a checkout whose path contains a space.
     bare = "#!" + "{sys.executable}"
-    offenders = [p.name for p in Path(__file__).parent.glob("test_*.py")
-                 if bare in p.read_text()]
+    tests = Path(__file__).parent
+    modules = [*tests.rglob("test_*.py"), *tests.rglob("*_test.py")]
+    offenders = sorted({str(p.relative_to(tests)) for p in modules if bare in p.read_text()})
     assert not offenders, f"use a #!/bin/sh wrapper with the quoted path instead: {offenders}"
