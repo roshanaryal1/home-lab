@@ -21,6 +21,7 @@ import contextlib
 import json
 import os
 import plistlib
+import re
 import signal
 import subprocess
 import time
@@ -94,16 +95,68 @@ def read_heartbeat(db: str | Path) -> Heartbeat | None:
 
 @dataclass(frozen=True)
 class Verdict:
-    action: str      # healthy | killed | would_kill | no_heartbeat | not_running | corrupt
+    # healthy | killed | would_kill | starting | no_heartbeat | not_running | corrupt
+    action: str
     pid: int | None = None
     age: float | None = None
+    uptime: float | None = None     # set when the process was found by its command line
+
+
+def _etime_seconds(text: str) -> float | None:
+    """``ps -o etime`` is ``[[dd-]hh:]mm:ss``."""
+    match = re.fullmatch(r"(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)", text.strip())
+    if match is None:
+        return None
+    days, hours, minutes, seconds = (int(g or 0) for g in match.groups())
+    return float(((days * 24 + hours) * 60 + minutes) * 60 + seconds)
+
+
+def supervisor_processes(db: str | Path) -> list[tuple[int, float]]:
+    """Live ``(pid, seconds running)`` of this lab's supervisor for ``db``, found by its
+    command line, which must contain exactly ``-m lab.supervisor --db <db>``. Nothing else
+    matches, so no unrelated process can be picked up."""
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,etime=,command="], capture_output=True,
+                             text=True, timeout=10, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    needle = re.compile(r"(^|\s)-m lab\.supervisor --db " + re.escape(str(db)) + r"(\s|$)")
+    found = []
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3 or not parts[0].isdigit() or int(parts[0]) == os.getpid():
+            continue
+        uptime = _etime_seconds(parts[1])
+        if uptime is not None and needle.search(parts[2]):
+            found.append((int(parts[0]), uptime))
+    return found
+
+
+def _unseen_supervisor(db: str | Path, max_age: float, dry_run: bool,
+                       otherwise: Verdict) -> Verdict:
+    """The heartbeat names no live process (or there is none). A supervisor that is running
+    anyway, and has been for longer than ``max_age``, should have written one by now: it hung
+    before its first beat, which the heartbeat file alone cannot show (2026-10-06, #271)."""
+    running = supervisor_processes(db)
+    stuck = [(pid, up) for pid, up in running if up > max_age]
+    if stuck:
+        pid, up = max(stuck, key=lambda item: item[1])
+        if dry_run:
+            return Verdict("would_kill", pid, otherwise.age, up)
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
+        return Verdict("killed", pid, otherwise.age, up)
+    if running:
+        pid, up = running[0]
+        return Verdict("starting", pid, otherwise.age, up)
+    return otherwise
 
 
 def check(db: str | Path, *, max_age: float = DEFAULT_MAX_AGE,
           dry_run: bool = False) -> Verdict:
     path = heartbeat_path(db)
     if not path.exists():
-        return Verdict("no_heartbeat")
+        return _unseen_supervisor(db, max_age, dry_run, Verdict("no_heartbeat"))
     beat = read_heartbeat(db)
     if beat is None:
         return Verdict("corrupt")
@@ -112,7 +165,7 @@ def check(db: str | Path, *, max_age: float = DEFAULT_MAX_AGE,
         return Verdict("healthy", beat.pid, age)
     current = _start_time(beat.pid)
     if current is None or (beat.started is not None and current != beat.started):
-        return Verdict("not_running", beat.pid, age)
+        return _unseen_supervisor(db, max_age, dry_run, Verdict("not_running", beat.pid, age))
     if dry_run:
         return Verdict("would_kill", beat.pid, age)
     with contextlib.suppress(ProcessLookupError):

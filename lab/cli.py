@@ -879,6 +879,8 @@ def cmd_watchdog(args: argparse.Namespace) -> int:
     """Touches no database. Exit 0 healthy or nothing to do, 2 if it killed (or would kill)."""
     verdict = service.check(args.db, max_age=args.max_age, dry_run=args.dry_run)
     age = f" (heartbeat {verdict.age:.0f}s old)" if verdict.age is not None else ""
+    if verdict.uptime is not None:
+        age += f" (process up {verdict.uptime:.0f}s)"
     print(f"watchdog: {verdict.action}"
           + (f" pid {verdict.pid}" if verdict.pid else "") + age)
     return 2 if verdict.action in ("killed", "would_kill") else 0

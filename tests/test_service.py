@@ -177,3 +177,122 @@ def test_a_reused_pid_is_not_killed(tmp_path: Path) -> None:
         {"pid": os.getpid(), "ts": time.time() - 600, "started": "Thu Jan  1 00:00:00 1970"}))
     verdict = service.check(db, max_age=60)
     assert verdict.action == "not_running"
+
+
+# ---------------------------------------- a supervisor that never wrote a heartbeat (#271)
+
+
+def _spawn_unbeaten(db: Path) -> subprocess.Popen[bytes]:
+    """A process whose command line is this db's supervisor, and which never beats."""
+    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)",
+                             "-m", "lab.supervisor", "--db", str(db)])
+
+
+def test_etime_is_parsed_in_all_its_forms() -> None:
+    assert service._etime_seconds("00:05") == 5
+    assert service._etime_seconds("12:34") == 12 * 60 + 34
+    assert service._etime_seconds("01:02:03") == 3723
+    assert service._etime_seconds("2-03:04:05") == 2 * 86400 + 3 * 3600 + 4 * 60 + 5
+    for bad in ("", "abc", "1:2:3:4", "5"):
+        assert service._etime_seconds(bad) is None
+
+
+def test_the_supervisor_is_found_by_an_exact_command_line_and_nothing_else(
+        tmp_path: Path) -> None:
+    db = tmp_path / "lab.db"
+    other = tmp_path / "other.db"
+    ours, theirs = _spawn_unbeaten(db), _spawn_unbeaten(other)
+    lookalike = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)",
+                                  "-m", "lab.supervisor", "--db", str(db) + "x"])
+    try:
+        time.sleep(0.5)
+        assert [pid for pid, _ in service.supervisor_processes(db)] == [ours.pid]
+        assert [pid for pid, _ in service.supervisor_processes(other)] == [theirs.pid]
+    finally:
+        for proc in (ours, theirs, lookalike):
+            proc.kill()
+
+
+@pytest.mark.safety
+def test_a_supervisor_that_hung_before_its_first_heartbeat_is_killed(tmp_path: Path) -> None:
+    db = tmp_path / "lab.db"
+    proc = _spawn_unbeaten(db)
+    try:
+        time.sleep(3.2)                      # older than max_age, and no heartbeat file
+        assert not (tmp_path / "lab.db.heartbeat").exists()
+        verdict = service.check(db, max_age=2, dry_run=True)
+        assert verdict.action == "would_kill" and verdict.pid == proc.pid
+        assert proc.poll() is None, "a dry run must not kill"
+        verdict = service.check(db, max_age=2)
+        assert verdict.action == "killed" and verdict.pid == proc.pid
+        assert verdict.uptime is not None and verdict.uptime > 2
+        proc.wait(timeout=5)
+        assert proc.returncode == -9
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+@pytest.mark.safety
+def test_the_exact_2026_10_06_case_a_stale_heartbeat_names_a_dead_pid(tmp_path: Path) -> None:
+    """The first drill killed pid A; launchd started B; B was frozen before it beat, so the
+    file still named dead A and the watchdog took no action for 182 s."""
+    db = tmp_path / "lab.db"
+    (tmp_path / "lab.db.heartbeat").write_text(
+        json.dumps({"pid": 2**22 + 777, "ts": time.time() - 600}))
+    proc = _spawn_unbeaten(db)
+    try:
+        time.sleep(3.2)
+        verdict = service.check(db, max_age=2)
+        assert verdict.action == "killed" and verdict.pid == proc.pid
+        proc.wait(timeout=5)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def test_a_supervisor_that_has_only_just_started_is_given_time(tmp_path: Path) -> None:
+    db = tmp_path / "lab.db"
+    proc = _spawn_unbeaten(db)
+    try:
+        time.sleep(0.5)
+        verdict = service.check(db, max_age=600)
+        assert verdict.action == "starting" and verdict.pid == proc.pid
+        assert proc.poll() is None
+    finally:
+        proc.kill()
+
+
+def test_no_supervisor_and_no_heartbeat_is_still_just_a_report(tmp_path: Path) -> None:
+    db = tmp_path / "lab.db"
+    assert service.check(db, max_age=2).action == "no_heartbeat"
+    (tmp_path / "lab.db.heartbeat").write_text(
+        json.dumps({"pid": 2**22 + 777, "ts": time.time() - 600}))
+    assert service.check(db, max_age=2).action == "not_running"
+
+
+@pytest.mark.safety
+def test_an_unrelated_process_is_never_killed_by_the_fallback(tmp_path: Path) -> None:
+    db = tmp_path / "lab.db"
+    bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        time.sleep(3.2)
+        assert service.check(db, max_age=2).action == "no_heartbeat"
+        assert bystander.poll() is None
+    finally:
+        bystander.kill()
+
+
+def test_cli_watchdog_reports_the_uptime_and_exits_2_when_it_kills(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    db = tmp_path / "lab.db"
+    proc = _spawn_unbeaten(db)
+    try:
+        time.sleep(3.2)
+        assert main(["--db", str(db), "watchdog", "--max-age", "2"]) == 2
+        out = capsys.readouterr().out
+        assert out.startswith(f"watchdog: killed pid {proc.pid} (process up ")
+        proc.wait(timeout=5)
+    finally:
+        if proc.poll() is None:
+            proc.kill()

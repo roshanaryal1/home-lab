@@ -580,6 +580,18 @@ supervisor within about 30 seconds; a frozen supervisor must be gone and replace
   local kill_line="$LAST_OUT" kill_ok=0
   [ -n "$NEW" ] && [ "$NEW" != "$OLD" ] && kill_ok=1
 
+  # The freeze must not start before the new supervisor has written its first heartbeat: on
+  # 2026-10-06 it did, the heartbeat file still named the killed pid, and the watchdog never
+  # saw the frozen process (#271).
+  if [ "$kill_ok" = 1 ] || dry; then
+    run 'for i in $(seq 1 30); do sudo -u lab "$PY" -m lab.cli --db "$DB" watchdog --dry-run 2>&1 | grep -q "healthy pid $NEW " && break; sleep 2; done'
+    run 'sudo -u lab "$PY" -m lab.cli --db "$DB" watchdog --dry-run'
+    if ! dry && ! printf '%s' "$LAST_OUT" | grep -q "healthy pid $NEW "; then
+      finish FAIL "$kill_line. The new supervisor $NEW had written no heartbeat 60 s after it started, so the freeze drill was not run"
+      return
+    fi
+  fi
+
   NEW=""
   run 'sudo -v'
   run 'OLD=$(pgrep -f lab.supervisor)'

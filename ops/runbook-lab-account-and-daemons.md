@@ -275,10 +275,13 @@ echo "killed $OLD; new supervisor ${NEW:-none} after $(( $(date +%s) - T0 )) s"
 
 Then a frozen one. The watchdog must kill it and launchd must start another; the
 loop times both, so this drill shows whether it happens within the two minutes
-that issue #78 asks for, not only that it happens:
+that issue #78 asks for, not only that it happens. The first line waits until the
+supervisor that the kill drill started has written a heartbeat: freezing it before
+that is not a valid test (it was done on 2026-10-06, #271):
 
 ```sh
 sudo -v
+for i in $(seq 1 30); do sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db watchdog --dry-run | grep -q "^watchdog: healthy pid $(pgrep -f lab.supervisor) " && break; sleep 2; done
 OLD=$(pgrep -f lab.supervisor)
 T0=$(date +%s)
 sudo kill -STOP "$OLD"
