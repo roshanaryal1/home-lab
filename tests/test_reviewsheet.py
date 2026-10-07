@@ -175,3 +175,72 @@ def test_non_ascii_text_survives_a_non_utf8_locale(tmp_path: Path,
     assert rs.main(["sheet", "--cases", str(cases), "--out", str(out)]) == 0
     sheet = (out / "review-sheet.md").read_bytes().decode("utf-8")
     assert "\u6d4b\u91cf cache \u2014 latency" in sheet and "\u8ba1\u65f6\u5668 ran" in sheet
+
+
+def test_model_and_build_names_are_masked_and_distinct_names_stay_distinct() -> None:
+    text = "DWQ beats 4bit; the gguf control; Qwen3-Coder and QWEN; run-dwq vs run-4bit"
+    out = rs.mask_text(text)
+    for word in ("dwq", "4bit", "gguf", "qwen"):
+        assert word not in out.lower()
+    # one word gives one label, whatever its case; different words give different labels
+    assert len(set(rs.mask_text("dwq DWQ Dwq").split())) == 1
+    assert len(set(rs.mask_text("dwq 4bit gguf").split())) == 3
+
+
+def test_the_rendered_sheet_names_no_model_by_default() -> None:
+    cases = [{"id": "c1", "expected": "post", "claims": [{
+        "text": "DWQ copies paths correctly", "kind": "measurement", "verified": True,
+        "evidence": [{"source": "run-dwq", "type": "measurement", "relation": "supports",
+                      "text": "Qwen3-Coder served with MLX"}]}]}]
+    blinded = rs.blind(cases)
+    sheet = rs.render_sheet(blinded)
+    for word in ("dwq", "qwen", "mlx"):
+        assert word not in sheet.lower()
+    assert "dwq" in rs.render_sheet(blinded, mask=()).lower()      # off only when asked
+
+
+def test_the_shipped_sheet_names_no_model() -> None:
+    sheet = (Path(__file__).resolve().parent.parent / "evals" / "h1_review"
+             / "review-sheet.md").read_text().lower()
+    assert [t for t in rs.MASK_TERMS if t in sheet] == []
+
+
+def _write_cases(path: Path, rows: list[dict]) -> Path:
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    return path
+
+
+UNLABELED = {"id": "new-1", "claims": [{"text": "A thing happened", "kind": "finding",
+                                        "evidence": [{"source": "issue-1", "type": "incident",
+                                                      "text": "It did."}]}]}
+
+
+def test_an_unlabeled_case_loads_only_when_asked_and_a_set_label_must_be_a_route(
+        tmp_path: Path) -> None:
+    f = _write_cases(tmp_path / "u.jsonl", [UNLABELED])
+    assert rs.load_cases(f, labeled=False)[0]["id"] == "new-1"
+    with pytest.raises(rs.ReviewError):
+        rs.load_cases(f)                                   # compare needs a label
+    bad = _write_cases(tmp_path / "b.jsonl", [{**UNLABELED, "expected": "nonsense"}])
+    with pytest.raises(rs.ReviewError):
+        rs.load_cases(bad, labeled=False)
+    nulled = _write_cases(tmp_path / "n.jsonl", [{**UNLABELED, "expected": None}])
+    assert len(rs.load_cases(nulled, labeled=False)) == 1
+
+
+def test_the_sheet_command_combines_files_and_refuses_a_shared_id(tmp_path: Path) -> None:
+    labeled = _write_cases(tmp_path / "l.jsonl", [{**UNLABELED, "id": "old-1", "expected": "post"}])
+    new = _write_cases(tmp_path / "u.jsonl", [UNLABELED])
+    out = tmp_path / "out"
+    assert rs.main(["sheet", "--cases", str(labeled), str(new), "--out", str(out)]) == 0
+    sheet = (out / "review-sheet.md").read_text()
+    assert "case-01" in sheet and "case-02" in sheet and "case-03" not in sheet
+    clash = _write_cases(tmp_path / "c.jsonl", [{**UNLABELED, "id": "old-1"}])
+    assert rs.main(["sheet", "--cases", str(labeled), str(clash), "--out", str(out)]) == 1
+
+
+def test_compare_still_needs_labels_in_its_one_case_file(tmp_path: Path) -> None:
+    f = _write_cases(tmp_path / "u.jsonl", [UNLABELED])
+    answers = tmp_path / "a.json"
+    answers.write_text(json.dumps({"case-01": "post"}))
+    assert rs.main(["compare", "--cases", str(f), "--answers", str(answers)]) == 1

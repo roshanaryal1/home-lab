@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import sys
 from collections import Counter
 from collections.abc import Sequence
@@ -71,7 +72,10 @@ def _check_claims(claims: list[Any], where: str) -> None:
                                   "supports or contradicts")
 
 
-def load_cases(path: Path) -> list[dict[str, Any]]:
+def load_cases(path: Path, *, labeled: bool = True) -> list[dict[str, Any]]:
+    """The cases of one file. ``labeled=False`` accepts a case with no ``expected`` route, for a
+    file whose labels come from the reviewers and so do not exist yet; ``expected`` is then
+    either absent or null, and a value that is set must still be a known route."""
     cases: list[dict[str, Any]] = []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
@@ -80,8 +84,10 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
             case = json.loads(line)
         except ValueError as exc:
             raise ReviewError(f"{path}:{number}: not JSON") from exc
+        expected_ok = (case.get("expected") in ROUTES if labeled and isinstance(case, dict)
+                       else isinstance(case, dict) and case.get("expected") in (*ROUTES, None))
         if not (isinstance(case, dict) and isinstance(case.get("id"), str)
-                and case.get("expected") in ROUTES and isinstance(case.get("claims"), list)):
+                and expected_ok and isinstance(case.get("claims"), list)):
             raise ReviewError(f"{path}:{number}: needs id, a known expected route and claims")
         _check_claims(case["claims"], f"{path}:{number}")
         cases.append(case)
@@ -103,7 +109,31 @@ def blind(cases: list[dict[str, Any]], seed: int = DEFAULT_SEED,
     return [(f"case-{i:02d}", c) for i, c in enumerate(order, 1)]
 
 
-def render_sheet(blinded: list[tuple[str, dict[str, Any]]]) -> str:
+# Words that name the model under test or the builds it is compared with. A reviewer who sees
+# them can guess the candidate, which breaks the blinding. Each distinct word becomes a stable
+# neutral label (model-A, model-B, ...), so two builds in one case stay two different things.
+MASK_TERMS = (
+    "qwen3-coder-30b-a3b-instruct", "qwen3-coder", "qwen3", "qwen", "dwq", "4-bit", "4bit",
+    "gguf", "q4_k_m", "mlx_lm", "mlx", "llama.cpp", "llama-server", "deepseek", "gpt",
+    "gemini", "claude")
+
+
+def mask_text(text: str, terms: Sequence[str] = MASK_TERMS) -> str:
+    """Replace each term, case-insensitively, with the neutral label of that term."""
+    ordered = sorted(set(t.lower() for t in terms), key=lambda t: (-len(t), t))
+    labels = {t: f"model-{chr(65 + i % 26)}{i // 26 or ''}"
+              for i, t in enumerate(sorted(set(ordered)))}
+    pattern = re.compile("|".join(re.escape(t) for t in ordered), re.IGNORECASE)
+    return pattern.sub(lambda m: labels[m.group(0).lower()], text)
+
+
+def render_sheet(blinded: list[tuple[str, dict[str, Any]]],
+                 mask: Sequence[str] = MASK_TERMS) -> str:
+    sheet = _render_sheet(blinded)
+    return mask_text(sheet, mask) if mask else sheet
+
+
+def _render_sheet(blinded: list[tuple[str, dict[str, Any]]]) -> str:
     lines = [
         "# Review sheet: what should each research task become?",
         "",
@@ -184,21 +214,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("sheet", "compare"):
         p = sub.add_parser(name)
-        p.add_argument("--cases", type=Path, required=True)
+        p.add_argument("--cases", type=Path, required=True, nargs="+" if name == "sheet" else None,
+                       help="the case file; for sheet, one or more files, which may hold cases "
+                            "that have no label yet")
         p.add_argument("--seed", type=int, default=DEFAULT_SEED)
         p.add_argument("--exclude", nargs="*", default=[], metavar="ID",
                        help="case ids to leave out (for example cases that cannot be built)")
         if name == "sheet":
             p.add_argument("--out", type=Path, required=True, help="directory to write into")
+            p.add_argument("--mask", nargs="*", default=None, metavar="TERM",
+                           help="words to hide from the reviewer (default: the built-in list "
+                                "of model and build names; pass --mask with no words for none)")
         else:
             p.add_argument("--answers", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        cases = load_cases(args.cases)
+        if args.command == "sheet":
+            cases = [c for path in args.cases for c in load_cases(path, labeled=False)]
+            ids = [c["id"] for c in cases]
+            if len(set(ids)) != len(ids):
+                raise ReviewError("the case files share a case id")
+        else:
+            cases = load_cases(args.cases)
         if args.command == "sheet":
             blinded = blind(cases, args.seed, args.exclude)
             args.out.mkdir(parents=True, exist_ok=True)
-            sheet = render_sheet(blinded) + "\n"
+            terms = MASK_TERMS if args.mask is None else tuple(args.mask)
+            sheet = render_sheet(blinded, terms) + "\n"
             (args.out / "review-sheet.md").write_text(sheet, encoding="utf-8")
             template = json.dumps(answers_template(blinded), indent=2) + "\n"
             (args.out / "answers-template.json").write_text(template, encoding="utf-8")
