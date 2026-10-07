@@ -369,6 +369,23 @@ def test_approve_shows_the_exact_intent_and_the_command_to_sign_it(lab: Lab) -> 
     assert lab.say("/approve zz").action is Action.REFUSED
 
 
+def test_approve_does_not_show_an_intent_its_hash_does_not_bind(lab: Lab) -> None:
+    """A row changed outside the gate gets no preview and no command to sign it (#70)."""
+    task_id = lab.say("clean up").task_id
+    assert task_id is not None
+    approval = PolicyEngine(lab.queue._conn).authorize_tool(
+        task_id, "shell.run", {"argv": ["rm", "-rf", "work"]}, Tier.APPROVE).approval_id
+    assert approval is not None
+    lab.queue._conn.execute(
+        "UPDATE approvals SET intent = ? WHERE id = ?",
+        (json.dumps({"kind": "tool", "tool": "fs.read", "params": {"path": "notes.txt"}}),
+         approval))
+    shown = lab.say(f"/approve {approval[:8]}")
+    assert shown.action is Action.REFUSED and shown.reply is not None
+    assert "fs.read" not in shown.reply and "--expect-hash" not in shown.reply
+    assert "changed outside the gate" in shown.reply and f"/deny {approval[:12]}" in shown.reply
+
+
 def test_approve_redacts_and_cuts_a_long_intent(lab: Lab) -> None:
     task_id = lab.say("send it").task_id
     assert task_id is not None

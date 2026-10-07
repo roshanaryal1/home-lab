@@ -589,10 +589,21 @@ Implemented and tested:
   by another key, or a signed one edited afterwards (longer window,
   different decider) is ignored and audited as `approval_rejected`. A
   forged row cannot shadow a genuine one. `--by` is an audit label, not
-  identity: the key is the identity. The CLI refuses ambiguous or
+  identity: the key is the identity (naming the operator in `--by` without
+  the key grants nothing). The CLI refuses ambiguous or
   non-hex id prefixes, refuses to approve if `--expect-hash` differs
   from what was reviewed, escapes control and bidi characters in
-  everything it prints, and warns when a grant is unsigned. **This is a
+  everything the approval commands print, and warns when a grant is unsigned.
+  What the operator reads is what gets signed: the signature covers the action
+  hash, and the stored intent is only the text shown, so `lab show`, `lab
+  approve` and the chat's `/approve` refuse to show or sign an approval whose
+  intent does not hash, with the gate's own `intent_hash`, to its action hash
+  (a row changed outside the gate), and `approve` signs only if the row still
+  holds the hash it checked, in the same transaction as the signature. Before
+  this, a direct write could pair a harmless intent with the hash of another
+  call, and the operator's signature, even with `--expect-hash`, went to the
+  call they were not shown (#70). `lab cancel` and `lab resolve` take a
+  literal, non-empty prefix too. **This is a
   boundary only once the private key is unreadable to the agent's OS
   account and the supervisor is configured with the public key.** On the
   Mac mini both hold since 2026-09-30: the `lab` account gets `Permission
@@ -600,11 +611,16 @@ Implemented and tested:
   start without the public key (#190). `--allow-unsigned` and
   `lab tick --mock-reply` exist for dummy data and are refused on any
   machine where `/etc/homelab/operator.pub` exists, a root-owned file the lab
-  account cannot remove. Still open: the fabricated-signature test on the
-  machine (#70). **Not closed:** code running as the lab account can build
+  account cannot remove. The fabricated-signature test passed on the machine
+  on 2026-10-06: as `lab`, an unsigned grant, a grant signed with a key `lab`
+  made and a row written directly were all refused at the gate with
+  `approval_rejected` (`docs/reviews/2026-10-06-mac-session.md`). **Not
+  closed:** code running as the lab account can build
   a `Supervisor` in its own process against the database, which the lab
-  account owns, and that supervisor would not check approvals; only
-  separating the database from the code the agent runs closes that (#70).
+  account owns, and that supervisor would not check approvals. The same
+  ownership lets such code change approval state in the database, and lets a
+  reviewed handler's worker, which runs as `lab` too, open the database. Only
+  separating the database from the code the agent runs closes these (#70).
   A supervisor built any other way does not check approvals: tests do
   that on purpose, and so does the attack harness (`lab/attacks.py`),
   which runs only on a throwaway temporary database with a dummy secret.
@@ -744,8 +760,11 @@ every draft by hand.
 - Handlers registered with `register_reviewed` run in their own worker
   process with a minimal environment, no database path and no lease
   token, and act only through the broker (item 1.2). They still run as
-  the same OS user, so a hostile handler that found the database file
-  could open it; the separate lab account closes that (#70). Only code
+  the same OS user as the supervisor, `lab` on the Mac mini, which owns the
+  database, so a hostile handler that found the database file could open it.
+  The separate lab account does not close that, because it separates the lab
+  from the operator, not a handler from the database; keeping the database
+  out of the workers' reach does (#70). Only code
   under `lab.handlers` can be loaded into a worker.
 - The read-only git tools run git outside the Seatbelt sandbox, because
   their safety must not depend on a sandbox Linux does not have. What
