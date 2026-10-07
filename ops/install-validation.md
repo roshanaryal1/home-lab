@@ -8,12 +8,18 @@ Apple silicon Mac, from a fresh macOS user account if you can, and write down
 what you see. If a command fails, fix the guide or the code first.
 
 A second Mac, or a second user on the MacBook, is enough. It does not need the
-Mac mini.
+Mac mini, and must not use a second user on it: the `lab` account,
+`/opt/homelab`, `/etc/homelab`, the LaunchDaemons and port 8080 are machine-wide,
+so from step 4 on the test would collide with the running lab. A second user on
+a Mac that already has the Xcode Command Line Tools shares them, so that part of
+the guide is not exercised there; say so in the record.
 
 Run these in order:
 
-1. **Prerequisites.**
+1. **Clone and prerequisites** (guide section 1).
    ```sh
+   git clone https://github.com/roshanaryal1/home-lab.git "$HOME/home-lab"
+   cd "$HOME/home-lab"
    ./scripts/check-prerequisites.sh
    ```
    Confirm it changes nothing, reports Apple silicon and the right unified
@@ -34,16 +40,18 @@ Run these in order:
    else's machine or a model you did not choose.
 
 4. **Apply and isolation.** Run the `sudo ... setup-plan --apply` command from
-   the guide, then confirm all five checks in guide section 5: `lab` cannot use
+   the guide, then confirm all six checks in guide section 5: `lab` cannot use
    `sudo`, is not an admin, cannot read the operator's private key, cannot write
-   a service definition, and cannot list the operator's home folder. Confirm only
-   `operator.pub` was copied into `/etc/homelab`.
+   a service definition, cannot list the operator's home folder, and cannot list
+   a folder below it. Confirm only `operator.pub` was copied into `/etc/homelab`.
 
 5. **Deployment.** Follow the runbook (`ops/runbook-lab-account-and-daemons.md`)
-   from its step 3, with `REPO`, `COMMIT`, `MODEL_REV` and `BACKUP_VOLUME` set. The
-   model name is read from the server in step 4; check that the value it reads
-   is a path and that a request using it is accepted (HTTP 200). Write down any
-   command that differs from the guide before you change the guide.
+   from its step 3, with `REPO`, `COMMIT`, `MODEL_REV` and `BACKUP_VOLUME` set and
+   the model server already running (step 7 below; guide section 6 says to start
+   it first). The model name is read from the server in runbook step 4; check
+   that the value it reads is a path and that a request using it is accepted
+   (HTTP 200). Write down any command that differs from the guide before you
+   change the guide.
 
 6. **Services and health.** All eight launchd jobs load, the supervisor runs as
    `lab`, and these work:
