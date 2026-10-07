@@ -287,6 +287,21 @@ def test_cli_refuses_a_symlinked_destination_and_a_bad_keep(tmp_path: Path, live
     assert not list(real.iterdir())
 
 
+@pytest.mark.safety
+def test_cli_backup_refuses_a_linked_database_path_and_alerts(tmp_path: Path, live,
+                                                            capsys) -> None:
+    db, _store = live
+    link = tmp_path / "linked.db"
+    link.symlink_to(db)
+    dest = tmp_path / "bk"
+    cfg, out = _recorder(tmp_path)
+    assert main(["--db", str(link), "backup", "--to", str(dest), "--keep", "2",
+                 "--alert-config", str(cfg)]) == 1
+    assert f"backup: {link} is a symbolic link" in capsys.readouterr().err
+    assert not dest.exists(), "nothing is read or written for a refused path"
+    assert out.read_text().startswith("backup: ")
+
+
 # ------------------------------------------------------------------ launchd
 
 
