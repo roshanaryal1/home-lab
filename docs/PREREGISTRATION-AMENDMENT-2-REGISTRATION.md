@@ -133,5 +133,25 @@ the replies in the table above. It wrote 30 cases, so H1 is testable at the regi
 The same command on a second machine gave the same case-file hash. These labels are frozen. They
 were not compared with the owner's labels or the drafts before they were fixed.
 
-Next: `lab shadow` for H1 on the final case file, then the comparisons the amendment lists under
-"Reported with the result".
+## Running H1
+
+`lab shadow` ran only the rubric from the command line; the candidate could be wired only from
+Python. The command now takes the candidate's endpoint, name and revisions, sends temperature 0 and
+one fixed seed (default 0) with every request, prints the adoption verdict, and can write the whole
+run (provenance with the lab commit, settings, every row, the verdict) to a record it never
+overwrites. This changes the command-line wiring only. The instrument the amendment freezes,
+`lab/shadow.py` and `lab/rubric.py`, is unchanged, and `tests/test_h1_amendment.py` fails if
+either file's SHA-256 differs from the registered one. The run is at a later lab commit than the
+one registered, and the record states which.
+
+The H1 run, on the Mac mini with the model server from `ops/mac-mini-setup.md` section 13 up:
+
+```sh
+uv run python -m lab.cli shadow --cases evals/h1_review/final-cases.jsonl \
+  --endpoint http://127.0.0.1:8080/v1 \
+  --model ~/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ/snapshots/cfcade7221ccd128681961446e5f7906c08cae55 \
+  --revision cfcade7221ccd128681961446e5f7906c08cae55 --weights-mb 17200 \
+  --record evals/h1_review/h1-run.json
+```
+
+After it: the comparisons the amendment lists under "Reported with the result".

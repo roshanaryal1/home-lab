@@ -673,6 +673,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     sh = sub.add_parser("shadow", help="measure the rubric on labeled research cases")
     sh.add_argument("--cases", type=Path, required=True)
+    sh.add_argument("--endpoint", default=None,
+                    help="also run a candidate model served here (OpenAI-compatible, loopback)")
+    sh.add_argument("--model", default=None, help="the served model's name, as it answers")
+    sh.add_argument("--revision", default=None, help="weight revision, a commit hash")
+    sh.add_argument("--tokenizer-revision", default=None,
+                    help="tokenizer revision, a commit hash (default: --revision)")
+    sh.add_argument("--weights-mb", type=int, default=1)
+    sh.add_argument("--max-tokens", type=int, default=256)
+    sh.add_argument("--seed", type=int, default=0)
+    sh.add_argument("--record", type=Path, default=None,
+                    help="write the run (provenance, settings, every row, verdict) as JSON here")
 
     led = sub.add_parser("ledger", help="research claims, their evidence and their status")
     led.add_argument("--store", type=Path, default=None,
@@ -1524,14 +1535,66 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     return 0
 
 
+class _SeededModel(model_mod.BoundedModel):
+    """A bounded model that sends one fixed seed with every request, so a shadow run is
+    repeatable: the candidate in ``lab.shadow`` calls ``generate`` without one."""
+
+    def __init__(self, inner: model_mod.BoundedModel, seed: int) -> None:
+        super().__init__(inner.spec, inner.adapter, inner.controller)
+        self.seed = seed
+
+    def generate(self, messages: list[dict[str, str]], *, max_tokens: int | None = None,
+                 seed: int | None = None,
+                 timeout_seconds: float | None = None) -> model_mod.Completion:
+        return super().generate(messages, max_tokens=max_tokens,
+                                seed=self.seed if seed is None else seed,
+                                timeout_seconds=timeout_seconds)
+
+
 def cmd_shadow(args: argparse.Namespace) -> int:
-    from lab import shadow
+    import hashlib
+
+    from lab import evals, shadow
+    candidate = None
+    settings: dict[str, Any] = {}
+    if args.endpoint:
+        if not (args.model and args.revision):
+            print("shadow: --endpoint needs --model and --revision", file=sys.stderr)
+            return 1
+        spec = model_mod.ModelSpec(args.model, args.revision,
+                                   args.tokenizer_revision or args.revision, 8192,
+                                   args.max_tokens, args.weights_mb)
+        bounded = model_mod.BoundedModel(spec, model_mod.OpenAICompatibleAdapter(args.endpoint))
+        candidate = shadow.model_candidate(_SeededModel(bounded, args.seed))
+        settings = {"endpoint": args.endpoint, "model": asdict(spec), "seed": args.seed,
+                    "temperature": 0, "max_tokens": args.max_tokens}
     try:
-        report = shadow.run(shadow.load_cases(args.cases))
+        cases = shadow.load_cases(args.cases)
+        started = datetime.now(UTC).isoformat(timespec="seconds")
+        report = shadow.run(cases, candidate=candidate)
     except (shadow.ShadowError, OSError) as exc:
         print(f"shadow: {exc}", file=sys.stderr)
         return 1
     print(shadow.format_report(report))
+    verdict = shadow.adoption_verdict(report) if candidate is not None else None
+    if verdict is not None:
+        print("verdict: " + ("supported" if verdict.recommend else "not supported"))
+        for reason in verdict.reasons:
+            print(f"  {reason}")
+    if args.record is not None:
+        record = {
+            "started": started, "cases": str(args.cases),
+            "cases_sha256": hashlib.sha256(args.cases.read_bytes()).hexdigest(),
+            "provenance": evals.collect_provenance(), "settings": settings,
+            "report": asdict(report),
+            "verdict": asdict(verdict) if verdict is not None else None}
+        try:
+            with args.record.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, indent=2) + "\n")
+        except OSError as exc:
+            print(f"shadow: {exc}", file=sys.stderr)
+            return 1
+        print(f"wrote {args.record}")
     return 0
 
 

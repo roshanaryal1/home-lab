@@ -203,3 +203,63 @@ def test_cli_baseline_only_needs_no_model(capsys: pytest.CaptureFixture[str],
     assert main(["--db", str(tmp_path / "x.db"), "shadow", "--cases", str(CASES)]) == 0
     out = capsys.readouterr().out
     assert "baseline" in out and "candidate" not in out.lower().split("baseline")[0]
+
+
+def _fake_server(monkeypatch: pytest.MonkeyPatch, reply: str) -> list[MockAdapter]:
+    """Every adapter the command builds is a scripted one; the list keeps them to inspect."""
+    from lab import model as model_mod
+
+    made: list[MockAdapter] = []
+
+    def adapter(endpoint: str) -> MockAdapter:
+        made.append(MockAdapter(lambda messages: reply))
+        return made[-1]
+
+    monkeypatch.setattr(model_mod, "OpenAICompatibleAdapter", adapter)
+    return made
+
+
+def test_cli_runs_a_candidate_with_a_fixed_seed_and_records_the_run(
+        capsys: pytest.CaptureFixture[str], tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    made = _fake_server(monkeypatch, '{"route": "post", "confidence": 0.9}')
+    record = tmp_path / "run.json"
+    assert main(["--db", str(tmp_path / "x.db"), "shadow", "--cases", str(CASES),
+                 "--endpoint", "http://127.0.0.1:1/v1", "--model", "m", "--revision", "a" * 40,
+                 "--seed", "7", "--record", str(record)]) == 0
+    out = capsys.readouterr().out
+    assert "candidate: accuracy" in out and "verdict: " in out
+    assert made and {c["seed"] for c in made[0].calls} == {7}
+    saved = json.loads(record.read_text())
+    assert saved["settings"]["seed"] == 7 and saved["settings"]["temperature"] == 0
+    assert saved["settings"]["model"]["tokenizer_revision"] == "a" * 40
+    assert len(saved["cases_sha256"]) == 64 and saved["report"]["n"] > 0
+    assert saved["verdict"]["recommend"] in (True, False)
+    assert "lab_commit" in saved["provenance"]
+
+
+def test_cli_candidate_needs_a_model_and_a_revision(capsys: pytest.CaptureFixture[str],
+                                                    tmp_path: Path) -> None:
+    assert main(["--db", str(tmp_path / "x.db"), "shadow", "--cases", str(CASES),
+                 "--endpoint", "http://127.0.0.1:1/v1"]) == 1
+    assert "--model and --revision" in capsys.readouterr().err
+
+
+def test_cli_never_overwrites_a_run_record(capsys: pytest.CaptureFixture[str], tmp_path: Path,
+                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_server(monkeypatch, "not json")
+    record = tmp_path / "run.json"
+    record.write_text("earlier run\n")
+    assert main(["--db", str(tmp_path / "x.db"), "shadow", "--cases", str(CASES),
+                 "--endpoint", "http://127.0.0.1:1/v1", "--model", "m", "--revision", "a" * 40,
+                 "--record", str(record)]) == 1
+    assert record.read_text() == "earlier run\n"
+
+
+def test_cli_baseline_only_can_record_too(capsys: pytest.CaptureFixture[str],
+                                         tmp_path: Path) -> None:
+    record = tmp_path / "run.json"
+    assert main(["--db", str(tmp_path / "x.db"), "shadow", "--cases", str(CASES),
+                 "--record", str(record)]) == 0
+    saved = json.loads(record.read_text())
+    assert saved["verdict"] is None and saved["settings"] == {}
