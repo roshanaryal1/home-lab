@@ -197,7 +197,8 @@ below were made on the Mac mini M6 after the registration timestamp
 (2026-09-29 14:45:00 UTC), from a clean checkout of the registered commit
 `d8726b43`, except H3, which ran from a clean checkout of `05b8101` (the
 commit that added these results; no file under `lab/` changed between the
-two). Records are sealed in `evals/runs/` (file names give the start time
+two), and except H1, which ran on 2026-10-07 from `main` commit `4308645` with three
+untracked notes and no changed tracked file (see "H1: not supported"). Records are sealed in `evals/runs/` (file names give the start time
 and the first eight hex digits of the record hash).
 
 ### Manipulation check (16:50 UTC)
@@ -282,7 +283,7 @@ pairwise `lab bench tune` verdicts agree. Ten records in `evals/runs/`
 
 ### H1
 
-Not run. H1 needs 30 labeled shadow cases. Its case file and the way its labels are
+Run on 2026-10-07 and **not supported**: see "H1: not supported" below. H1 needs 30 labeled shadow cases. Its case file and the way its labels are
 assigned were frozen in Amendment 2, registered on OSF at https://osf.io/q75bx/ (DOI
 10.17605/OSF.IO/Q75BX) on 2026-10-07 08:12 UTC, before any of its three registered AI reviewers saw a case (the 16 reused draft cases carry
 labels written by an earlier Claude session, as the amendment discloses); see
@@ -299,3 +300,66 @@ labels written by an earlier Claude session, as the amendment discloses); see
 - AgentDojo v1.2 (model-level injection benchmark, `ops/mac-mini-setup.md`
   section 12): see `SECURITY.md`.
 
+
+### H1: not supported
+
+Run 2026-10-07 11:24 UTC on the Mac mini with `lab shadow` at `main` commit
+`43086452b94ab35569835fc9b7b97bc2ea256be8` (`lab/shadow.py` and `lab/rubric.py` identical to the
+registered instrument), the DWQ MLX build at revision `cfcade7221ccd128681961446e5f7906c08cae55`,
+temperature 0, seed 0. Labels: amendment 2 (osf.io/q75bx), majority of three AI reviewers, in
+`evals/h1_review/final-cases-v2.jsonl` (30 cases). Record: `evals/h1_review/h1-run.json`
+(SHA-256 `9d06bed917dbea2e1d83e29856b820d68c9c9c5cd1f3967363f3f112148b8b3d`); every request
+answered, no run error. The record says `tree_dirty: true`: the Mac checkout held three untracked
+`mac-session-*.md` notes and no changed tracked file. The comparisons below are printed by
+`scripts/h1_result.py`.
+
+| | rubric | candidate |
+|---|---|---|
+| accuracy, all 30 cases (an abstention is a miss) | 0.833 | 0.100 |
+| accuracy of the cases answered | | 0.115 (26 answered) |
+| coverage | | 0.87 |
+| false promotions | | 5 |
+
+Accuracy gain -0.733, 95% CI [-0.867, -0.567] (paired bootstrap over cases, 10,000 resamples,
+seed 20260930). H1 is **falsified** twice over: five false promotions (one is enough) and a
+gain far below +0.05. Coverage, 0.87, met its 0.80 floor. Calibration: ECE 0.417, Brier 0.329. The p95 latency, 0.58 s, is per case; the
+recorded peak RSS, 42 MB, is the harness process, not the model server.
+
+Per class, by final label (cases; right by the rubric; right by the candidate; candidate
+abstained):
+
+| final label | cases | rubric | candidate | abstained |
+|---|---|---|---|---|
+| no_artifact | 2 | 1 | 1 | 0 |
+| insufficient_evidence | 3 | 2 | 1 | 0 |
+| post | 15 | 15 | 1 | 1 |
+| blog | 8 | 6 | 0 | 3 |
+| paper | 2 | 1 | 0 | 0 |
+
+The candidate never answered `blog`, and answered `no_artifact` ten times, six of them on cases
+labelled `post`. The five false promotions were all to `paper`: cases 09, 17, 23, 25 and 28. The
+owner's labels agree with the final label on 23, 25 and 28 and say `insufficient_evidence` for 09
+and 17, so all five are false promotions against the owner's labels too.
+
+A stated limit of the instrument, as registered: the candidate's prompt (`lab/shadow.py`,
+`SYSTEM`) gives the five route names and no definition of any of them, while the reviewers' sheet
+defined each one. The result is about this candidate with this prompt. It says nothing about a
+candidate given the definitions; that would be a new hypothesis, registered before it runs.
+
+Reported with the result, as amendment 2 requires:
+
+- **Labels.** AI-assigned reference labels, partly checked by a person, not independent human
+  ground truth. The reviewers were unanimous on 18 of the 30 main cases and split two to one on
+  12; none split three ways. Outvoted: DeepSeek 9 times, GPT 2, Gemini 1.
+- **Owner's agreement with the final labels:** 25 of 30. Differences, owner to final:
+  `insufficient_evidence -> no_artifact`, `insufficient_evidence -> post`,
+  `paper -> blog`, `paper -> insufficient_evidence`, `post -> blog`, one each.
+- **Drafts against the final labels:** 10 of the 16 drafted cases agree. Differences, draft to
+  final: `post -> blog` twice, and `blog -> paper`, `paper -> blog`,
+  `post -> insufficient_evidence`, `insufficient_evidence -> no_artifact` once each.
+- **Replaced case:** case-14 (`x-home-readable`) could not be built in the ledger and was
+  replaced by spare-01 (`s-approval-final`), a departure decided before any model output (see
+  `docs/PREREGISTRATION-AMENDMENT-2-REGISTRATION.md`). Its three AI labels were `post`, `post`,
+  `post`; the owner's label was `post`. No main case was split three ways.
+- **Rubric against the owner's labels:** 27 of 30. The rubric agrees with the owner's labels more
+  often than with the AI majority (25 of 30). The candidate agrees with the owner's labels on 3.
