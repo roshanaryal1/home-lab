@@ -40,6 +40,8 @@ def test_every_hash_in_the_amendment_is_the_hash_of_its_file() -> None:
             "evals/shadow_cases_DRAFT.jsonl", "evals/h1_review/extra-cases-UNLABELED.jsonl",
             "evals/h1_review/review-sheet.md", "evals/h1_review/answers-template.json",
             "evals/h1_review/ai-reviewer-prompt.md", "evals/h1_review/answers-owner.json",
+            "evals/h1_review/spare-cases-UNLABELED.jsonl", "evals/h1_review/spares/review-sheet.md",
+            "evals/h1_review/spares/answers-template.json",
             "lab/shadow.py", "lab/rubric.py", "lab/reviewsheet.py"):
         assert expected in named, f"{expected} is not frozen in the amendment"
     wrong = [(path, want) for path, want in pairs

@@ -98,7 +98,7 @@ def load_cases(path: Path, *, labeled: bool = True) -> list[dict[str, Any]]:
 
 
 def blind(cases: list[dict[str, Any]], seed: int = DEFAULT_SEED,
-          exclude: Sequence[str] = ()) -> list[tuple[str, dict[str, Any]]]:
+          exclude: Sequence[str] = (), prefix: str = "case") -> list[tuple[str, dict[str, Any]]]:
     """Neutral ids in a seeded shuffle; the same inputs always give the same result."""
     unknown = set(exclude) - {c["id"] for c in cases}
     if unknown:
@@ -106,7 +106,7 @@ def blind(cases: list[dict[str, Any]], seed: int = DEFAULT_SEED,
     kept = [c for c in cases if c["id"] not in set(exclude)]
     order = sorted(kept, key=lambda c: c["id"])
     random.Random(seed).shuffle(order)
-    return [(f"case-{i:02d}", c) for i, c in enumerate(order, 1)]
+    return [(f"{prefix}-{i:02d}", c) for i, c in enumerate(order, 1)]
 
 
 # Words that name the model under test or the builds it is compared with. A reviewer who sees
@@ -176,10 +176,10 @@ def answers_template(blinded: list[tuple[str, dict[str, Any]]]) -> dict[str, Non
 
 
 def compare(cases: list[dict[str, Any]], answers: dict[str, Any], seed: int = DEFAULT_SEED,
-            exclude: Sequence[str] = ()) -> dict[str, Any]:
+            exclude: Sequence[str] = (), prefix: str = "case") -> dict[str, Any]:
     if not isinstance(answers, dict):
         raise ReviewError("the answers must be a JSON object of case id to route")
-    blinded = blind(cases, seed, exclude)
+    blinded = blind(cases, seed, exclude, prefix)
     expected_ids = {neutral for neutral, _ in blinded}
     extra = set(answers) - expected_ids
     missing = expected_ids - {k for k, v in answers.items() if v is not None}
@@ -218,6 +218,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                        help="the case file; for sheet, one or more files, which may hold cases "
                             "that have no label yet")
         p.add_argument("--seed", type=int, default=DEFAULT_SEED)
+        p.add_argument("--prefix", default="case", help="neutral id prefix (a separate sheet of "
+                       "spare cases uses spare, so its ids cannot be mixed up with case-NN)")
         p.add_argument("--exclude", nargs="*", default=[], metavar="ID",
                        help="case ids to leave out (for example cases that cannot be built)")
         if name == "sheet":
@@ -237,7 +239,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             cases = load_cases(args.cases)
         if args.command == "sheet":
-            blinded = blind(cases, args.seed, args.exclude)
+            blinded = blind(cases, args.seed, args.exclude, args.prefix)
             args.out.mkdir(parents=True, exist_ok=True)
             terms = MASK_TERMS if args.mask is None else tuple(args.mask)
             sheet = render_sheet(blinded, terms) + "\n"
@@ -247,7 +249,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"wrote {len(blinded)} cases to {args.out}")
             return 0
         print(format_comparison(compare(cases, json.loads(args.answers.read_text(encoding="utf-8")),
-                                        args.seed, args.exclude)))
+                                        args.seed, args.exclude, args.prefix)))
         return 0
     except (ReviewError, OSError, ValueError) as exc:
         print(f"reviewsheet: {exc}", file=sys.stderr)

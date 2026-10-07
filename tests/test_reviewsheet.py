@@ -244,3 +244,28 @@ def test_compare_still_needs_labels_in_its_one_case_file(tmp_path: Path) -> None
     answers = tmp_path / "a.json"
     answers.write_text(json.dumps({"case-01": "post"}))
     assert rs.main(["compare", "--cases", str(f), "--answers", str(answers)]) == 1
+
+
+def test_a_prefix_gives_a_separate_set_of_neutral_ids(tmp_path: Path) -> None:
+    cases = [{**UNLABELED, "id": f"s-{i}", "expected": "post"} for i in range(3)]
+    ids = [n for n, _ in rs.blind(cases, prefix="spare")]
+    assert ids == ["spare-01", "spare-02", "spare-03"]
+    f = _write_cases(tmp_path / "s.jsonl", [{**UNLABELED, "id": "s-1"}])
+    out = tmp_path / "out"
+    assert rs.main(["sheet", "--cases", str(f), "--prefix", "spare", "--out", str(out)]) == 0
+    assert "## spare-01" in (out / "review-sheet.md").read_text()
+    assert list(json.loads((out / "answers-template.json").read_text())) == ["spare-01"]
+
+
+def test_the_shipped_spare_sheet_is_eight_masked_spare_cases() -> None:
+    root = Path(__file__).resolve().parent.parent / "evals" / "h1_review"
+    sheet = (root / "spares" / "review-sheet.md").read_text()
+    assert sheet.count("\n## spare-") == 8 and "## case-" not in sheet
+    assert [t for t in rs.MASK_TERMS if t in sheet.lower()] == []
+    ids = {json.loads(line)["id"] for name in ("../shadow_cases_DRAFT.jsonl",
+                                                 "extra-cases-UNLABELED.jsonl")
+           for line in (root / name).read_text().splitlines() if line.strip()}
+    spares = {json.loads(line)["id"]
+              for line in (root / "spare-cases-UNLABELED.jsonl").read_text().splitlines()
+              if line.strip()}
+    assert not ids & spares
