@@ -236,3 +236,25 @@ def test_tasks_reports_counts(db, capsys) -> None:
         q.add_task("two")
     assert run(db, "tasks") == 0
     assert "queued" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("arg", ["%", "_", ""])
+def test_cancel_takes_a_literal_non_empty_prefix(db, capsys, arg) -> None:
+    """`%` and `_` are not wildcards and an empty argument names nothing (#70)."""
+    with TaskQueue(db, owner="t") as q:
+        only = q.add_task("the only task")
+    assert run(db, "cancel", arg, "--by", "roshan") == 1
+    assert "no task matching" in capsys.readouterr().err
+    assert run(db, "cancel", only[:6], "--by", "roshan") == 0
+    with TaskQueue(db, owner="t") as q:
+        assert q.get(only).state == "cancelled"
+
+
+def test_resolve_refuses_an_empty_prefix(db, capsys) -> None:
+    from lab.journal import OperationJournal
+    with TaskQueue(db, owner="t") as q:
+        task = q.add_task("sends something")
+        OperationJournal(q._conn).begin("ab" * 32, task, "shell.run", "0" * 64, 0)
+    assert run(db, "resolve", "", "--not-happened", "--by", "roshan") == 1
+    assert "0 unresolved operations match" in capsys.readouterr().err
+    assert run(db, "resolve", "abab", "--not-happened", "--by", "roshan") == 0

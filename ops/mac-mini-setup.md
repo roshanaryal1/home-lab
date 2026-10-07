@@ -258,10 +258,10 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
 
 The code is done and tested. What makes it a boundary is which OS account
 can read what, and that needs the machine. The account, the key and the
-supervisor's use of the public key are done on the Mac mini (2026-09-30). Two
-things are not: the fabricated-signature test, and keeping the queue database out
-of reach of the code the agent runs (both unticked below; while the second is
-open the operator boundary is not closed, see SECURITY.md).
+supervisor's use of the public key are done on the Mac mini (2026-09-30), and
+the fabricated-signature test passed there on 2026-10-06. One thing is not:
+keeping the queue database out of reach of the code the agent runs (unticked
+below; while it is open the operator boundary is not closed, see SECURITY.md).
 
 - [x] Create the non-admin `lab` account (section 1) and keep the
       operator (admin) account separate. Done 2026-09-30, all four checks
@@ -279,11 +279,15 @@ open the operator boundary is not closed, see SECURITY.md).
       signature-checked". 2026-09-30: no log under `/var/log/homelab`
       shows it. The first check missed that `tick.err` did, because tick
       builds its own supervisor (#190); fixed on the machine that day.
-- [ ] As `lab`, try `cat ~operator/.lab-operator/operator.key` (expect
+- [x] As `lab`, try `cat ~operator/.lab-operator/operator.key` (expect
       permission denied) and try to approve a test request with a
       fabricated signature (expect `approval_rejected` in the events).
-      2026-09-30: the `cat` half done (`Permission denied`); the
-      fabricated-signature half is still to do.
+      2026-09-30: the `cat` half done (`Permission denied`). 2026-10-06: the
+      fabricated-signature half done by `ops/mac-session.sh` step `signature`,
+      against a scratch database and the real public key: an unsigned grant, one
+      signed with a key `lab` made and a row written directly were each refused
+      with an `approval_rejected` event, 3 of 3
+      (`docs/reviews/2026-10-06-mac-session.md`).
 - [x] As `lab`, list the operator's home folder and a folder below it:
       `sudo -u lab /bin/ls "$HOME"` and `sudo -u lab /bin/ls "$HOME/Public"` must
       both say `Permission denied`. `lab` is in `staff` and the home folder is
@@ -295,6 +299,10 @@ open the operator boundary is not closed, see SECURITY.md).
 - [ ] Put the queue database, policy files and credentials under a
       directory the reviewed handlers' worker processes cannot open (#70
       acceptance: a handler that opens the DB path gets EACCES).
+      2026-10-08: not met. The supervisor, its workers and `/var/homelab`
+      (mode 700) all belong to `lab`, so a worker opens the database like the
+      supervisor does. This needs a design decision first: workers under a
+      second account, or the database owned by something other than `lab`.
 
 ## 12. Real-model injection run (item 4.7, #72)
 

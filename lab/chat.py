@@ -401,16 +401,17 @@ class ChatChannel:
         return out(Action.REFUSED, "Unknown command; nothing was done.\n" + HELP)
 
     def approval_prompt(self, approval: sqlite3.Row) -> str:
-        from lab.cli import _redact
-        try:
-            intent: Any = json.loads(approval["intent"]) if approval["intent"] else {}
-        except ValueError:
-            intent = {}
-        shown = json.dumps(_redact(intent) if isinstance(intent, dict) else intent,
-                           sort_keys=True, ensure_ascii=True)
+        from lab.cli import _bound_intent, _redact
+        short, digest = approval["id"][:12], approval["action_hash"][:16]
+        # Shown only if it is the call the hash binds, as `lab show` does (#70).
+        intent = _bound_intent(approval, None)
+        if intent is None:
+            return (f"Approval {short} is not shown: its stored intent is not the action "
+                    "its hash binds, so the row was changed outside the gate. "
+                    f"Refuse it with /deny {short}")
+        shown = json.dumps(_redact(intent), sort_keys=True, ensure_ascii=True)
         if len(shown) > MAX_INTENT_CHARS:
             shown = shown[:MAX_INTENT_CHARS] + " ... (cut; read it in full with show)"
-        short, digest = approval["id"][:12], approval["action_hash"][:16]
         return (
             f"Approval {short} waits for the operator's signature.\n"
             f"Task {approval['task_id'][:12]}. It would authorise exactly:\n{shown}\n"
