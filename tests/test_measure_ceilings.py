@@ -77,7 +77,7 @@ def test_the_command_measures_every_registered_handler(tmp_path: Path, capsys) -
     assert report["problems"] == [] and report["headroom"] == 2.0
     for key in ("machine", "os", "python", "lab_commit"):
         assert key in report["provenance"]
-    assert report["current_defaults"] == {"task_max_rss_mb": 2048, "task_max_cpu_seconds": 900.0}
+    assert report["current_defaults"] == {"task_max_rss_mb": 256, "task_max_cpu_seconds": 30.0}
     assert len(report["sha256"]) == 64
     printed = capsys.readouterr().out
     assert all(kind in printed for kind in expected) and "suggested: task_max_rss_mb=" in printed

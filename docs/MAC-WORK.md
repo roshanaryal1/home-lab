@@ -144,14 +144,16 @@ LAB_CONTAINER_IMAGE='<name@sha256:...>' uv run pytest tests/test_container.py -v
   to the container executor. M2 and M6 ran in CI. M5 is about the real
   container, so it can only run here.
 
-## 4. Measurements on the real model
+## 4. Measurements on the Mac mini
 
-Why: these numbers only exist on this machine with the real model loaded.
+Why: these numbers only exist on this machine. Most need the real model loaded; the #180
+ceiling measurement does not (it runs the reviewed handlers against local fakes and needs no
+model server or network).
 
 | Issue | What | How |
 |---|---|---|
-| #211 | Is one heavy slot enough? | The `concurrency` step above, then decide. |
-| #180 | Per-task memory and CPU ceilings | As `lab`, `uv run python -m lab.cli measure-ceilings`. Commit the report, then set `task_max_rss_mb` and `task_max_cpu_seconds` from it (setup section 22). On Linux the 2x suggestion was 102 MB and 1 s of CPU. Decide then whether 1 s is too tight and a larger `--headroom` is needed. |
+| #211 | Is one heavy slot enough? | Decided 2026-10-07: no change. The lab's own gate stays at one heavy request at a time (`Admission`, `heavy_slots`, and the lock file across processes, #238); the decision is not to add a cap on requests sent straight to the model server, which batched two at once without a memory problem. Unload on idle stays (about 30 s reload, frees about 17 GB). |
+| #180 | Per-task memory and CPU ceilings | As `lab`, `uv run python -m lab.cli measure-ceilings`. Done 2026-10-07 on the Mac mini (Apple M6, 32 GB, read with `system_profiler`; the report records only Darwin arm64): peaks 36.3 MB and 0.054 s, and the owner set 256 MB and 30 s (setup section 22), not the tool's 2x suggestion of 73 MB and 1 s. Run it again when a handler does heavy work, and change the limits only by the owner's decision. |
 | #84 | Typed decision model in shadow | Setup section 22. Grow the case file past 30 cases first. |
 | #179 | Constrained decoding for routing labels | Blocked until H1's case file is frozen. |
 | H1 to H4 | Pre-registered model runs | Setup sections 12 to 14 and 21. |

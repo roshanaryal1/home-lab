@@ -773,15 +773,21 @@ absent is worse than no policy:
   TOTP-gated raw-shell bot, which ran commands as the owner outside the broker
   (#184), was retired the same day: the bot deleted in Telegram, its service and
   plist removed, and its token and TOTP secret deleted from the Keychain.
-- **Memory and CPU ceilings cover reviewed handlers only, and their values
-  are unmeasured.** A reviewed handler's worker process is sampled every
+- **Memory and CPU ceilings cover reviewed handlers only, and are set from a thin
+  measurement.** A reviewed handler's worker process is sampled every
   half second (`ps` over its process group) and killed with the group above
-  `task_max_rss_mb` (default 2048), and gets `RLIMIT_CPU` from
-  `task_max_cpu_seconds` (default 900). A breach fails the task without
+  `task_max_rss_mb` (default 256), and gets `RLIMIT_CPU` from
+  `task_max_cpu_seconds` (default 30). A breach fails the task without
   retry, records `resource_ceiling_exceeded` and counts in `lab status`
-  (H2, `tests/test_ceilings.py`). The values are to be set from
-  `lab measure-ceilings` run on the M6 (#180, `ops/mac-mini-setup.md`
-  section 22), which runs each reviewed handler's sample tasks in real
+  (H2, `tests/test_ceilings.py`). The values were set on
+  2026-10-07 (#180) from `lab measure-ceilings` on the M6
+  (`evals/ceilings/ceilings-20261006T200346+0000-29ec49bb.json`, 5 repeats of the
+  sample tasks of `workspace.files`, `git.read` and `web.summary`): all three peaked
+  at about 36 MB and 0.05 s of CPU. The tool's 2x suggestion (73 MB, 1 s) would kill real work,
+  so the owner chose 256 MB, about 7x the memory peak, and 30 s, over 500x the CPU
+  peak, which only stops a runaway. The sample tasks are small, so these
+  peaks are mostly the Python interpreter's own size; measure again when a handler
+  does heavy work. The tool runs each reviewed handler's sample tasks in real
   workers and suggests the largest peak times a stated headroom. The peaks
   there are what each worker reports about itself through `getrusage` when
   it finishes: a measurement for a person to read, never used to enforce

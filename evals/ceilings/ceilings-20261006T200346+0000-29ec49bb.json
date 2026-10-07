@@ -1,0 +1,487 @@
+{
+  "current_defaults": {
+    "task_max_cpu_seconds": 900.0,
+    "task_max_rss_mb": 2048
+  },
+  "handlers": {
+    "git.read": {
+      "peak_cpu_seconds": 0.044,
+      "peak_rss_mb": 36.3,
+      "problems": [],
+      "ref": "lab.handlers.git_read:read_repository",
+      "runs": [
+        {
+          "cpu_seconds": 0.043,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 35.9,
+          "repeat": 1,
+          "sample": "status",
+          "state": "succeeded",
+          "wall_seconds": 0.069
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.0,
+          "repeat": 1,
+          "sample": "log",
+          "state": "succeeded",
+          "wall_seconds": 0.07
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.2,
+          "repeat": 1,
+          "sample": "large-diff",
+          "state": "succeeded",
+          "wall_seconds": 0.073
+        },
+        {
+          "cpu_seconds": 0.043,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.0,
+          "repeat": 2,
+          "sample": "status",
+          "state": "succeeded",
+          "wall_seconds": 0.069
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.1,
+          "repeat": 2,
+          "sample": "log",
+          "state": "succeeded",
+          "wall_seconds": 0.07
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.2,
+          "repeat": 2,
+          "sample": "large-diff",
+          "state": "succeeded",
+          "wall_seconds": 0.075
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.0,
+          "repeat": 3,
+          "sample": "status",
+          "state": "succeeded",
+          "wall_seconds": 0.069
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 35.9,
+          "repeat": 3,
+          "sample": "log",
+          "state": "succeeded",
+          "wall_seconds": 0.069
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.2,
+          "repeat": 3,
+          "sample": "large-diff",
+          "state": "succeeded",
+          "wall_seconds": 0.074
+        },
+        {
+          "cpu_seconds": 0.043,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 35.9,
+          "repeat": 4,
+          "sample": "status",
+          "state": "succeeded",
+          "wall_seconds": 0.068
+        },
+        {
+          "cpu_seconds": 0.043,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.0,
+          "repeat": 4,
+          "sample": "log",
+          "state": "succeeded",
+          "wall_seconds": 0.068
+        },
+        {
+          "cpu_seconds": 0.043,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.2,
+          "repeat": 4,
+          "sample": "large-diff",
+          "state": "succeeded",
+          "wall_seconds": 0.075
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 35.9,
+          "repeat": 5,
+          "sample": "status",
+          "state": "succeeded",
+          "wall_seconds": 0.069
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.0,
+          "repeat": 5,
+          "sample": "log",
+          "state": "succeeded",
+          "wall_seconds": 0.068
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.3,
+          "repeat": 5,
+          "sample": "large-diff",
+          "state": "succeeded",
+          "wall_seconds": 0.075
+        }
+      ],
+      "samples": [
+        "status",
+        "log",
+        "large-diff"
+      ],
+      "source": "register_all",
+      "suggested_cpu_seconds": 1,
+      "suggested_rss_mb": 73
+    },
+    "web.summary": {
+      "peak_cpu_seconds": 0.044,
+      "peak_rss_mb": 36.2,
+      "problems": [],
+      "ref": "lab.handlers.web:fetch_and_summarize",
+      "runs": [
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.0,
+          "repeat": 1,
+          "sample": "short-page",
+          "state": "succeeded",
+          "wall_seconds": 0.063
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.1,
+          "repeat": 1,
+          "sample": "long-page",
+          "state": "succeeded",
+          "wall_seconds": 0.064
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.1,
+          "repeat": 2,
+          "sample": "short-page",
+          "state": "succeeded",
+          "wall_seconds": 0.064
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.1,
+          "repeat": 2,
+          "sample": "long-page",
+          "state": "succeeded",
+          "wall_seconds": 0.067
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.1,
+          "repeat": 3,
+          "sample": "short-page",
+          "state": "succeeded",
+          "wall_seconds": 0.064
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.1,
+          "repeat": 3,
+          "sample": "long-page",
+          "state": "succeeded",
+          "wall_seconds": 0.065
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.0,
+          "repeat": 4,
+          "sample": "short-page",
+          "state": "succeeded",
+          "wall_seconds": 0.065
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.2,
+          "repeat": 4,
+          "sample": "long-page",
+          "state": "succeeded",
+          "wall_seconds": 0.066
+        },
+        {
+          "cpu_seconds": 0.043,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.0,
+          "repeat": 5,
+          "sample": "short-page",
+          "state": "succeeded",
+          "wall_seconds": 0.064
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.0,
+          "repeat": 5,
+          "sample": "long-page",
+          "state": "succeeded",
+          "wall_seconds": 0.064
+        }
+      ],
+      "samples": [
+        "short-page",
+        "long-page"
+      ],
+      "source": "register_all",
+      "suggested_cpu_seconds": 1,
+      "suggested_rss_mb": 73
+    },
+    "workspace.files": {
+      "peak_cpu_seconds": 0.054,
+      "peak_rss_mb": 36.3,
+      "problems": [],
+      "ref": "lab.handlers.workspace:run_steps",
+      "runs": [
+        {
+          "cpu_seconds": 0.054,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.1,
+          "repeat": 1,
+          "sample": "write-read-list",
+          "state": "succeeded",
+          "wall_seconds": 0.085
+        },
+        {
+          "cpu_seconds": 0.045,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.2,
+          "repeat": 1,
+          "sample": "large-write-read",
+          "state": "succeeded",
+          "wall_seconds": 0.081
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.1,
+          "repeat": 1,
+          "sample": "search-many-files",
+          "state": "succeeded",
+          "wall_seconds": 0.068
+        },
+        {
+          "cpu_seconds": 0.045,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.0,
+          "repeat": 2,
+          "sample": "write-read-list",
+          "state": "succeeded",
+          "wall_seconds": 0.073
+        },
+        {
+          "cpu_seconds": 0.045,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.2,
+          "repeat": 2,
+          "sample": "large-write-read",
+          "state": "succeeded",
+          "wall_seconds": 0.085
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.0,
+          "repeat": 2,
+          "sample": "search-many-files",
+          "state": "succeeded",
+          "wall_seconds": 0.066
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.0,
+          "repeat": 3,
+          "sample": "write-read-list",
+          "state": "succeeded",
+          "wall_seconds": 0.071
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.2,
+          "repeat": 3,
+          "sample": "large-write-read",
+          "state": "succeeded",
+          "wall_seconds": 0.079
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.2,
+          "repeat": 3,
+          "sample": "search-many-files",
+          "state": "succeeded",
+          "wall_seconds": 0.066
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.1,
+          "repeat": 4,
+          "sample": "write-read-list",
+          "state": "succeeded",
+          "wall_seconds": 0.07
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.3,
+          "repeat": 4,
+          "sample": "large-write-read",
+          "state": "succeeded",
+          "wall_seconds": 0.079
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.2,
+          "repeat": 4,
+          "sample": "search-many-files",
+          "state": "succeeded",
+          "wall_seconds": 0.065
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.2,
+          "repeat": 5,
+          "sample": "write-read-list",
+          "state": "succeeded",
+          "wall_seconds": 0.071
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.3,
+          "repeat": 5,
+          "sample": "large-write-read",
+          "state": "succeeded",
+          "wall_seconds": 0.08
+        },
+        {
+          "cpu_seconds": 0.044,
+          "error": null,
+          "exceeded": null,
+          "peak_rss_mb": 36.3,
+          "repeat": 5,
+          "sample": "search-many-files",
+          "state": "succeeded",
+          "wall_seconds": 0.066
+        }
+      ],
+      "samples": [
+        "write-read-list",
+        "large-write-read",
+        "search-many-files"
+      ],
+      "source": "register_all",
+      "suggested_cpu_seconds": 1,
+      "suggested_rss_mb": 73
+    }
+  },
+  "headroom": 2.0,
+  "measured_under": {
+    "task_max_cpu_seconds": 900.0,
+    "task_max_rss_mb": 2048,
+    "task_timeout_seconds": 300.0
+  },
+  "method": "each sample task runs in its own worker process through a real supervisor, broker and policy engine; peak RSS and CPU seconds are the worker's own getrusage (ru_maxrss, ru_utime + ru_stime, self and children) when it finishes; the model and web pages are local fakes, so model inference is not in these figures (the model server is a separate process the ceilings do not cover)",
+  "problems": [],
+  "provenance": {
+    "cryptography": "50.0.1",
+    "lab_commit": "a235705a68c5fe2f67e424f6cbd70f6f65f6cbcc",
+    "lab_version": "0.1.0",
+    "machine": "arm64",
+    "macos_build": "26A428",
+    "on_target": true,
+    "os": "Darwin 27.0.0",
+    "power_settings": "AC Power:\n Sleep On Power Button 1\n autorestartatconnect 0\n lowpowermode         0\n standby              0\n ttyskeepawake        1\n powernap             1\n displaysleep         10\n womp                 1\n networkoversleep     0\n sleep                0\n tcpkeepalive         1\n autorestart          1\n disksleep            0",
+    "power_settings_sha256": "096fdfcb8af7c55a3128ebeec021ad7c529b9ba9fac5b4337eaa7b24cbe05ac8",
+    "python": "3.13.15",
+    "sqlite": "3.53.1",
+    "tree_dirty": false
+  },
+  "repeats": 5,
+  "sha256": "29ec49bbeaa5b1fca23eae1fab8033ae99434d91942a4976ad4fd809e87c9ba6",
+  "started_at": "2026-10-06T20:03:46+00:00",
+  "suggested": {
+    "basis": "largest peak over every handler and sample, times 2, rounded up",
+    "task_max_cpu_seconds": 1,
+    "task_max_rss_mb": 73
+  },
+  "tasks_file": "evals/ceilings/tasks.json",
+  "tasks_sha256": "d8e9d48fd1954454bf1541f978e0b7ebdd82ae0956ed0fdcb488638389f57bf6"
+}
