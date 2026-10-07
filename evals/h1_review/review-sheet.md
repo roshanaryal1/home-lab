@@ -23,14 +23,14 @@ Route: ______
 
 ## case-02
 
-**Claim 1** (measurement, checked by a person): DWQ copies paths correctly
-- supports: source `run-dwq` (measurement): The run recorded a result.
-- supports: source `run-4bit` (baseline): The baseline run recorded a result.
-- supports: source `run-gguf` (control): The control run recorded a result.
+**Claim 1** (measurement, checked by a person): model-E copies paths correctly
+- supports: source `run-model-E` (measurement): The run recorded a result.
+- supports: source `run-model-B` (baseline): The baseline run recorded a result.
+- supports: source `run-model-G` (control): The control run recorded a result.
 
-**Claim 2** (measurement, checked by a person): DWQ keeps the same footprint
-- supports: source `fp-dwq` (measurement): The run recorded a result.
-- supports: source `fp-4bit` (baseline): The baseline run recorded a result.
+**Claim 2** (measurement, checked by a person): model-E keeps the same footprint
+- supports: source `fp-model-E` (measurement): The run recorded a result.
+- supports: source `fp-model-B` (baseline): The baseline run recorded a result.
 - supports: source `fp-idle` (control): The control run recorded a result.
 
 Route: ______

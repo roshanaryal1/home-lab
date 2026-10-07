@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import sys
 from collections import Counter
 from collections.abc import Sequence
@@ -103,7 +104,31 @@ def blind(cases: list[dict[str, Any]], seed: int = DEFAULT_SEED,
     return [(f"case-{i:02d}", c) for i, c in enumerate(order, 1)]
 
 
-def render_sheet(blinded: list[tuple[str, dict[str, Any]]]) -> str:
+# Words that name the model under test or the builds it is compared with. A reviewer who sees
+# them can guess the candidate, which breaks the blinding. Each distinct word becomes a stable
+# neutral label (model-A, model-B, ...), so two builds in one case stay two different things.
+MASK_TERMS = (
+    "qwen3-coder-30b-a3b-instruct", "qwen3-coder", "qwen3", "qwen", "dwq", "4-bit", "4bit",
+    "gguf", "q4_k_m", "mlx_lm", "mlx", "llama.cpp", "llama-server", "deepseek", "gpt",
+    "gemini", "claude")
+
+
+def mask_text(text: str, terms: Sequence[str] = MASK_TERMS) -> str:
+    """Replace each term, case-insensitively, with the neutral label of that term."""
+    ordered = sorted(set(t.lower() for t in terms), key=lambda t: (-len(t), t))
+    labels = {t: f"model-{chr(65 + i % 26)}{i // 26 or ''}"
+              for i, t in enumerate(sorted(set(ordered)))}
+    pattern = re.compile("|".join(re.escape(t) for t in ordered), re.IGNORECASE)
+    return pattern.sub(lambda m: labels[m.group(0).lower()], text)
+
+
+def render_sheet(blinded: list[tuple[str, dict[str, Any]]],
+                 mask: Sequence[str] = MASK_TERMS) -> str:
+    sheet = _render_sheet(blinded)
+    return mask_text(sheet, mask) if mask else sheet
+
+
+def _render_sheet(blinded: list[tuple[str, dict[str, Any]]]) -> str:
     lines = [
         "# Review sheet: what should each research task become?",
         "",
@@ -190,6 +215,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                        help="case ids to leave out (for example cases that cannot be built)")
         if name == "sheet":
             p.add_argument("--out", type=Path, required=True, help="directory to write into")
+            p.add_argument("--mask", nargs="*", default=None, metavar="TERM",
+                           help="words to hide from the reviewer (default: the built-in list "
+                                "of model and build names; pass --mask with no words for none)")
         else:
             p.add_argument("--answers", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -198,7 +226,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "sheet":
             blinded = blind(cases, args.seed, args.exclude)
             args.out.mkdir(parents=True, exist_ok=True)
-            sheet = render_sheet(blinded) + "\n"
+            terms = MASK_TERMS if args.mask is None else tuple(args.mask)
+            sheet = render_sheet(blinded, terms) + "\n"
             (args.out / "review-sheet.md").write_text(sheet, encoding="utf-8")
             template = json.dumps(answers_template(blinded), indent=2) + "\n"
             (args.out / "answers-template.json").write_text(template, encoding="utf-8")

@@ -6,16 +6,22 @@ Nothing here is frozen. The amendment that would freeze it is in
 
 ## How it is used
 
-1. Generate the sheet and answer template as in `README.md` (seeded shuffle, neutral ids, no
-   drafted labels, no rubric counts).
+1. Generate the sheet and answer template as in `README.md`. The generator masks the names of the
+   models and builds (Qwen, DWQ, MLX, GGUF and the like) with neutral labels, so the sheet does not
+   reveal the candidate; check the sheet yourself for any name it missed before it goes out.
 2. Start a **new conversation** with the reviewer model: no memory, no tools, no web, no file
-   access, no system prompt of its own beyond what the provider adds. Paste the text between
-   the two lines below, with `{{SHEET}}` replaced by the full text of `review-sheet.md`.
-3. Save the reply byte for byte as `answers.json`. It must be only a JSON object. `lab reviewsheet
-   compare` refuses it unless every case id is present and every route is one of the five.
-4. Record the model name and version string the provider reports, the date and time (UTC), the
-   temperature and any other settings, and the SHA-256 of this prompt file, of the sheet, and
-   of the reply.
+   access, no custom instructions. Paste the text between the two lines below, with `{{SHEET}}`
+   replaced by the full text of `review-sheet.md`. The owner uses each vendor's chat page (an API
+   only where it is free); a chat page may add its own hidden instructions or tools, so turn
+   off web search, memory and personalisation first, record the model name the page shows, and
+   say so in the amendment.
+3. Save the reply byte for byte, in a file named for that reviewer and attempt, for example
+   `answers-gpt-5.6-sol-1.json`, `answers-gemini-3.6-flash-1.json`,
+   `answers-deepseek-flash-1.json`. A retry gets the next number and the first file is kept. The
+   reply must be only a JSON object; the comparison refuses it unless every case id is present and
+   every route is one of the five.
+4. Record the model name and version string the provider reports, the date and time (UTC), every
+   setting the page exposes, and the SHA-256 of this prompt file, of the sheet, and of the reply.
 
 The reviewer must not be given anything else: not `lab/rubric.py`, not
 `evals/shadow_cases_DRAFT.jsonl`, not this repository, not the hypothesis, not the name of the
@@ -63,6 +69,11 @@ THE SHEET:
 
 ## What the reply is used for
 
-`lab reviewsheet compare --answers <reply.json>` reads it directly: it must be exactly the shape of
-`answers-template.json`, so no conversion step sits between the model's reply and the comparison.
-No reasons are collected; the sheet itself is the record of what the reviewer saw.
+```sh
+uv run python -m lab.reviewsheet compare --cases <the frozen case file> \
+  --answers answers-<reviewer>-<attempt>.json --exclude <ids left out>
+```
+
+reads a reply directly: it must be exactly the shape of `answers-template.json`, so no conversion
+step sits between the model's reply and the comparison. No reasons are collected; the sheet itself is
+the record of what the reviewer saw.

@@ -175,3 +175,31 @@ def test_non_ascii_text_survives_a_non_utf8_locale(tmp_path: Path,
     assert rs.main(["sheet", "--cases", str(cases), "--out", str(out)]) == 0
     sheet = (out / "review-sheet.md").read_bytes().decode("utf-8")
     assert "\u6d4b\u91cf cache \u2014 latency" in sheet and "\u8ba1\u65f6\u5668 ran" in sheet
+
+
+def test_model_and_build_names_are_masked_and_distinct_names_stay_distinct() -> None:
+    text = "DWQ beats 4bit; the gguf control; Qwen3-Coder and QWEN; run-dwq vs run-4bit"
+    out = rs.mask_text(text)
+    for word in ("dwq", "4bit", "gguf", "qwen"):
+        assert word not in out.lower()
+    # one word gives one label, whatever its case; different words give different labels
+    assert len(set(rs.mask_text("dwq DWQ Dwq").split())) == 1
+    assert len(set(rs.mask_text("dwq 4bit gguf").split())) == 3
+
+
+def test_the_rendered_sheet_names_no_model_by_default() -> None:
+    cases = [{"id": "c1", "expected": "post", "claims": [{
+        "text": "DWQ copies paths correctly", "kind": "measurement", "verified": True,
+        "evidence": [{"source": "run-dwq", "type": "measurement", "relation": "supports",
+                      "text": "Qwen3-Coder served with MLX"}]}]}]
+    blinded = rs.blind(cases)
+    sheet = rs.render_sheet(blinded)
+    for word in ("dwq", "qwen", "mlx"):
+        assert word not in sheet.lower()
+    assert "dwq" in rs.render_sheet(blinded, mask=()).lower()      # off only when asked
+
+
+def test_the_shipped_sheet_names_no_model() -> None:
+    sheet = (Path(__file__).resolve().parent.parent / "evals" / "h1_review"
+             / "review-sheet.md").read_text().lower()
+    assert [t for t in rs.MASK_TERMS if t in sheet] == []

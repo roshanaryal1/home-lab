@@ -69,10 +69,16 @@ only that they were not copied from the rubric.
   with web search off and one named underlying model fixed, which its interface may not allow;
   if the owner wants it, the underlying model must be shown on the reply and be none of the
   excluded families.
-- **Web search, memory and personalisation are off** in every interface. Where an API is
-  available it is preferred, so that the settings below can be set and recorded.
+- **Interface (owner's choice 2026-10-07): each vendor's chat page, an API only where one is
+  free.** A chat page does not let the temperature be set and may add hidden instructions or
+  tools of its own. So web search, memory and personalisation are turned off by hand before each
+  conversation, each conversation is new, the model name the page shows is recorded, and the
+  amendment says plainly that the settings are the page's defaults and could not be controlled.
+  This is a stated threat to repeating the run.
 - **Blind.** The reviewer sees only the generated review sheet (seeded shuffle, neutral case
-  ids, the five route definitions, no rubric counts, no drafted labels), in a new conversation
+  ids, the five route definitions, no rubric counts, no drafted labels, and the names of the
+  models and builds masked by the generator with neutral labels, since the cases mention the
+  build under test), in a new conversation
   with no memory, no tools, no web and no file access, using the prompt in
   `evals/h1_review/ai-reviewer-prompt.md`. It is never told the hypothesis, the candidate, or
   the word "rubric".
@@ -81,7 +87,8 @@ only that they were not copied from the rubric.
   labels look odd; a malformed reply (not valid JSON, a missing case, a route outside the five)
   is the only reason to ask again, once, and both replies are kept.
 - **Recorded for each reviewer:** model name and version string, UTC time, settings, SHA-256 of
-  the prompt file, the sheet and the reply.
+  the prompt file, the sheet and the reply. Each reply is saved in its own file named for the
+  reviewer and the attempt (a retry never overwrites the first reply).
 
 ## Disagreement rule (written before the sheet goes out)
 
@@ -96,7 +103,8 @@ only that they were not copied from the rubric.
 ## A person checks a sample
 
 [OWNER TO CHOOSE: a person other than the drafter labels a seeded random sample of 10 cases
-from the same sheet.] The agreement between that person and the AI labels is reported next to
+from the same masked sheet, **before seeing** any AI reviewer's labels, the drafted labels or
+any other prior label.] The agreement between that person and the AI labels is reported next to
 the H1 result. If agreement is below [threshold, for example 8 of 10], the result is reported
 as inconclusive about the labels, whatever H1's rule says.
 
