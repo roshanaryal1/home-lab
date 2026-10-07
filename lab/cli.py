@@ -98,8 +98,8 @@ from lab.egress import EgressGateway
 from lab.journal import OperationJournal
 from lab.ledger import Ledger, LedgerError
 from lab.memory import Memory, MemoryRefused
-from lab.policy import PolicyEngine, task_intent
-from lab.queue import TaskQueue
+from lab.policy import ApprovalChanged, PolicyEngine, intent_hash, task_intent
+from lab.queue import Task, TaskQueue
 from lab.skillstore import SkillStore, SkillStoreError
 from lab.vault import Vault
 
@@ -183,6 +183,32 @@ def _find_approval(queue: TaskQueue, prefix: str) -> sqlite3.Row | None:
     return rows[0]  # type: ignore[no-any-return]
 
 
+def _bound_intent(row: sqlite3.Row, task: Task | None) -> dict[str, Any] | None:
+    """The intent an approval is bound to, or None if the row cannot show it.
+
+    The signature covers ``action_hash``; ``intent`` is only what the
+    operator reads. The gate writes the two together, so they disagree only
+    when the row was changed outside it, and then the preview would show one
+    call while the grant authorised another (#70). Rows from before intents
+    were stored fall back to the task, under the same check.
+    """
+    try:
+        intent = (json.loads(row["intent"]) if row["intent"]
+                  else task_intent(task) if task is not None else None)
+        if isinstance(intent, dict) and intent_hash(intent) == row["action_hash"]:
+            return intent
+    except (ValueError, RecursionError):
+        pass
+    return None
+
+
+def _refuse_unbound(row: sqlite3.Row) -> int:
+    print(f"Refusing: the intent stored with approval {_escape(row['id'])} does not hash to "
+          "the action hash it is bound to, so the row was changed outside the gate. "
+          f"Deny it: deny {_escape(row['id'][:12])} --by <you>", file=sys.stderr)
+    return 1
+
+
 def cmd_approvals(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     pending = policy.pending()
     if not pending:
@@ -193,8 +219,8 @@ def cmd_approvals(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespa
     for row in pending:
         task = queue.get(row["task_id"])
         title = task.title if task else "(task missing)"
-        print(f"  {row['id'][:12]}  {_age(row['requested_at']):>4}  {title}")
-        print(f"                  {row['reason']}")
+        print(f"  {_escape(row['id'][:12])}  {_age(row['requested_at']):>4}  {_escape(title)}")
+        print(f"                  {_escape(row['reason'])}")
     print("\nInspect one before approving:  show <id>")
     return 0
 
@@ -207,33 +233,35 @@ def cmd_show(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -
 
     task = queue.get(row["task_id"])
     if task is None:
-        print(f"Approval {row['id']} points at a task that no longer exists",
+        print(f"Approval {_escape(row['id'])} points at a task that no longer exists",
               file=sys.stderr)
         return 1
+    # The stored intent is the object the hash was computed over (item
+    # 1.4), and it is shown only if it still is (#70).
+    intent = _bound_intent(row, task)
+    if intent is None:
+        return _refuse_unbound(row)
 
-    print(f"Approval   {row['id']}")
-    print(f"State      {row['state']}")
-    print(f"Requested  {row['requested_at']}  ({_age(row['requested_at'])} ago)")
+    print(f"Approval   {_escape(row['id'])}")
+    print(f"State      {_escape(row['state'])}")
+    print(f"Requested  {_escape(row['requested_at'])}  ({_age(row['requested_at'])} ago)")
     print(f"Reason     {_escape(row['reason'])}")
     print()
-    print(f"Task       {task.id}")
+    print(f"Task       {_escape(task.id)}")
     print(f"Title      {_escape(task.title)}")
-    print(f"Kind       {task.agent_kind}")
-    print(f"Tier       {task.capability_tier}")
-    print(f"State      {task.state}")
-    print(f"Origin     {task.origin_type} {task.origin_id or ''}".rstrip())
+    print(f"Kind       {_escape(task.agent_kind)}")
+    print(f"Tier       {_escape(task.capability_tier)}")
+    print(f"State      {_escape(task.state)}")
+    print(f"Origin     {_escape(task.origin_type)} {_escape(task.origin_id or '')}".rstrip())
     trust = ("UNTRUSTED INPUT: approving one effect does not make it trusted"
              if task.tainted else "operator")
     print(f"Trust      {trust}")
-    print(f"Sensitivity {task.sensitivity}")
+    print(f"Sensitivity {_escape(task.sensitivity)}")
     print()
-    # The stored intent is the object the hash was computed over (item
-    # 1.4). Rows from before intents were stored fall back to the task.
-    intent = json.loads(row["intent"]) if row["intent"] else task_intent(task)
     print("This approval authorises EXACTLY this intent:")
     print(json.dumps(_redact(intent), indent=2, sort_keys=True, ensure_ascii=True))
     print()
-    print(f"Bound to   {row['action_hash'][:16]}...")
+    print(f"Bound to   {_escape(row['action_hash'][:16])}...")
     print("Changing any parameter, the state it acts on, or the policy "
           "version invalidates this approval.")
     return 0
@@ -244,14 +272,17 @@ def cmd_approve(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace
     if row is None:
         return 1
     if row["state"] != "pending":
-        print(f"Approval is already {row['state']}, nothing to do",
+        print(f"Approval is already {_escape(row['state'])}, nothing to do",
               file=sys.stderr)
         return 1
     if args.expect_hash and not row["action_hash"].startswith(args.expect_hash):
         print("Refusing: the action hash differs from the one you reviewed "
-              f"({row['action_hash'][:16]}... vs {args.expect_hash}). Run `show` again.",
-              file=sys.stderr)
+              f"({_escape(row['action_hash'][:16])}... vs {_escape(args.expect_hash)}). "
+              "Run `show` again.", file=sys.stderr)
         return 1
+    task = queue.get(row["task_id"])
+    if _bound_intent(row, task) is None:
+        return _refuse_unbound(row)
 
     key = None
     key_path = args.key or os.environ.get("LAB_OPERATOR_KEY")
@@ -265,15 +296,21 @@ def cmd_approve(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace
         print("warning: no operator key; this approval is UNSIGNED and a supervisor "
               "that enforces operator signatures will ignore it", file=sys.stderr)
 
-    task = queue.get(row["task_id"])
-    print(f"Granting {row['id'][:12]}: {_escape(task.title) if task else '?'} "
-          f"[hash {row['action_hash'][:16]}]")
-    released = policy.grant(row["id"], decided_by=_escape(args.by),
-                            valid_for=timedelta(minutes=args.minutes), signer=key)
-    print(f"Granted {row['id'][:12]} for {args.minutes} minutes, label {_escape(args.by)!r}"
-          f"{', signed' if key else ', UNSIGNED'}")
+    print(f"Granting {_escape(row['id'])}: {_escape(task.title) if task else '?'} "
+          f"[hash {_escape(row['action_hash'])}]")
+    try:
+        # The hash checked above is the one signed, or nothing is (#70).
+        released = policy.grant(row["id"], decided_by=_escape(args.by),
+                                valid_for=timedelta(minutes=args.minutes), signer=key,
+                                action_hash=row["action_hash"])
+    except ApprovalChanged:
+        print("Refusing: the approval changed after it was read; nothing was granted or "
+              "signed. Run `show` again.", file=sys.stderr)
+        return 1
+    print(f"Granted {_escape(row['id'][:12])} for {args.minutes} minutes, "
+          f"label {_escape(args.by)!r}{', signed' if key else ', UNSIGNED'}")
     if released:
-        print(f"Task {released[:12]} returned to the queue and will run.")
+        print(f"Task {_escape(released[:12])} returned to the queue and will run.")
     else:
         print("No parked task released; the approval is stored and will be "
               "consumed when the task reaches the gate.")
@@ -285,14 +322,14 @@ def cmd_deny(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -
     if row is None:
         return 1
     if row["state"] != "pending":
-        print(f"Approval is already {row['state']}, nothing to do",
+        print(f"Approval is already {_escape(row['state'])}, nothing to do",
               file=sys.stderr)
         return 1
 
     cancelled = policy.deny(row["id"], decided_by=_escape(args.by), reason=args.reason)
-    print(f"Denied {row['id'][:12]}, label {_escape(args.by)!r}")
+    print(f"Denied {_escape(row['id'][:12])}, label {_escape(args.by)!r}")
     if cancelled:
-        print(f"Task {cancelled[:12]} cancelled: {_escape(args.reason)}")
+        print(f"Task {_escape(cancelled[:12])} cancelled: {_escape(args.reason)}")
     return 0
 
 
@@ -329,7 +366,8 @@ def cmd_ops(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) ->
 
 def cmd_resolve(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     journal = OperationJournal(queue._conn)
-    matches = [r for r in journal.unresolved() if r["id"].startswith(args.id)]
+    # An empty argument is not a prefix: it would name the only open operation.
+    matches = [r for r in journal.unresolved() if args.id and r["id"].startswith(args.id)]
     if len(matches) != 1:
         print(f"{len(matches)} unresolved operations match {args.id!r}; "
               "give a longer, unique prefix", file=sys.stderr)
@@ -1532,8 +1570,12 @@ def cmd_control(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace
 
 
 def cmd_cancel(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    # A literal, non-empty prefix: under LIKE, % and _ were wildcards and the
+    # match ignored case, so `cancel %` named the only task there was (#70).
+    prefix = args.task_id
     rows = queue._conn.execute(
-        "SELECT id, state, title FROM tasks WHERE id LIKE ? || '%'", (args.task_id,)).fetchall()
+        "SELECT id, state, title FROM tasks WHERE substr(id, 1, ?) = ?",
+        (len(prefix), prefix)).fetchall() if prefix else []
     if len(rows) != 1:
         print(f"cancel: {'no task' if not rows else 'ambiguous prefix'} matching "
               f"{_escape(args.task_id)}", file=sys.stderr)

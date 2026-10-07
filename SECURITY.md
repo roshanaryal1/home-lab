@@ -589,10 +589,21 @@ Implemented and tested:
   by another key, or a signed one edited afterwards (longer window,
   different decider) is ignored and audited as `approval_rejected`. A
   forged row cannot shadow a genuine one. `--by` is an audit label, not
-  identity: the key is the identity. The CLI refuses ambiguous or
+  identity: the key is the identity (naming the operator in `--by` without
+  the key grants nothing). The CLI refuses ambiguous or
   non-hex id prefixes, refuses to approve if `--expect-hash` differs
   from what was reviewed, escapes control and bidi characters in
-  everything it prints, and warns when a grant is unsigned. **This is a
+  everything the approval commands print, and warns when a grant is unsigned.
+  What the operator reads is what gets signed: the signature covers the action
+  hash, and the stored intent is only the text shown, so `lab show`, `lab
+  approve` and the chat's `/approve` refuse to show or sign an approval whose
+  intent does not hash, with the gate's own `intent_hash`, to its action hash
+  (a row changed outside the gate), and `approve` signs only if the row still
+  holds the hash it checked, in the same transaction as the signature. Before
+  this, a direct write could pair a harmless intent with the hash of another
+  call, and the operator's signature, even with `--expect-hash`, went to the
+  call they were not shown (#70). `lab cancel` and `lab resolve` take a
+  literal, non-empty prefix too. **This is a
   boundary only once the private key is unreadable to the agent's OS
   account and the supervisor is configured with the public key.** On the
   Mac mini both hold since 2026-09-30: the `lab` account gets `Permission
@@ -600,11 +611,16 @@ Implemented and tested:
   start without the public key (#190). `--allow-unsigned` and
   `lab tick --mock-reply` exist for dummy data and are refused on any
   machine where `/etc/homelab/operator.pub` exists, a root-owned file the lab
-  account cannot remove. Still open: the fabricated-signature test on the
-  machine (#70). **Not closed:** code running as the lab account can build
+  account cannot remove. The fabricated-signature test passed on the machine
+  on 2026-10-06: as `lab`, an unsigned grant, a grant signed with a key `lab`
+  made and a row written directly were all refused at the gate with
+  `approval_rejected` (`docs/reviews/2026-10-06-mac-session.md`). **Not
+  closed:** code running as the lab account can build
   a `Supervisor` in its own process against the database, which the lab
-  account owns, and that supervisor would not check approvals; only
-  separating the database from the code the agent runs closes that (#70).
+  account owns, and that supervisor would not check approvals. The same
+  ownership lets such code change approval state in the database, and lets a
+  reviewed handler's worker, which runs as `lab` too, open the database. Only
+  separating the database from the code the agent runs closes these (#70).
   A supervisor built any other way does not check approvals: tests do
   that on purpose, and so does the attack harness (`lab/attacks.py`),
   which runs only on a throwaway temporary database with a dummy secret.
@@ -631,14 +647,30 @@ Implemented and tested:
   never follows a symlink inside it, and leaves every other file alone
   (`tests/test_backup_rotation.py`). The folder is set only in the installed,
   root-owned copy of the job (`LAB_BACKUP_DIR`); the committed copy carries
-  a placeholder the command refuses. On the Mac mini the job can reach the
-  removable backup volume only because the lab's Python interpreter
-  (`/opt/homelab-python/.../bin/python3.13`) was given Full Disk Access
-  (2026-10-07, #67): macOS refuses a launchd job that access otherwise. The grant
-  belongs to that binary, not to the `lab` account: every process that runs the
-  interpreter gets it, including the root-run keep-awake and watchdog daemons, so
-  a compromised lab service could read or change the backups on that volume.
-  Narrowing it to a backup-only executable is open as #287. Recovery drills
+  a placeholder the command refuses. On the Mac mini the job reaches the
+  removable backup volume only through a Full Disk Access grant (2026-10-07, #67):
+  macOS refuses a launchd job that access otherwise. The grant belongs to an
+  executable, not to an account. It was first given to the lab's Python
+  interpreter, which put every process that runs the interpreter in reach of the
+  backups, the root-run keep-awake and watchdog daemons included. So the job now
+  runs a launcher of its own (`ops/backup-launcher/lab-backup.c`, built on the
+  mini and installed root-owned at `/opt/homelab-backup/lab-backup`), and the
+  grant goes to that instead (#287). The launcher takes no arguments and starts one
+  fixed command, `python -I -m lab.cli ... backup --keep 14 --alert-config ...`,
+  with only `PATH` and `LAB_BACKUP_DIR` in its environment, so its caller's
+  arguments, environment and working directory cannot change what runs
+  (`tests/test_backup_launcher.py`). The grant covers the launcher when macOS
+  counts it as responsible for itself, as it does under launchd, and what it
+  starts: the backup and, when that fails, the alert command. On the mini a
+  granted interpreter started by an ungranted parent like the launcher was
+  refused, so macOS decides on the parent's grant (2026-10-08). That the launcher's grant reaches its Python child
+  is checked by the first run after the move (runbook, "Moving the backup's Full
+  Disk Access to its launcher"); until the owner makes that move, the interpreter
+  still holds the grant. **Not closed:** the job still reads and writes files
+  that the `lab` account can change, and it can be started outside launchd.
+  Hardening its inputs and outputs is follow-up work for the owner. Both gaps
+  are narrower than the interpreter's grant, which gave any such code the
+  volume at once. Recovery drills
   (`lab drill`, `ops/drills/`) record every run and count as
   demonstrated only on the Mac mini; the monthly drill there is parked.
 - **Constrained decoding and shadow measurement** (`lab/grammar.py`,
@@ -728,8 +760,11 @@ every draft by hand.
 - Handlers registered with `register_reviewed` run in their own worker
   process with a minimal environment, no database path and no lease
   token, and act only through the broker (item 1.2). They still run as
-  the same OS user, so a hostile handler that found the database file
-  could open it; the separate lab account closes that (#70). Only code
+  the same OS user as the supervisor, `lab` on the Mac mini, which owns the
+  database, so a hostile handler that found the database file could open it.
+  The separate lab account does not close that, because it separates the lab
+  from the operator, not a handler from the database; keeping the database
+  out of the workers' reach does (#70). Only code
   under `lab.handlers` can be loaded into a worker.
 - The read-only git tools run git outside the Seatbelt sandbox, because
   their safety must not depend on a sandbox Linux does not have. What

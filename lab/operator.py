@@ -15,10 +15,10 @@ is somewhere the agent cannot read.
 
 Asymmetric on purpose: with a shared secret the verifier could also forge.
 This is only a boundary if the private key is unreadable to the agent's OS
-account, which is the parked separate-account setup on the Mac mini. Until
-then the code is correct and tested, and the key file's location is the
-part that needs the machine. ``--by`` remains a label for the audit log;
-identity is the key.
+account. On the Mac mini it is, since 2026-09-30: the ``lab`` account gets
+``Permission denied`` on it. The verifier, though, runs in that account
+against a database it owns, which is what #70 still has open. ``--by``
+remains a label for the audit log; identity is the key.
 """
 
 from __future__ import annotations

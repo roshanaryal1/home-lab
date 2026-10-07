@@ -292,14 +292,12 @@ def test_cli_refuses_a_symlinked_destination_and_a_bad_keep(tmp_path: Path, live
 
 def test_backup_plist_runs_daily_as_lab_and_matches_the_committed_copy() -> None:
     root = Path(__file__).resolve().parent.parent / "ops" / "launchd"
-    py, wd, db = "/opt/homelab/.venv/bin/python", "/opt/homelab", "/var/homelab/lab.db"
-    generated = service.backup_plist(user="lab", python=py, workdir=wd, db=db,
-                                     alert_config="/etc/homelab/alert.json")
+    generated = service.backup_plist(user="lab", workdir="/opt/homelab")
     assert (root / "com.homelab.backup.plist").read_bytes() == generated
     data = plistlib.loads(generated)
     assert data["Label"] == service.BACKUP_LABEL and data["UserName"] == "lab"
     assert set(data["StartCalendarInterval"]) == {"Hour", "Minute"}
-    args = data["ProgramArguments"]
-    assert args[args.index("--keep") + 1] == str(service.BACKUP_KEEP)
-    assert "--alert-config" in args and "--to" not in args
+    # Only the launcher holds Full Disk Access, so the job runs it, with no
+    # arguments; its fixed command is checked in test_backup_launcher.py (#287).
+    assert data["ProgramArguments"] == [service.BACKUP_LAUNCHER] and "Program" not in data
     assert data["EnvironmentVariables"] == {"LAB_BACKUP_DIR": service.BACKUP_DIR_PLACEHOLDER}

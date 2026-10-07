@@ -7,8 +7,9 @@ process when the heartbeat goes stale; launchd then restarts it.
 
 The heartbeat is a small JSON file next to the database: pid, time, and
 the process start time. The watchdog signals a pid it read from that file only
-when the recorded start time still matches ``ps`` (so a pid that was reused by
-another process is never killed), and never pid 0 or 1.
+when the recorded start time is present and still matches ``ps`` (so a pid that
+was reused by another process is never killed), when that process's command
+line is this database's supervisor (the same test as below), and never pid 0 or 1.
 
 One more case, because the file alone cannot show it (2026-10-06, #271): a
 supervisor that hangs after a restart, before its first heartbeat, leaves a file
@@ -52,6 +53,10 @@ BACKUP_KEEP = 14
 # the real folder into the installed root-owned copy (runbook step 4). The
 # command refuses to run while the placeholder is still there.
 BACKUP_DIR_PLACEHOLDER = "PASTE_BACKUP_DIR"
+# The backup job runs this compiled launcher, not the interpreter, so that only
+# the backup holds Full Disk Access (#287). Built from
+# ops/backup-launcher/lab-backup.c and installed root-owned (runbook step 4).
+BACKUP_LAUNCHER = "/opt/homelab-backup/lab-backup"
 DEADMAN_LABEL = "com.homelab.heartbeat"
 DEADMAN_INTERVAL_SECONDS = 300
 CHAT_LABEL = "com.homelab.chat"
@@ -209,7 +214,9 @@ def check(db: str | Path, *, max_age: float = DEFAULT_MAX_AGE,
     if age <= max_age:
         return Verdict("healthy", beat.pid, age)
     current = _start_time(beat.pid)
-    if current is None or (beat.started is not None and current != beat.started):
+    if (current is None or beat.started is None or current != beat.started
+            or not _still_that_supervisor(db, beat.pid, 0.0)):
+        # Gone, reused, or not this database's supervisor: look for the real one instead.
         return _unseen_supervisor(db, max_age, dry_run, Verdict("not_running", beat.pid, age))
     if dry_run:
         return Verdict("would_kill", beat.pid, age)
@@ -287,14 +294,25 @@ def statuscheck_plist(*, user: str, python: str, workdir: str, db: str,
                    alert_config], workdir, UserName=user, StartInterval=300)
 
 
-def backup_plist(*, user: str, python: str, workdir: str, db: str, alert_config: str,
-                 keep: int = BACKUP_KEEP, backup_dir: str = BACKUP_DIR_PLACEHOLDER) -> bytes:
+def backup_command(*, python: str, db: str, alert_config: str,
+                   keep: int = BACKUP_KEEP) -> list[str]:
+    """The one command the backup launcher runs (#287). The launcher has it built
+    in; ``tests/test_backup_launcher.py`` checks the two agree. ``-I`` keeps the
+    environment and the working directory from adding code to the run."""
+    return [python, "-I", "-m", "lab.cli", "--db", db, "backup", "--keep", str(keep),
+            "--alert-config", alert_config]
+
+
+def backup_plist(*, user: str, workdir: str, launcher: str = BACKUP_LAUNCHER,
+                 backup_dir: str = BACKUP_DIR_PLACEHOLDER) -> bytes:
     """A daily backup at 02:47 as the lab user (#67): snapshot, prove the new
-    backup restores, keep the newest ``keep``, alert on any failure. The folder
-    comes from ``LAB_BACKUP_DIR``, set by the operator in the installed copy."""
-    return _plist(BACKUP_LABEL,
-                  [python, "-m", "lab.cli", "--db", db, "backup", "--keep", str(keep),
-                   "--alert-config", alert_config], workdir, UserName=user,
+    backup restores, keep the newest 14, alert on any failure. The folder
+    comes from ``LAB_BACKUP_DIR``, set by the operator in the installed copy.
+
+    The job runs the backup launcher, which takes no arguments and runs
+    ``backup_command`` with a fixed environment, so Full Disk Access is given to
+    the launcher instead of the interpreter every lab service shares (#287)."""
+    return _plist(BACKUP_LABEL, [launcher], workdir, UserName=user,
                   StartCalendarInterval={"Hour": 2, "Minute": 47},
                   EnvironmentVariables={"LAB_BACKUP_DIR": backup_dir})
 

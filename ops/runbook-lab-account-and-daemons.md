@@ -234,23 +234,53 @@ temporary measure for this one change: turn it off again, and restart the termin
 as soon as the `chown` has worked.
 
 The scheduled job needs a second, permanent grant. Under launchd it has no terminal
-to borrow permission from, and macOS refuses its interpreter access to a removable
-volume (`tccd` logs `Refusing TCCAccessRequest for service
+to borrow permission from, and macOS refuses it access to a removable volume
+(`tccd` logs `Refusing TCCAccessRequest for service
 kTCCServiceSystemPolicyRemovableVolumes ... in background session`), so the job fails
 with `backup: unable to open database file` while the same command run from a
-permitted terminal works. Add the real interpreter, not the venv symlink, under
-System Settings, Privacy & Security, Full Disk Access, with **+** and Cmd+Shift+G:
-`/opt/homelab-python/cpython-3.13.15-macos-aarch64-none/bin/python3.13` (the folder
-that `readlink -f /opt/homelab/.venv/bin/python` prints). Found and fixed on
-2026-10-07 (#67). The grant belongs to the
-binary, not to the `lab` account: every process that runs that interpreter gets it,
-whichever account runs it, and the keep-awake and watchdog daemons run as root with
-the same interpreter. For `lab` services, file permissions still bound what they can
-read; a root-run process is not bounded that way. So a compromised lab service could
-read or change the backups on the T7. Narrowing the grant to a backup-only
-executable is open as #287. A redeploy that changes the Python version changes this
-path and needs the grant again; `readlink -f` prints the new one (it works on current
-macOS).
+permitted terminal works (found on 2026-10-07, #67).
+
+That grant belongs to an executable, not to an account. Given to the interpreter, it
+reached every process that runs the interpreter, the root-run keep-awake and watchdog
+daemons included. So the job runs a small launcher of its own, and the grant goes to
+that (#287). The launcher, `ops/backup-launcher/lab-backup.c`, takes no arguments
+and starts one fixed command,
+`/opt/homelab/.venv/bin/python -I -m lab.cli --db /var/homelab/lab.db backup --keep 14 --alert-config /etc/homelab/alert.json`,
+with only `PATH` and `LAB_BACKUP_DIR` in its environment. Build it as yourself, never
+as root, with the Command Line Tools compiler (`xcode-select --install` if `cc` is
+missing), and install it root-owned:
+
+```sh
+BUILD=$(mktemp -d)
+cc -O2 -Wall -Wextra -Werror -o "$BUILD/lab-backup" /opt/homelab/ops/backup-launcher/lab-backup.c
+sudo install -d -o root -g wheel -m 755 /opt/homelab-backup
+sudo install -o root -g wheel -m 755 "$BUILD/lab-backup" /opt/homelab-backup/lab-backup
+rm -r "$BUILD"
+codesign -v /opt/homelab-backup/lab-backup && echo "launcher signature intact"
+sudo -u lab /usr/bin/touch /opt/homelab-backup/x
+```
+
+The `codesign` line must print `launcher signature intact`, and the `touch` must be
+refused with `Permission denied`. Then add `/opt/homelab-backup/lab-backup` under
+System Settings, Privacy & Security, Full Disk Access, with **+** and Cmd+Shift+G,
+and check that its switch is on. Do not add the interpreter.
+
+What the grant covers: the launcher when macOS counts it as responsible for itself,
+as it does when launchd starts it, and what it starts, which is the backup and, when
+the backup fails, the alert command in `/etc/homelab/alert.json`. The lab services and the root-run
+daemons run the interpreter without it. On the mini, a granted interpreter started by
+an ungranted parent like the launcher was refused, so macOS decides on the parent's
+grant, not the child's (tested 2026-10-08, #287). That the launcher's grant reaches
+its Python child under launchd is first checked by the kickstart in "Moving the
+backup's Full Disk Access to its launcher" below. What it does not cover: the job
+still reads files the lab account can change (the alert command, the alert state
+file next to the database, the database path), so code running as `lab` could still
+act with the grant at the next scheduled run; see SECURITY.md.
+
+The linker signs the launcher ad hoc, and macOS checks it against the signature it
+recorded with the grant, which names that exact build. So rebuild it only when its
+source changes, and after every rebuild remove its entry from Full Disk Access and
+add it again. A new Python version no longer needs a new grant.
 
 The job runs at 02:47, writes one backup,
 restores it into a temporary folder and checks every hash, then deletes all but
@@ -260,7 +290,8 @@ placeholder included, sends a `backup` alert through `/etc/homelab/alert.json`.
 Give the folder itself, not a symlink to it: the job refuses a symlink.
 
 - Undo: `sudo plutil -replace EnvironmentVariables.LAB_BACKUP_DIR -string PASTE_BACKUP_DIR $P/com.homelab.backup.plist`.
-  The backups stay where they are.
+  The backups stay where they are. To remove the launcher, take its entry out of
+  Full Disk Access with **-**, then `sudo rm -r /opt/homelab-backup`.
 
 **The ping URL file (#79).** Create it as in `ops/mac-mini-setup.md` section
 19 before step 5 loads `com.homelab.heartbeat`. Until it exists the job only
@@ -412,7 +443,7 @@ and `git` and `uv sync` run as you, never as root:
 sudo chown -R "$USER" /opt/homelab /opt/homelab-python
 git -C /opt/homelab fetch origin
 git -C /opt/homelab -c advice.detachedHead=false checkout "$COMMIT"
-git -C /opt/homelab diff --stat "$OLD" "$COMMIT" -- ops/launchd lab/service.py
+git -C /opt/homelab diff --stat "$OLD" "$COMMIT" -- ops/launchd lab/service.py ops/backup-launcher
 cd /opt/homelab && UV_PYTHON_INSTALL_DIR=/opt/homelab-python UV_PYTHON_PREFERENCE=only-managed "$UV" sync --locked
 sudo chown -R root:wheel /opt/homelab /opt/homelab-python
 sudo chmod -R go-w /opt/homelab /opt/homelab-python
@@ -427,6 +458,11 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
   installed the same way, given its settings from step 4, and bootstrapped.
   Do not re-run `setup-plan --apply` for this: it tries to create the `lab`
   account again.
+- **If `ops/backup-launcher/lab-backup.c` is listed,** the installed launcher is
+  stale. Rebuild and install it as in step 4, take its old entry out of Full Disk
+  Access and add it again, then run the backup once as in step 7. The first update
+  that brings the launcher in (#287) is done once, by "Moving the backup's Full Disk
+  Access to its launcher" below, not by this list.
 - **After ownership is back with root,** run git as root
   (`sudo git -C /opt/homelab ...`): as you it stops with "dubious ownership",
   which is correct and is not to be silenced with `safe.directory`.
@@ -455,6 +491,91 @@ sudo -u lab /usr/bin/touch /opt/homelab/x
 **Roll back** by running the same block with `COMMIT` set to the `OLD` hash
 printed at the start (write it down). If the supervisor does not start, its
 reason is in `/var/log/homelab/supervisor.err`.
+
+## Moving the backup's Full Disk Access to its launcher (#287, once)
+
+Do this once, the first time the deployed code has `ops/backup-launcher/`. Until
+then the backup job runs the interpreter, and the interpreter holds the grant it was
+given on 2026-10-07. Use one Terminal window, with the backup volume attached and
+unlocked and `BACKUP_VOLUME` set as at the top of this runbook (`/Volumes/labbackup`
+on the project's machine).
+
+1. Deploy the new commit as in "Updating the deployed code". Its `diff --stat` lists
+   the backup definition, `lab/service.py` and the launcher source. Leave the backup
+   definition to step 5 below, so the job never points at a launcher that is not
+   installed yet.
+2. Note how long the backup logs are now, so step 6 reads only the new lines:
+
+   ```sh
+   LOG0=$(sudo cat /var/log/homelab/backup.log | wc -l | tr -d ' ')
+   ERR0=$(sudo cat /var/log/homelab/backup.err | wc -l | tr -d ' ')
+   echo "backup.log has $LOG0 lines, backup.err has $ERR0"
+   ```
+
+3. Build and install the launcher with the `BUILD=$(mktemp -d)` block in step 4, and
+   check its two results.
+4. In System Settings, Privacy & Security, Full Disk Access: add
+   `/opt/homelab-backup/lab-backup` with **+** and Cmd+Shift+G and check that its
+   switch is on. Then select `python3.13` and remove it with **-**. Remove it before
+   the run in step 6, so that run shows the launcher's grant is enough by itself.
+5. Reinstall the backup definition, give it its folder again and load it:
+
+   ```sh
+   P=/Library/LaunchDaemons
+   sudo launchctl bootout system/com.homelab.backup
+   sudo install -o root -g wheel -m 644 /opt/homelab/ops/launchd/com.homelab.backup.plist $P/com.homelab.backup.plist
+   sudo plutil -replace EnvironmentVariables.LAB_BACKUP_DIR -string "$BACKUP_VOLUME/home-lab-backups" $P/com.homelab.backup.plist
+   plutil -p $P/com.homelab.backup.plist
+   sudo launchctl bootstrap system $P/com.homelab.backup.plist
+   ```
+
+   `plutil -p` must show `ProgramArguments` holding only
+   `/opt/homelab-backup/lab-backup`, and `LAB_BACKUP_DIR` holding the real folder,
+   not `PASTE_`.
+6. Run it once and read only what it wrote now:
+
+   ```sh
+   sudo launchctl kickstart system/com.homelab.backup
+   sleep 30
+   sudo tail -n +$((LOG0 + 1)) /var/log/homelab/backup.log
+   sudo tail -n +$((ERR0 + 1)) /var/log/homelab/backup.err
+   sudo launchctl print system/com.homelab.backup | grep -E "state|last exit"
+   ```
+
+   It passes when the first `tail` shows `wrote` with a new `lab-*.manifest.json`,
+   then `restore check ok` and `kept ... removed ...`; the second `tail` prints
+   nothing; and the last exit code is 0. If the first `tail` is still empty, wait and
+   run it again. This run is the first check that the launcher's grant reaches the
+   Python process it starts.
+7. Read the grant list. While Terminal itself has Full Disk Access (it was turned on
+   for the `chown` in step 4 on 2026-10-07 and was still on on 2026-10-08), this reads
+   it directly. Apple does not document this table; System Settings shows the same
+   list.
+
+   ```sh
+   sqlite3 -readonly "/Library/Application Support/com.apple.TCC/TCC.db" "select client, auth_value from access where service = 'kTCCServiceSystemPolicyAllFiles'"
+   ```
+
+   It must show `/opt/homelab-backup/lab-backup|2` (2 is allowed) and no line with
+   `python3.13`.
+8. Turn Terminal off under Full Disk Access, as step 4 says to once the `chown` has
+   worked, then quit Terminal completely and reopen it. The query in step 7 must now
+   fail to open the database.
+
+**If step 6 fails** (`backup.err` says `unable to open database file` or `Operation
+not permitted`, and a backup alert reaches the phone), put the job back as it was so
+tonight's backup still runs:
+
+```sh
+P=/Library/LaunchDaemons
+sudo launchctl bootout system/com.homelab.backup
+sudo plutil -replace ProgramArguments -json '["/opt/homelab/.venv/bin/python","-m","lab.cli","--db","/var/homelab/lab.db","backup","--keep","14","--alert-config","/etc/homelab/alert.json"]' $P/com.homelab.backup.plist
+sudo launchctl bootstrap system $P/com.homelab.backup.plist
+```
+
+Then add the interpreter to Full Disk Access again (the path that
+`readlink -f /opt/homelab/.venv/bin/python` prints), run step 6 again, and put what
+`backup.err` said on #287. The launcher can stay installed: nothing runs it then.
 
 ## What stays open after this sitting
 

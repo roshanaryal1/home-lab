@@ -293,7 +293,18 @@ sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli \
 The daily backup job (`com.homelab.backup`) runs the same command with
 `--keep 14`: it restore-checks each new backup and keeps the newest 14. Its
 folder is set in the installed copy, as described in
-`ops/runbook-lab-account-and-daemons.md` step 4.
+`ops/runbook-lab-account-and-daemons.md` step 4. On macOS it reaches a removable
+volume only with Full Disk Access, so it runs through a small launcher that holds
+that grant instead of the interpreter every lab service uses (#287); step 4 of the
+runbook builds it and says what the grant covers.
+
+Once only the launcher holds that grant, the command above, run from Terminal,
+cannot reach a removable volume. Start a manual backup through the job instead,
+so it runs with the launcher's grant:
+
+```sh
+sudo launchctl kickstart system/com.homelab.backup
+```
 
 Keep at least one additional recovery destination for anything that matters.
 
@@ -311,11 +322,14 @@ If you have no data to preserve and are intentionally removing the
 installation, remove the system deployment:
 
 ```sh
-sudo rm -rf /opt/homelab /opt/homelab-python
+sudo rm -rf /opt/homelab /opt/homelab-python /opt/homelab-backup
 sudo rm -f /Library/LaunchDaemons/com.homelab.*.plist
 sudo rm -rf /etc/homelab
 sudo sysadminctl -deleteUser lab
 ```
+
+Then remove the backup launcher's entry from System Settings, Privacy & Security,
+Full Disk Access.
 
 **Data warning:** removing `/var/homelab` or `/var/log/homelab` deletes
 the local database and logs. Back them up first if they matter.
