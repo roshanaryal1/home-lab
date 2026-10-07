@@ -139,7 +139,12 @@ were not compared with the owner's labels or the drafts before they were fixed.
 Python. The command now takes the candidate's endpoint, name and revisions, sends temperature 0 and
 one fixed seed (default 0) with every request, prints the adoption verdict, and can write the whole
 run (provenance with the lab commit, settings, every row, the verdict) to a record it never
-overwrites. This changes the command-line wiring only. The instrument the amendment freezes,
+overwrites. A request that fails (server down, timeout, refused, a different model answering)
+would otherwise count as the candidate abstaining, so any such failure marks the run invalid: no
+verdict is printed or recorded, and the command exits with an error. The candidate takes the
+same heavy-slot lock as the supervisor, so no other heavy request overlaps the run. A
+`--revision` that is not the snapshot `--model` names is refused. This changes the command-line
+wiring only. The instrument the amendment freezes,
 `lab/shadow.py` and `lab/rubric.py`, is unchanged, and `tests/test_h1_amendment.py` fails if
 either file's SHA-256 differs from the registered one. The run is at a later lab commit than the
 one registered, and the record states which.

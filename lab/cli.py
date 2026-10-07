@@ -679,7 +679,9 @@ def build_parser() -> argparse.ArgumentParser:
     sh.add_argument("--revision", default=None, help="weight revision, a commit hash")
     sh.add_argument("--tokenizer-revision", default=None,
                     help="tokenizer revision, a commit hash (default: --revision)")
-    sh.add_argument("--weights-mb", type=int, default=1)
+    sh.add_argument("--weights-mb", type=int, default=None,
+                    help="resident size the admission budget counts (default: the measured "
+                         "heavy model)")
     sh.add_argument("--max-tokens", type=int, default=256)
     sh.add_argument("--seed", type=int, default=0)
     sh.add_argument("--record", type=Path, default=None,
@@ -1537,65 +1539,122 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
 
 class _SeededModel(model_mod.BoundedModel):
     """A bounded model that sends one fixed seed with every request, so a shadow run is
-    repeatable: the candidate in ``lab.shadow`` calls ``generate`` without one."""
+    repeatable: the candidate in ``lab.shadow`` calls ``generate`` without one. It also counts
+    the requests that failed, because the candidate turns a failure into an abstention, and a
+    server that is down must not read as a model that declined to answer."""
 
     def __init__(self, inner: model_mod.BoundedModel, seed: int) -> None:
         super().__init__(inner.spec, inner.adapter, inner.controller)
         self.seed = seed
+        self.errors: list[str] = []
 
     def generate(self, messages: list[dict[str, str]], *, max_tokens: int | None = None,
                  seed: int | None = None,
                  timeout_seconds: float | None = None) -> model_mod.Completion:
-        return super().generate(messages, max_tokens=max_tokens,
-                                seed=self.seed if seed is None else seed,
-                                timeout_seconds=timeout_seconds)
+        try:
+            return super().generate(messages, max_tokens=max_tokens,
+                                    seed=self.seed if seed is None else seed,
+                                    timeout_seconds=timeout_seconds)
+        except model_mod.ModelError as exc:
+            self.errors.append(f"{type(exc).__name__}: {exc}")
+            raise
+
+
+_CANDIDATE_OPTIONS = ("model", "revision", "tokenizer_revision", "weights_mb")
+
+
+def _shadow_model(args: argparse.Namespace) -> _SeededModel:
+    """The candidate's model, from the command line. Raises ValueError on a bad setting."""
+    if not (args.model and args.revision):
+        raise ValueError("--endpoint needs --model and --revision")
+    # A Hugging Face snapshot path names its revision; a different --revision would put the
+    # wrong weights on record.
+    if "/snapshots/" in args.model and args.model.rstrip("/").rsplit("/", 1)[-1] != args.revision:
+        raise ValueError("--revision is not the snapshot that --model names")
+    from lab.loop import SLOT_WAIT_SECONDS, model_slot_path
+    spec = model_mod.ModelSpec(
+        args.model, args.revision, args.tokenizer_revision or args.revision, 8192,
+        args.max_tokens,
+        model_mod.HEAVY_MODEL_WEIGHTS_MB if args.weights_mb is None else args.weights_mb,
+        heavy=True)
+    # The heavy slot is the same lock file the supervisor and lab tick use, so a shadow run
+    # never overlaps another heavy request on the one server (#211).
+    controller = model_mod.AdmissionController(slot_lock=model_slot_path(args.db),
+                                               slot_wait_seconds=SLOT_WAIT_SECONDS)
+    bounded = model_mod.BoundedModel(spec, model_mod.OpenAICompatibleAdapter(args.endpoint),
+                                     controller)
+    return _SeededModel(bounded, args.seed)
+
+
+def _write_new(path: Path, text: str) -> None:
+    """Write ``path`` whole or not at all, and never over an existing file: the text goes to a
+    temporary file beside it, which is then linked into place (a link fails if the name
+    exists)."""
+    fd, staged = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.link(staged, path)
+    finally:
+        os.unlink(staged)
 
 
 def cmd_shadow(args: argparse.Namespace) -> int:
     import hashlib
 
     from lab import evals, shadow
-    candidate = None
+    model: _SeededModel | None = None
     settings: dict[str, Any] = {}
-    if args.endpoint:
-        if not (args.model and args.revision):
-            print("shadow: --endpoint needs --model and --revision", file=sys.stderr)
-            return 1
-        spec = model_mod.ModelSpec(args.model, args.revision,
-                                   args.tokenizer_revision or args.revision, 8192,
-                                   args.max_tokens, args.weights_mb)
-        bounded = model_mod.BoundedModel(spec, model_mod.OpenAICompatibleAdapter(args.endpoint))
-        candidate = shadow.model_candidate(_SeededModel(bounded, args.seed))
-        settings = {"endpoint": args.endpoint, "model": asdict(spec), "seed": args.seed,
-                    "temperature": 0, "max_tokens": args.max_tokens}
     try:
-        cases = shadow.load_cases(args.cases)
+        if args.endpoint:
+            model = _shadow_model(args)
+            settings = {"endpoint": args.endpoint, "model": asdict(model.spec),
+                        "seed": args.seed, "temperature": 0, "max_tokens": args.max_tokens,
+                        "slot_lock": str(model.controller.slot_lock)}
+        else:
+            given = [f"--{o.replace('_', '-')}" for o in _CANDIDATE_OPTIONS
+                     if getattr(args, o) is not None]
+            if given:
+                raise ValueError(f"{', '.join(given)} given without --endpoint: no candidate "
+                                 "would run")
+        # The record names the exact bytes and code that produced the rows, so both are taken
+        # before the run, and the cases are read from that snapshot.
+        data = args.cases.read_bytes()
+        cases_sha256 = hashlib.sha256(data).hexdigest()
+        provenance = evals.collect_provenance() if args.record is not None else None
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot = Path(tmp) / "cases.jsonl"
+            snapshot.write_bytes(data)
+            cases = shadow.load_cases(snapshot)
         started = datetime.now(UTC).isoformat(timespec="seconds")
+        candidate = shadow.model_candidate(model) if model is not None else None
         report = shadow.run(cases, candidate=candidate)
-    except (shadow.ShadowError, OSError) as exc:
+    except (shadow.ShadowError, OSError, ValueError) as exc:
         print(f"shadow: {exc}", file=sys.stderr)
         return 1
     print(shadow.format_report(report))
-    verdict = shadow.adoption_verdict(report) if candidate is not None else None
-    if verdict is not None:
+    errors = model.errors if model is not None else []
+    verdict = shadow.adoption_verdict(report) if model is not None else None
+    if errors:
+        print(f"run invalid: {len(errors)} request(s) to the model failed, so those cases read "
+              f"as abstentions; first: {errors[0]}", file=sys.stderr)
+    elif verdict is not None:
         print("verdict: " + ("supported" if verdict.recommend else "not supported"))
         for reason in verdict.reasons:
             print(f"  {reason}")
     if args.record is not None:
         record = {
-            "started": started, "cases": str(args.cases),
-            "cases_sha256": hashlib.sha256(args.cases.read_bytes()).hexdigest(),
-            "provenance": evals.collect_provenance(), "settings": settings,
-            "report": asdict(report),
-            "verdict": asdict(verdict) if verdict is not None else None}
+            "started": started, "cases": str(args.cases), "cases_sha256": cases_sha256,
+            "provenance": provenance, "settings": settings, "model_errors": errors,
+            "valid": not errors, "report": asdict(report),
+            "verdict": asdict(verdict) if verdict is not None and not errors else None}
         try:
-            with args.record.open("x", encoding="utf-8") as handle:
-                handle.write(json.dumps(record, indent=2) + "\n")
+            _write_new(args.record, json.dumps(record, indent=2) + "\n")
         except OSError as exc:
             print(f"shadow: {exc}", file=sys.stderr)
             return 1
         print(f"wrote {args.record}")
-    return 0
+    return 1 if errors else 0
 
 
 def cmd_route(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
