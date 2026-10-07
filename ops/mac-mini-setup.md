@@ -238,11 +238,17 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
       `LAB_TARGET=mac-mini` (`ops/drills/log/2026-09-30T010636Z-restore.md`).
       The database was new (0 events, 0 artifacts), so this proves the
       mechanism, not a restore of real work; the monthly drill covers that.
-- [ ] Repeat monthly; log the date in `ops/drills/log/`.
+- [ ] Repeat monthly; log the date in `ops/drills/log/`. Restore the newest
+      backup on the backup disk, as `lab`:
+      `drill restore --from-backup /Volumes/labbackup/home-lab-backups`
+      (the full command is in `ops/drills/README.md`). Not run on 2026-10-08:
+      the folder is `lab`'s, mode 700, so it needs sudo.
 - [x] Crash drill on the mini: `uv run python -m lab.cli drill crash`.
       2026-09-29: PASS for both kinds; records in `ops/drills/log/`.
 - [ ] Power-pull drill during a running task: pull the plug, boot, confirm
       the task is requeued or held per its idempotency, note timings.
+      `drill interrupted --phase arm` before the pull and `--phase check`
+      after the boot (the `power` step of `ops/mac-session.sh`).
 - [x] Failed model load drill after the model adapter (5.1) exists.
       2026-09-29: `drill model-load --endpoint http://127.0.0.1:8080/v1`, all
       three cases PASS (server down, wrong model, too big for the budget);

@@ -649,19 +649,22 @@ step_power() {
   begin power "Power-pull drill" "#77, #91" \
     "Manual. Shows that the lab comes back on its own after power loss, and what happens to a \
 task that was running."
-  rep "Do this by hand, when nothing real is running:"
+  rep "Do this by hand, when nothing real is running. Steps 1 and 5 run as you, from the"
+  rep "checkout, without sudo, on a scratch database (never the lab's own)."
   rep ""
-  rep "1. Queue a dummy idempotent task and a dummy non-idempotent task, and note their ids."
-  rep "2. Write down the time and pull the Mac mini's power cable while a task runs."
+  rep "1. Leave two dummy tasks running, one idempotent and one not:"
+  rep "   \`cd \"$REPO\" && LAB_TARGET=mac-mini uv run python -m lab.cli drill interrupted --phase arm\`"
+  rep "2. Within 30 minutes, write down the time and pull the Mac mini's power cable."
   rep "3. Wait 30 seconds, plug it back in, and note the time. FileVault is on, so log in."
   rep "4. Time how long until \`sudo -u lab \"\$PY\" -m lab.cli --db \"\$DB\" status\` is healthy."
-  rep "5. Check the idempotent task was requeued and the other is held for review."
+  rep "5. Check what recovery did with the two tasks; this writes the dated record:"
+  rep "   \`cd \"$REPO\" && LAB_TARGET=mac-mini uv run python -m lab.cli drill interrupted --phase check\`"
+  rep "   It must say PASS and restarted=yes, and the record must say no SIGTERM reached the holder."
   rep ""
-  rep "Write the record from the template \`$REPO/ops/drills/TEMPLATE.md\` into"
-  rep "\`$REPO/ops/drills/log/<UTC timestamp>-power-pull.md\`, with LAB_TARGET=mac-mini,"
-  rep "and paste the result into #77 and #91."
-  say "Manual: power-pull drill; template at $REPO/ops/drills/TEMPLATE.md"
-  finish MANUAL "power-pull drill by hand; record it from $REPO/ops/drills/TEMPLATE.md"
+  rep "Add your times and step 4's timing to the record in \`$REPO/ops/drills/log/\`,"
+  rep "commit it, and paste the result into #77 and #91."
+  say "Manual: power-pull drill; drill interrupted --phase arm, pull the plug, then --phase check"
+  finish MANUAL "power-pull drill by hand: drill interrupted --phase arm, pull the plug, boot, --phase check"
 }
 
 # --------------------------------------------------------------------- main

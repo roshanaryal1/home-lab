@@ -37,7 +37,9 @@ Usage:
     python3 -m lab.cli backup [--to DIR] [--artifacts DIR] [--keep N] [--alert-config FILE]
     python3 -m lab.cli heartbeat --url-file FILE
     python3 -m lab.cli restore-check MANIFEST --into DIR
-    python3 -m lab.cli drill crash|restore [--log DIR]
+    python3 -m lab.cli drill crash|restore|model-load [--log DIR]
+    python3 -m lab.cli drill restore --from-backup DIR
+    python3 -m lab.cli drill interrupted --phase arm|check [--state DIR]
     python3 -m lab.cli chat [--once] [--chat-id N]
     python3 -m lab.cli mcp list [--check]
     python3 -m lab.cli mcp snapshot <server> [--allow a,b] [--key KEYFILE --by roshan]
@@ -53,6 +55,7 @@ import asyncio
 import json
 import os
 import re
+import shlex
 import sqlite3
 import sys
 import tempfile
@@ -483,9 +486,21 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument("manifest", type=Path)
     rc.add_argument("--into", type=Path, required=True, help="must not exist or be empty")
     drill = sub.add_parser("drill", help="inject a real failure and log the outcome")
-    drill.add_argument("name", choices=["crash", "restore", "model-load"])
+    drill.add_argument("name", choices=["crash", "restore", "model-load", "interrupted"])
     drill.add_argument("--endpoint", default=None,
                        help="model-load: a live loopback server for the wrong-model case")
+    drill.add_argument("--from-backup", type=Path, default=None, metavar="DIR",
+                       help="restore: check the newest existing backup in DIR (or one "
+                       "manifest) instead of taking a new one; DIR is only read")
+    drill.add_argument("--phase", choices=["arm", "check"], default=None,
+                       help="interrupted: arm leaves two tasks running on a scratch database; "
+                       "after the restart or power pull, check records what recovery did")
+    drill.add_argument("--state", type=Path, default=None, metavar="DIR",
+                       help="interrupted: the scratch folder "
+                       "(default: ~/.local/share/home-lab/drill-interrupted)")
+    drill.add_argument("--hold-minutes", type=float, default=30.0, metavar="N",
+                       help="interrupted: arm keeps the tasks running this long, then gives "
+                       "up and removes its files (default 30)")
     drill.add_argument("--log", type=Path, default=Path("ops/drills/log"),
                        help="where the dated record is written (default: ops/drills/log)")
 
@@ -1072,11 +1087,48 @@ def cmd_backup(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def _arm_interrupted(args: argparse.Namespace, state: Path) -> int:
+    if not 0 < args.hold_minutes <= 24 * 60:
+        print("drill: --hold-minutes must be more than 0 and at most 1440", file=sys.stderr)
+        return 2
+    try:
+        armed = drills.arm_interrupted(state, args.hold_minutes * 60)
+    except drills.DrillError as exc:
+        print(f"drill: {exc}", file=sys.stderr)
+        return 2
+    pid = armed["holder_pid"]
+    again = "--phase check" + (f" --state {shlex.quote(str(state))}" if args.state else "")
+    print(f"armed: an idempotent and a non-idempotent task are running in {state}, "
+          f"held by pid {pid} for {args.hold_minutes:g} minutes")
+    print("Now inject the failure: pull the power cable, or restart the Mac, or for a "
+          f"rehearsal kill -9 {pid}.")
+    print(f"Then run this drill again with {again}.")
+    return 0
+
+
 def cmd_drill(args: argparse.Namespace) -> int:
+    if args.from_backup is not None and args.name != "restore":
+        print("drill: --from-backup is for the restore drill", file=sys.stderr)
+        return 2
+    if (args.name == "interrupted") != (args.phase is not None):
+        print("drill: --phase arm|check is needed for the interrupted drill, and only there",
+              file=sys.stderr)
+        return 2
+    state = (args.state or Path("~/.local/share/home-lab/drill-interrupted")).expanduser()
     if args.name == "crash":
         results = drills.drill_crash()
     elif args.name == "model-load":
         results = drills.drill_model_load(args.endpoint)
+    elif args.name == "interrupted":
+        if args.phase == "arm":
+            return _arm_interrupted(args, state)
+        try:
+            results = [drills.check_interrupted(state)]
+        except drills.DrillError as exc:
+            print(f"drill: {exc}", file=sys.stderr)
+            return 2
+    elif args.from_backup is not None:
+        results = [drills.drill_restore_backup(args.from_backup)]
     else:
         if not args.db.exists():
             print(f"No database at {args.db}", file=sys.stderr)
@@ -1086,6 +1138,10 @@ def cmd_drill(args: argparse.Namespace) -> int:
     for result in results:
         path = drills.record(result, args.log)
         print(f"{'PASS' if result.passed else 'FAIL'} {result.name}: {result.actual}\n  -> {path}")
+    if args.name == "interrupted":
+        # Recovery has already changed the scratch database; a second check would
+        # find nothing to recover. The record is written, so the scratch goes.
+        drills.remove_state(state)
     if not drills.on_target():
         print("note: not the target machine; logged as a rehearsal, not a demonstration")
     return 0 if all(r.passed for r in results) else 1
