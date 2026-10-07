@@ -296,6 +296,23 @@ def test_cli_a_failing_server_makes_the_run_invalid_not_abstentions(
     assert not saved["valid"] and saved["verdict"] is None and saved["model_errors"]
 
 
+def test_cli_any_other_candidate_failure_also_makes_the_run_invalid(
+        capsys: pytest.CaptureFixture[str], tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    from lab import model as model_mod
+
+    class Broken(MockAdapter):
+        def complete(self, *args: object, **kwargs: object) -> model_mod.Completion:
+            raise ValueError("usage was not a number")
+
+    monkeypatch.setattr(model_mod, "OpenAICompatibleAdapter", lambda endpoint: Broken([]))
+    record = tmp_path / "run.json"
+    assert main(_candidate_args(tmp_path, "--record", str(record))) == 1
+    assert "usage was not a number" in capsys.readouterr().err
+    saved = json.loads(record.read_text())
+    assert not saved["valid"] and saved["verdict"] is None
+
+
 def test_cli_never_overwrites_a_run_record(capsys: pytest.CaptureFixture[str], tmp_path: Path,
                                           monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_server(monkeypatch, "not json")

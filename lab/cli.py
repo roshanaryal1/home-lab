@@ -1555,7 +1555,7 @@ class _SeededModel(model_mod.BoundedModel):
             return super().generate(messages, max_tokens=max_tokens,
                                     seed=self.seed if seed is None else seed,
                                     timeout_seconds=timeout_seconds)
-        except model_mod.ModelError as exc:
+        except Exception as exc:           # any failure here is the server's, not the model's
             self.errors.append(f"{type(exc).__name__}: {exc}")
             raise
 
@@ -1633,7 +1633,13 @@ def cmd_shadow(args: argparse.Namespace) -> int:
         print(f"shadow: {exc}", file=sys.stderr)
         return 1
     print(shadow.format_report(report))
-    errors = model.errors if model is not None else []
+    errors: list[str] = []
+    if model is not None:
+        # The candidate turns a model error into an abstention, and lab.shadow turns any other
+        # exception into a row error; either way the run failed, not the model. The model's own
+        # list has the messages; the rows catch a failure outside it.
+        errors = list(model.errors) or [f"{r.case_id}: {r.error}" for r in report.rows
+                                        if r.error]
     verdict = shadow.adoption_verdict(report) if model is not None else None
     if errors:
         print(f"run invalid: {len(errors)} request(s) to the model failed, so those cases read "
