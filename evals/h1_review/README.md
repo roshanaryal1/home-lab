@@ -53,7 +53,8 @@ judgement are what can make the test informative.
 
 **2026-10-07: the owner chose an AI reviewer.** The draft amendment is
 `docs/PREREGISTRATION-AMENDMENT-2-DRAFT.md` and the blind prompt is
-`ai-reviewer-prompt.md` (both unregistered, nothing run). It weakens the claim
+`ai-reviewer-prompt.md` (both unregistered, nothing run). Reviewers chosen: GPT, Gemini
+and DeepSeek; not Claude (it wrote the drafts) and not Qwen (the candidate). It weakens the claim
 from independent human labels to AI-assigned labels, and the amendment says so.
 
 ## What the owner decides before the amendment

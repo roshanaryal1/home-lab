@@ -43,8 +43,19 @@ only that they were not copied from the rubric.
   Claude on this project. A Claude reviewer is not independent of them, so Claude is excluded.
 - **Not the candidate's family.** The candidate under test is Qwen3-Coder (the DWQ build served
   on the Mac mini). A Qwen reviewer would be marking its own relatives, so Qwen is excluded.
-- **Which model:** [OWNER TO CHOOSE: at least two models from different vendors, neither Claude
-  nor Qwen; name and version string to be recorded as the provider reports it].
+- **Which models (owner's choice 2026-10-07):** an OpenAI GPT model, a Google Gemini model and
+  a DeepSeek model, three vendors, none Claude or Qwen. The exact model name and version string
+  of each is recorded as the provider reports it. DeepSeek and Qwen come from different
+  vendors but may share training data and habits, which is a stated threat, not a proof of
+  independence.
+- **Perplexity is not used as a reviewer.** It is a search service that can browse the web and
+  routes a question to whichever underlying model it picks, which may be Claude or GPT. That
+  breaks two rules: no web, and a reviewer that is named and not Claude. It could join only
+  with web search off and one named underlying model fixed, which its interface may not allow;
+  if the owner wants it, the underlying model must be shown on the reply and be none of the
+  excluded families.
+- **Web search, memory and personalisation are off** in every interface. Where an API is
+  available it is preferred, so that the settings below can be set and recorded.
 - **Blind.** The reviewer sees only the generated review sheet (seeded shuffle, neutral case
   ids, the five route definitions, no rubric counts, no drafted labels), in a new conversation
   with no memory, no tools, no web and no file access, using the prompt in
@@ -59,11 +70,13 @@ only that they were not copied from the rubric.
 
 ## Disagreement rule (written before the sheet goes out)
 
-- Two reviewers label every case. A case where they agree takes that label.
-- A case where they disagree is labeled by [OWNER TO CHOOSE: the owner, after a stated gap and
-  without seeing the rubric's output / a third reviewer model]. The drafter's label is never
-  used to break a tie, and is not shown.
-- The count of disagreements, and how each was resolved, is reported.
+- Three reviewers label every case. A case takes the label that at least two of them chose.
+- A case where all three differ is labeled by [OWNER TO CHOOSE: the owner, after a stated gap
+  and without seeing the rubric's output, or the case is dropped and the file topped up from
+  the spare cases]. The drafter's label is never used to break a tie, and is not shown.
+- Reported: how many cases were unanimous, how many were two to one, how many split three ways,
+  and how each split was resolved. A reviewer that disagrees with the other two on a large
+  share of the cases is reported by name.
 
 ## A person checks a sample
 
@@ -112,8 +125,9 @@ reviewer reply's provenance record must come after the registration timestamp.
 
 ## Open decisions for the owner
 
-1. Which two reviewer models, from which vendors.
-2. Who or what breaks a disagreement: you, or a third model.
+1. Which exact model of each of GPT, Gemini and DeepSeek, and API or chat interface (decided
+   to use those three; Perplexity is explained above).
+2. What happens to a case where all three reviewers disagree.
 3. Whether a person checks a sample, who, and the agreement threshold.
 4. Where the extra 14 cases come from.
 5. Whether to rewrite or drop the two unbuildable cases.
