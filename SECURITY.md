@@ -618,9 +618,8 @@ Implemented and tested:
   closed:** code running as the lab account can build
   a `Supervisor` in its own process against the database, which the lab
   account owns, and that supervisor would not check approvals. The same
-  ownership lets such code clear `consumed_at` on a signed approval and spend
-  it again until it expires, and lets a reviewed handler's worker, which runs
-  as `lab` too, open the database. Only
+  ownership lets such code change approval state in the database, and lets a
+  reviewed handler's worker, which runs as `lab` too, open the database. Only
   separating the database from the code the agent runs closes these (#70).
   A supervisor built any other way does not check approvals: tests do
   that on purpose, and so does the attack harness (`lab/attacks.py`),
