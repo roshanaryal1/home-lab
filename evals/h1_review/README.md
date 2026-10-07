@@ -84,7 +84,9 @@ sheets from the case files and refuses to run unless they equal the frozen sheet
 each neutral id names the case the reviewers saw. It does not read the owner's labels. It writes the
 final case file and a report together, once: if either exists, or either write fails, neither is
 left. If fewer than 30 cases keep a label, the remaining cases go to a file marked `EXPLORATORY`
-instead, never to the final file. Run it once, from the repository
+instead, never to the final file. A case the ledger cannot build is replaced like a three-way split (a
+departure decided on 2026-10-07, see the registration note); the corrected files are
+`final-cases-v2.jsonl` and `final-report-v2.json`. Run it once, from the repository
 root:
 
 ```sh

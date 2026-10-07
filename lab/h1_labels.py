@@ -8,6 +8,10 @@ The rule is the one registered in ``docs/PREREGISTRATION-AMENDMENT-2-DRAFT.md``
   replaced in ascending order of case number, each by the lowest-numbered unused
   spare. A spare takes its label by the same rule; a spare on which all three
   differ is skipped and reported, and the next spare is tried.
+* A case the ledger cannot build (``lab shadow`` would stop on it) is handled
+  the same way as a split: a main case leaves the set and is replaced in the
+  same order, and such a spare is skipped. Departure from the registration,
+  decided by the owner on 2026-10-07 before any model run (#84).
 * If the spares run out, H1 is not testable at the registered size.
 * A reply that is missing or malformed stops the run: no label is made from
   fewer than three reviewers.
@@ -26,7 +30,7 @@ import hashlib
 import json
 import sys
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -78,9 +82,12 @@ def _agreement(votes: dict[str, dict[str, str]]) -> dict[str, Any]:
 
 def final_labels(main: list[tuple[str, dict[str, Any]]], spares: list[tuple[str, dict[str, Any]]],
                  main_replies: dict[str, object],
-                 spare_replies: dict[str, object], size: int | None = None) -> dict[str, Any]:
+                 spare_replies: dict[str, object], size: int | None = None,
+                 builds: Callable[[dict[str, Any]], bool] | None = None) -> dict[str, Any]:
     """Apply the registered rule. ``main`` and ``spares`` are ``blind`` output, in id order.
-    ``size`` is the number of cases H1 needs, the registered 30 unless a test sets it."""
+    ``size`` is the number of cases H1 needs, the registered 30 unless a test sets it.
+    ``builds`` says whether the ledger can build a case; without it every case counts as
+    buildable."""
     size = REGISTERED_SIZE if size is None else size
     main_ids, spare_ids = [n for n, _ in main], [n for n, _ in spares]
     if set(main_replies) != set(spare_replies):
@@ -88,28 +95,33 @@ def final_labels(main: list[tuple[str, dict[str, Any]]], spares: list[tuple[str,
     main_votes = _votes(main_replies, main_ids)
     spare_votes = _votes(spare_replies, spare_ids)
     by_id = dict(main) | dict(spares)
+    unbuildable = {n for n in [*main_ids, *spare_ids]
+                   if builds is not None and not builds(by_id[n])}
 
     kept: list[tuple[str, str]] = []
-    split: list[str] = []
+    leaving: list[tuple[str, str]] = []
     for neutral in sorted(main_ids):
         route = _majority(list(main_votes[neutral].values()))
         if route is None:
-            split.append(neutral)
+            leaving.append((neutral, "three-way split"))
+        elif neutral in unbuildable:
+            leaving.append((neutral, "cannot be built"))
         else:
             kept.append((neutral, route))
 
     remaining = sorted(spare_ids)
     replacements: list[dict[str, Any]] = []
-    skipped: list[str] = []
+    skipped: list[dict[str, str]] = []
     unreplaced: list[str] = []
-    for neutral in split:
+    for neutral, reason in leaving:
         while remaining:
             spare = remaining.pop(0)
             route = _majority(list(spare_votes[spare].values()))
-            if route is None:
-                skipped.append(spare)
+            if route is None or spare in unbuildable:
+                skipped.append({"spare": spare, "reason": "three-way split" if route is None
+                                else "cannot be built"})
                 continue
-            replacements.append({"case": neutral, "id": by_id[neutral]["id"],
+            replacements.append({"case": neutral, "id": by_id[neutral]["id"], "reason": reason,
                                  "votes": main_votes[neutral], "spare": spare,
                                  "spare_id": by_id[spare]["id"], "route": route})
             kept.append((spare, route))
@@ -128,12 +140,28 @@ def final_labels(main: list[tuple[str, dict[str, Any]]], spares: list[tuple[str,
         "testable": not unreplaced and len(cases) >= size,
         "main": _agreement(main_votes),
         "spares": _agreement(spare_votes),
+        "unbuildable": sorted(unbuildable),
         "replaced": replacements,
         "spares_skipped": skipped,
         "spares_unused": remaining,
-        "split_not_replaced": unreplaced,
+        "not_replaced": unreplaced,
         "counts": dict(sorted(Counter(r for _, r in kept).items())),
     }
+
+
+def ledger_builds(case: dict[str, Any]) -> bool:
+    """Whether ``lab shadow`` can build this case in a ledger (its route is not used)."""
+    import tempfile
+
+    from lab import shadow
+    from lab.ledger import LedgerError
+    try:
+        parsed = shadow.parse_case({**case, "expected": "post"})
+        with tempfile.TemporaryDirectory() as tmp:
+            shadow.baseline_routes([parsed], Path(tmp))
+    except (LedgerError, shadow.ShadowError):
+        return False
+    return True
 
 
 def _blinded(files: Sequence[Path], exclude: Sequence[str], prefix: str,
@@ -207,7 +235,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         main_cases = _blinded(args.cases, args.exclude, "case", args.sheet)
         spare_cases = _blinded([args.spares], [], "spare", args.spare_sheet)
         result = final_labels(main_cases, spare_cases, _replies(args.answers),
-                              _replies(args.spare_answers))
+                              _replies(args.spare_answers), builds=ledger_builds)
         data = "".join(json.dumps(c, ensure_ascii=False) + "\n"
                        for c in result.pop("cases")).encode("utf-8")
         # Below the registered size the remaining cases are exploratory only, so they are never

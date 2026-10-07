@@ -73,7 +73,7 @@ def test_a_split_spare_is_skipped_and_the_next_one_is_tried() -> None:
     spares = {"spare-01": SPLIT, "spare-02": ("blog", "blog", "post"),
               "spare-03": ("post",) * 3}
     result = _run(rows, spares)
-    assert result["spares_skipped"] == ["spare-01"]
+    assert result["spares_skipped"] == [{"spare": "spare-01", "reason": "three-way split"}]
     assert result["replaced"][0]["spare"] == "spare-02"
     assert "spare-orig-1" not in result["labels"]
     assert result["testable"]
@@ -84,8 +84,8 @@ def test_when_the_spares_run_out_h1_is_not_testable() -> None:
     spares = {"spare-01": ("blog",) * 3, "spare-02": SPLIT, "spare-03": ("paper",) * 3}
     result = _run(rows, spares)
     assert not result["testable"]
-    assert result["split_not_replaced"] == ["case-03"]
-    assert result["spares_skipped"] == ["spare-02"]
+    assert result["not_replaced"] == ["case-03"]
+    assert result["spares_skipped"] == [{"spare": "spare-02", "reason": "three-way split"}]
     assert len(result["cases"]) == 3
 
 
@@ -284,3 +284,23 @@ def test_a_sheet_with_other_line_endings_is_refused(tmp_path: Path) -> None:
     sheet.write_bytes((REVIEW / "spares" / "review-sheet.md").read_bytes().replace(b"\n", b"\r\n"))
     with pytest.raises(rs.ReviewError, match="differs"):
         hl._blinded([REVIEW / "spare-cases-UNLABELED.jsonl"], [], "spare", sheet)
+
+
+def test_a_case_the_ledger_cannot_build_is_replaced_like_a_split() -> None:
+    rows = _same(["case-01", "case-03", "case-04"]) | {"case-02": SPLIT}
+    spares = {"spare-01": ("blog",) * 3, "spare-02": ("paper",) * 3, "spare-03": ("post",) * 3}
+    no = {"case-orig-1", "spare-orig-1"}
+    result = hl.final_labels(_blinded(4, "case"), _blinded(3, "spare"), _replies(rows),
+                             _replies(spares), size=4, builds=lambda c: c["id"] not in no)
+    assert [(r["case"], r["reason"], r["spare"]) for r in result["replaced"]] == [
+        ("case-01", "cannot be built", "spare-02"), ("case-02", "three-way split", "spare-03")]
+    assert result["spares_skipped"] == [{"spare": "spare-01", "reason": "cannot be built"}]
+    assert result["unbuildable"] == ["case-01", "spare-01"]
+    assert "case-orig-1" not in result["labels"] and result["testable"]
+
+
+def test_the_ledger_check_finds_a_verified_claim_with_one_source() -> None:
+    cases = {c["id"]: c for c in rs.load_cases(REVIEW / "extra-cases-UNLABELED.jsonl",
+                                                labeled=False)}
+    assert not hl.ledger_builds(cases["x-home-readable"])
+    assert hl.ledger_builds(cases["x-watchdog-gap"])
