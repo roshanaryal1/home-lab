@@ -75,7 +75,7 @@ These settings come from the environment. The defaults match the runbook:
 | 10 | `concurrency` | #211 | Two chat completions sent to the model server at the same moment: each one's wall time, whether they overlapped, peak memory (`top` PhysMem, sampled every second) and swap (`sysctl vm.swapusage`) before, during and after. | 1 to 3 min | nothing |
 | 11 | `drills` | #78 | The two timed drills from runbook step 6, with the same commands: after `kill -9` a new supervisor within about 30 s; after `kill -STOP` the frozen one gone and replaced within 120 s, and the watchdog then says `healthy`. | up to 6 min | killing the supervisor |
 | 12 | `network` | #79 | Manual. Unplug the network; the dead-man switch alert must reach the phone within ten minutes. | 10 to 15 min | nothing, you do it |
-| 13 | `power` | #77, #91 | Manual. The power-pull drill: pull the plug during a task, restore power, time the lab's return, and check the task was requeued or held. The report gives the drill template path. | 20 to 30 min | nothing, you do it |
+| 13 | `power` | #77, #91 | Manual. The power-pull drill: `drill interrupted --phase arm` leaves two dummy tasks running on a scratch database, you pull the plug, restore power and time the lab's return, then `--phase check` records whether the idempotent task was requeued and the other held. No sudo for either half. | 20 to 30 min | nothing, you do it |
 
 What each result means:
 
@@ -111,8 +111,9 @@ Each step's section in the report is self-contained. Paste it into its issue:
 | `power`, with your timings | #77 and #91 |
 
 Drills also need a committed record. Copy `ops/drills/TEMPLATE.md` to
-`ops/drills/log/<UTC timestamp>-<drill>.md` for the kill, freeze and power-pull
-drills, fill it in from the report, and commit it (see
+`ops/drills/log/<UTC timestamp>-<drill>.md` for the kill and freeze drills (the
+power-pull drill writes its own with `--phase check`; add your timings to it),
+fill it in from the report, and commit it (see
 [the drills README](drills/README.md)). Tick the matching items in
 [the setup checklist](mac-mini-setup.md) only for a PASS.
 

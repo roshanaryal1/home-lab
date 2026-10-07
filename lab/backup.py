@@ -246,6 +246,23 @@ _MANIFEST_NAME = re.compile(r"^lab-(\d{8}T\d{6}Z)\.manifest\.json$")
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
+def newest_manifest(folder: Path) -> Path:
+    """The newest manifest ``backup`` wrote in ``folder``, by the stamp in its name.
+
+    Only names ``backup`` writes count, and only regular files: a symlink
+    with a backup's name is not followed. Nothing in ``folder`` is changed.
+    """
+    folder = Path(folder)
+    try:
+        names = [entry.name for entry in os.scandir(folder)
+                 if _MANIFEST_NAME.match(entry.name) and entry.is_file(follow_symlinks=False)]
+    except OSError as exc:
+        raise BackupError(f"cannot list {folder}: {exc.strerror}") from exc
+    if not names:
+        raise BackupError(f"no backup manifest (lab-*.manifest.json) in {folder}")
+    return folder / max(names)
+
+
 @dataclass
 class RotateReport:
     kept: list[str] = field(default_factory=list)
