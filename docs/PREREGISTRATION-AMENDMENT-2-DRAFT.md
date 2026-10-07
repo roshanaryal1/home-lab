@@ -109,6 +109,15 @@ labels, the drafted labels, `lab/rubric.py`, or any other prior label. The owner
 routes are meant to work, so this is a weaker check than an outside person, and the paper says
 the labels were checked by the project owner.
 
+**Recorded:** the owner's 30 labels were received on 2026-10-07 at 06:57 UTC and saved as
+`evals/h1_review/answers-owner.json` (SHA-256
+`3133d71ea59a1497e93b01d5a885053888755a25e05cb4a67ce299f09516b9f1`), made on the masked sheet at
+`main` commit `d2866baa430d99d98b6d0283be0ed6386a29f123`. The counts are post 15, blog 6, paper 4,
+insufficient_evidence 4, no_artifact 1. At that time no AI reviewer had seen the sheet, the
+owner states they had seen neither the draft labels nor any AI labels, and the labels had not
+been compared with the drafts or with the rubric's output. Only the file's structure was
+checked (every case id present, every route one of the five).
+
 Agreement between the owner and the final labels is reported next to the H1 result. If the owner
 disagrees with the final label on more than [threshold, for example 6 of 30] cases, the result is
 reported as inconclusive about the labels, whatever H1's rule says.
