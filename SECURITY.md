@@ -793,8 +793,9 @@ absent is worse than no policy:
   2026-10-07 (#180) from `lab measure-ceilings` on the M6
   (`evals/ceilings/ceilings-20261006T200346+0000-29ec49bb.json`, 5 repeats of the
   sample tasks of `workspace.files`, `git.read` and `web.summary`): all three peaked
-  at about 36 MB and 0.05 s of CPU. A 2x headroom (73 MB, 1 s) would kill real work,
-  so the owner chose about 7x: 256 MB and 30 s. The sample tasks are small, so these
+  at about 36 MB and 0.05 s of CPU. The tool's 2x suggestion (73 MB, 1 s) would kill real work,
+  so the owner chose 256 MB, about 7x the memory peak, and 30 s, over 500x the CPU
+  peak, which only stops a runaway. The sample tasks are small, so these
   peaks are mostly the Python interpreter's own size; measure again when a handler
   does heavy work. The tool runs each reviewed handler's sample tasks in real
   workers and suggests the largest peak times a stated headroom. The peaks

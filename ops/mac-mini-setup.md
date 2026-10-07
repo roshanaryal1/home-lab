@@ -694,8 +694,9 @@ expect a call either way between runs.
       handler half is #180, below.
 - [x] #180: set `task_max_rss_mb` and `task_max_cpu_seconds` from measured
       peaks of the real reviewed handlers, with stated headroom. Done 2026-10-07:
-      peaks were 36 MB and 0.05 s, the owner chose 256 MB and 30 s (about 7x, not
-      the 2x the tool suggests, which is too tight); the supervisor must be
+      peaks were 36.3 MB and 0.054 s, the owner chose 256 MB (about 7x the memory
+      peak) and 30 s (over 500x the CPU peak) instead of the 2x the tool suggests
+      (73 MB, 1 s), which is too tight; the supervisor must be
       restarted on the new code for them to apply. The sample tasks are small, so
       measure again when a handler does heavy work.
 
@@ -740,9 +741,11 @@ Then, from the operator's checkout, on a branch for #180:
 
 1. Copy the report out of the lab account's checkout (`sudo cp`, then
    `chown` it to yourself) into `evals/ceilings/` and commit it.
-2. In `lab/supervisor.py`, set `SupervisorConfig.task_max_rss_mb` and
-   `task_max_cpu_seconds` to the suggested values, with a comment naming the
-   report file and the headroom.
+2. In `lab/supervisor.py`, `SupervisorConfig.task_max_rss_mb` and
+   `task_max_cpu_seconds` are 256 and 30, chosen by the owner on 2026-10-07 from the
+   first report. On a later run, set them only if the owner decides to change them;
+   do not apply the tool's 2x suggestion as it stands (it was 73 MB and 1 s). Name
+   the report file and state the memory and CPU headroom separately in the comment.
 3. In `SECURITY.md` ("Memory and CPU ceilings"), replace "their values are
    unmeasured" with the measured peaks, the headroom and the report name, and
    tick #180 here, in `docs/ARCHITECTURE.md` and in the README.

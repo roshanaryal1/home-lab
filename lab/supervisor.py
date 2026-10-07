@@ -151,8 +151,9 @@ class SupervisorConfig:
     # runs on a separate server, so these bound handler code, not inference.
     # A breach kills the process group and fails the task without retry.
     # Set on 2026-10-07 from evals/ceilings/ceilings-20261006T200346+0000-29ec49bb.json:
-    # the three handlers peaked at 36 MB and 0.05 s of CPU on the Mac mini. 2x that (73 MB,
-    # 1 s) is too tight for real work, so the owner chose about 7x: 256 MB and 30 s (#180).
+    # the three handlers peaked at 36.3 MB and 0.054 s of CPU on the Mac mini. The tool's 2x
+    # suggestion (73 MB, 1 s) is too tight for real work. The owner chose 256 MB (about 7x the
+    # memory peak) and 30 s (over 500x the CPU peak, a runaway bound, not a tight one) (#180).
     task_max_rss_mb: int | None = 256
     task_max_cpu_seconds: float | None = 30.0
     ceiling_poll_seconds: float = 0.5
