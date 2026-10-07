@@ -102,7 +102,7 @@ uv run python -m lab.h1_labels \
   --spare-answers gpt=evals/h1_review/ai-replies/answers-gpt-5.6-sol-spares-1.json \
     gemini=evals/h1_review/ai-replies/answers-gemini-3.6-flash-spares-1.json \
     deepseek=evals/h1_review/ai-replies/answers-deepseek-flash-spares-2.json \
-  --out evals/h1_review/final-cases.jsonl --report evals/h1_review/final-report.json
+  --out evals/h1_review/final-cases-v2.jsonl --report evals/h1_review/final-report-v2.json
 ```
 
 The replies used are the ones named in the registration note,
