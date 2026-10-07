@@ -220,6 +220,97 @@ def test_cli_drill_restore_writes_a_record(tmp_path: Path, live, capsys) -> None
     assert "result: PASS" in record.read_text()
 
 
+def _two_backups(db: Path, store: ArtifactStore, dest: Path) -> tuple[Path, Path]:
+    from datetime import UTC, datetime
+    older = backup.backup(db, dest, store.root, now=datetime(2026, 9, 1, tzinfo=UTC))
+    newer = backup.backup(db, dest, store.root, now=datetime(2026, 10, 1, tzinfo=UTC))
+    return older, newer
+
+
+def _snapshot(folder: Path) -> dict[str, tuple[int, int]]:
+    return {str(p.relative_to(folder)): (p.stat().st_size, p.stat().st_mtime_ns)
+            for p in sorted(folder.rglob("*"))}
+
+
+def test_restore_drill_from_an_existing_backup_checks_the_newest_and_only_reads(
+        tmp_path: Path, live) -> None:
+    """The monthly drill (#67) restores what the scheduled job left on the
+    backup disk, the newest one, and changes nothing in that folder."""
+    _q, db, store = live
+    dest = tmp_path / "bk"
+    _older, newer = _two_backups(db, store, dest)
+    before = _snapshot(dest)
+    result = drills.drill_restore_backup(dest, tmp_path)
+    assert result.passed, result.actual
+    assert f"the existing backup {newer.name} in {dest}" in result.injected
+    assert "artifacts checked=2" in result.actual
+    assert _snapshot(dest) == before
+    assert list(tmp_path.glob("lab-restore-*")) == [], "the restored copy is removed"
+
+
+def test_restore_drill_from_one_manifest(tmp_path: Path, live) -> None:
+    _q, db, store = live
+    older, _newer = _two_backups(db, store, tmp_path / "bk")
+    result = drills.drill_restore_backup(older, tmp_path)
+    assert result.passed and older.name in result.injected
+
+
+@pytest.mark.safety
+def test_restore_drill_from_a_damaged_backup_fails(tmp_path: Path, live) -> None:
+    _q, db, store = live
+    _older, newer = _two_backups(db, store, tmp_path / "bk")
+    snapshot = newer.parent / json.loads(newer.read_text())["database"]
+    raw = bytearray(snapshot.read_bytes())
+    raw[len(raw) // 2] ^= 0xFF
+    snapshot.write_bytes(bytes(raw))
+    result = drills.drill_restore_backup(tmp_path / "bk", tmp_path)
+    assert not result.passed and "hash" in result.actual
+
+
+@pytest.mark.parametrize("field", ["database_sha256", "audit_head"])
+def test_a_manifest_missing_a_field_is_a_recorded_failure_not_a_crash(
+        tmp_path: Path, live, field: str) -> None:
+    _q, db, store = live
+    older, _newer = _two_backups(db, store, tmp_path / "bk")
+    manifest = json.loads(older.read_text())
+    del manifest[field]
+    older.write_text(json.dumps(manifest))
+    with pytest.raises(backup.BackupError, match=field):
+        backup.restore_check(older, tmp_path / "fresh")
+    result = drills.drill_restore_backup(older, tmp_path)
+    assert not result.passed and field in result.actual
+
+
+def test_restore_drill_from_a_folder_without_backups_fails_clearly(tmp_path: Path) -> None:
+    (tmp_path / "bk").mkdir()
+    (tmp_path / "bk" / "notes.txt").write_text("not a backup")
+    result = drills.drill_restore_backup(tmp_path / "bk", tmp_path)
+    assert not result.passed and "no backup manifest" in result.actual
+    missing = drills.drill_restore_backup(tmp_path / "nowhere", tmp_path)
+    assert not missing.passed and "cannot list" in missing.actual
+
+
+def test_the_newest_manifest_is_a_real_file_with_a_backup_name(tmp_path: Path, live) -> None:
+    _q, db, store = live
+    dest = tmp_path / "bk"
+    _older, newer = _two_backups(db, store, dest)
+    (dest / "lab-20991231T000000Z.manifest.json").symlink_to(newer)
+    (dest / "lab-later.manifest.json").write_text("{}")
+    assert backup.newest_manifest(dest) == newer
+
+
+def test_cli_drill_restore_from_backup_writes_a_record(tmp_path: Path, live, capsys) -> None:
+    _q, db, store = live
+    _two_backups(db, store, tmp_path / "bk")
+    # The live database is not needed: only the backup folder is read.
+    assert main(["--db", str(tmp_path / "absent.db"), "drill", "restore", "--from-backup",
+                 str(tmp_path / "bk"), "--log", str(tmp_path / "log")]) == 0
+    (record,) = (tmp_path / "log").glob("*-restore.md")
+    text = record.read_text()
+    assert "result: PASS" in text and "the existing backup lab-20261001T000000Z" in text
+    assert not (tmp_path / "absent.db").exists()
+
+
 def test_the_model_load_drill_refuses_each_failure_quickly(monkeypatch) -> None:
     monkeypatch.delenv("LAB_TARGET", raising=False)
     results = drills.drill_model_load()

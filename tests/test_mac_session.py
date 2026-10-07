@@ -314,6 +314,21 @@ def _run_with_env(tmp_path: Path, config: Path, extra: dict[str, str]
     return result, report.read_text(), calls.read_text().splitlines()
 
 
+def test_the_power_step_gives_the_interrupted_task_drill_and_runs_nothing(
+        tmp_path: Path) -> None:
+    # #91: the step used to ask for two dummy tasks that no command could create.
+    result, report, calls = run(tmp_path, "--only", "power")
+    assert result.returncode == 0, report
+    assert calls == ["sudo -v"], "a manual step runs nothing"
+    assert result_of(report, 1) == "MANUAL"
+    repo = f"{tmp_path / 'home'}/home-lab"
+    for phase in ("arm", "check"):
+        assert (f'`cd "{repo}" && LAB_TARGET=mac-mini uv run python -m lab.cli drill '
+                f"interrupted --phase {phase}`") in report
+    assert report.index("--phase arm") < report.index("power cable") \
+        < report.index("--phase check")
+
+
 def test_an_unknown_step_is_refused(tmp_path: Path) -> None:
     result, _, calls = run(tmp_path, "--only", "nope")
     assert result.returncode == 2 and "unknown step" in result.stderr
