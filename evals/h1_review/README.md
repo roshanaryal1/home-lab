@@ -33,6 +33,9 @@ judgement are what can make the test informative.
      --out evals/h1_review --exclude d-paper-one-source d-paper-control-contradicts
    ```
 
+   Names of the models and builds (Qwen, DWQ, MLX, GGUF and so on) are masked with
+   neutral labels by default (`--mask` changes the list), so the sheet does not
+   reveal the candidate.
    Cases have neutral ids in a seeded shuffle (seed 20260930), the original ids
    and drafted labels are left out, and the routes are described in plain
    words without the rubric's counts. The drafted labels are still in the
