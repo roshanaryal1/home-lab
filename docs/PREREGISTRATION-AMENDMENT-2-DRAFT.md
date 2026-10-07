@@ -43,11 +43,26 @@ only that they were not copied from the rubric.
   Claude on this project. A Claude reviewer is not independent of them, so Claude is excluded.
 - **Not the candidate's family.** The candidate under test is Qwen3-Coder (the DWQ build served
   on the Mac mini). A Qwen reviewer would be marking its own relatives, so Qwen is excluded.
-- **Which models (owner's choice 2026-10-07):** an OpenAI GPT model, a Google Gemini model and
-  a DeepSeek model, three vendors, none Claude or Qwen. The exact model name and version string
-  of each is recorded as the provider reports it. DeepSeek and Qwen come from different
-  vendors but may share training data and habits, which is a stated threat, not a proof of
-  independence.
+- **Which models (owner's choice 2026-10-07, ids checked against the providers' own pages on
+  2026-10-07):**
+
+  | Vendor | Model id | What was checked |
+  |---|---|---|
+  | OpenAI | `gpt-5.6-sol` | The [model page](https://developers.openai.com/api/docs/models/gpt-5.6-sol) names this id as the default snapshot. It does not say whether `temperature` can be set. |
+  | Google | `gemini-3.6-flash` | The [model page](https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash) lists it as stable, last updated 2026-07-30, with no dated snapshot string. |
+  | DeepSeek | `deepseek-flash` | The [change log](https://api-docs.deepseek.com/updates/) lists DeepSeek-V4.1-Flash, 2026-09-10, as the newest model under this name. |
+
+  Not chosen, and why. `gemini-3.1-pro-preview` is a preview model, so the model behind the id
+  can change between the first and the second reply [UNVERIFIED: this rests on a search
+  snippet, not on Google's own page]. A Gemini 3.7 Flash page exists in Google's documentation
+  [UNVERIFIED: its id and stage were not read]. DeepSeek's larger `deepseek-v4-pro` (2026-08-13)
+  is an older and larger model; the owner asked for the latest, which is V4.1 Flash. The owner
+  may change any of these before registration.
+
+  The version string the provider reports in each reply is recorded at run time; the id above
+  is what is requested. If the provider does not report one, the amendment records the date
+  and time and says so. DeepSeek and Qwen come from different vendors but may share training
+  data and habits, which is a stated threat, not a proof of independence.
 - **Perplexity is not used as a reviewer.** It is a search service that can browse the web and
   routes a question to whichever underlying model it picks, which may be Claude or GPT. That
   breaks two rules: no web, and a reviewer that is named and not Claude. It could join only
@@ -125,8 +140,8 @@ reviewer reply's provenance record must come after the registration timestamp.
 
 ## Open decisions for the owner
 
-1. Which exact model of each of GPT, Gemini and DeepSeek, and API or chat interface (decided
-   to use those three; Perplexity is explained above).
+1. API or chat interface for each (the models are chosen above; Perplexity is explained above),
+   and whether `gpt-5.6-sol` lets you set the temperature.
 2. What happens to a case where all three reviewers disagree.
 3. Whether a person checks a sample, who, and the agreement threshold.
 4. Where the extra 14 cases come from.
