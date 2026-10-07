@@ -54,6 +54,12 @@ judgement are what can make the test informative.
 4. **Decide, then amend, then run.** Only step 4 is not automated, and it is the
    owner's decision (below).
 
+**Spare cases (2026-10-07).** `spare-cases-UNLABELED.jsonl` holds 8 more unlabeled cases, replaced
+into the 30 only by the rule in the amendment when all three AI reviewers differ on a main case. Their
+masked sheet is `spares/review-sheet.md` (ids `spare-01` to `spare-08`), made with
+`uv run python -m lab.reviewsheet sheet --cases evals/h1_review/spare-cases-UNLABELED.jsonl
+--prefix spare --out evals/h1_review/spares`. The owner labels them blind too.
+
 **2026-10-07: the sheet now has 30 cases** (16 drafts that build, plus 14 new unlabeled cases
 from this repository's real history in `extra-cases-UNLABELED.jsonl`). Generate it with both
 files: `uv run python -m lab.reviewsheet sheet --cases evals/shadow_cases_DRAFT.jsonl

@@ -1,10 +1,10 @@
-# Amendment 2 to the pre-registration: AI-assigned labels for H1 (DRAFT)
+# Amendment 2 to the pre-registration: AI-assigned labels for H1
 
-**Status: draft, not registered, not frozen.** Drafted 2026-10-07 for
-[#84](https://github.com/roshanaryal1/home-lab/issues/84), at the owner's direction that an AI
-will label the H1 cases. Every bracketed item is an open decision for the owner. No H1 run
-has happened, and none may happen until this amendment is dated, filled in, registered on OSF
-and its hashes are recorded.
+**Status: complete and ready to register; not yet registered.** Drafted 2026-10-07 for
+[#84](https://github.com/roshanaryal1/home-lab/issues/84), at the owner's direction that AI
+reviewers will label the H1 cases. The owner's decisions of 2026-10-07 are in. The registration
+time, which the owner supplies after registering on OSF, is the one field left empty. No AI
+reviewer has seen any case and no H1 run has happened, and none may until this is registered.
 
 It amends `docs/PREREGISTRATION.md`, H1 only. H2, H2b, H3 and H4 are untouched.
 
@@ -93,9 +93,25 @@ only that they were not copied from the rubric.
 ## Disagreement rule (written before the sheet goes out)
 
 - Three reviewers label every case. A case takes the label that at least two of them chose.
-- A case where all three differ is labeled by [OWNER TO CHOOSE: the owner, after a stated gap
-  and without seeing the rubric's output, or the case is dropped and the file topped up from
-  the spare cases]. The drafter's label is never used to break a tie, and is not shown.
+- A case where all three reviewers choose three different routes is **replaced by a spare
+  case** (owner's decision, 2026-10-07). It leaves the 30-case H1 set; nobody, including the
+  owner and Claude, picks its label after seeing the AI outputs. Its three labels and the owner's
+  label stay in the record.
+- **The replacement rule, frozen before registration.** There are 8 spare cases
+  (`evals/h1_review/spare-cases-UNLABELED.jsonl`, masked sheet `evals/h1_review/spares/review-sheet.md`,
+  ids `spare-01` to `spare-08`). The three reviewers label them in a separate conversation with the
+  same prompt, and the owner labelled them blind. Split main cases are replaced in ascending order
+  of case number, each by the lowest-numbered unused spare. A spare takes its final label by the
+  same majority rule. A spare on which all three differ is skipped, not used, and reported, and the
+  next unused spare is tried. All of this is mechanical; no one chooses which spare replaces which
+  case.
+- If the spares run out before every split main case has a replacement, the set has fewer than 30
+  cases, H1's registered rule is **not applied**, and H1 is reported as not testable at the
+  registered size. The candidate's and the rubric's accuracy on the remaining cases are still
+  reported, marked exploratory. No case is written or added after registration.
+- Reported: the number of three-way disagreements among the main cases, the number of
+  replacements, which spares were used and which were skipped, and for each replaced case its
+  three labels and the owner's label. Replaced cases are not part of H1's calculation.
 - Reported: how many cases were unanimous, how many were two to one, how many split three ways,
   and how each split was resolved. A reviewer that disagrees with the other two on a large
   share of the cases is reported by name.
@@ -109,20 +125,36 @@ labels, the drafted labels, `lab/rubric.py`, or any other prior label. The owner
 routes are meant to work, so this is a weaker check than an outside person, and the paper says
 the labels were checked by the project owner.
 
-Agreement between the owner and the final labels is reported next to the H1 result. If the owner
-disagrees with the final label on more than [threshold, for example 6 of 30] cases, the result is
-reported as inconclusive about the labels, whatever H1's rule says.
+**Recorded:** the owner's 30 labels were received on 2026-10-07 at 06:57 UTC and saved as
+`evals/h1_review/answers-owner.json` (SHA-256
+`3133d71ea59a1497e93b01d5a885053888755a25e05cb4a67ce299f09516b9f1`), made on the masked sheet at
+`main` commit `d2866baa430d99d98b6d0283be0ed6386a29f123`. The counts are post 15, blog 6, paper 4,
+insufficient_evidence 4, no_artifact 1. At that time no AI reviewer had seen the sheet, the
+owner states they had seen neither the draft labels nor any AI labels, and the labels had not
+been compared with the drafts or with the rubric's output. Only the file's structure was
+checked (every case id present, every route one of the five).
 
-The final label of a case is the label at least two of the three AI reviewers chose. The owner's
-labels are a check on that, not a fourth vote; [OWNER TO CHOOSE: or the owner is a fourth voter and
-a two to two split goes to a stated rule].
+The owner's labels for the 8 spares were received on 2026-10-07 at 07:17 UTC and saved as
+`evals/h1_review/answers-owner-spares.json` (SHA-256
+`9c5ee9cd6c7315321afe622c692080137d51406a9cf8986229707053667a83fd`), on the masked spare sheet,
+before any AI reviewer had seen it. The counts are post 4, blog 2, insufficient_evidence 1, paper
+1. Again only the structure was checked, and the owner states they had seen no AI labels.
+
+The owner's labels are an **independent human check on the AI labels, not a fourth vote**, and
+are kept separate from the AI consensus: the final label of a case is the label at least two of
+the three AI reviewers chose, and the owner's label never enters that count. The owner's
+agreement with the final labels is reported next to the H1 result as a count and a table of
+which routes were swapped, across all cases that have a final label. There is no pass or fail
+threshold on it and no result depends on it; low agreement weakens the claim that the labels
+are right, and the paper says so in those words.
 
 ## The case file
 
-- 30 buildable cases: the 16 draft cases that build in a ledger, and 14 new cases.
+- 30 buildable cases: the 16 draft cases that build in a ledger, and 14 new cases, plus 8 spare
+  cases that are used only under the replacement rule above.
   `evals/h1_review/extra-cases-UNLABELED.jsonl` holds the 14. The two draft cases that cannot
   be built are left out.
-- **The 14 new cases were written by Claude from real events in this repository's history**
+- **The 14 new cases and the 8 spares were written by Claude from real events in this repository's history**
   (closed issues, merged pull requests and the reports in `docs/reviews/`), with the sources
   named in each case, and the issue and pull request numbers were checked to exist. They carry
   **no label**: the labels come only from the reviewers. Claude chose which events to include
@@ -139,34 +171,53 @@ a two to two split goes to a stated rule].
 ## Reported with the result
 
 Reviewer agreement with the drafts (from `lab reviewsheet compare`); agreement between the
-reviewers; the disagreements and their resolution; the owner's agreement with the final labels across all 30 cases; the rubric's
+reviewers; the disagreements and their resolution; the owner's agreement with the final labels,
+kept apart from the AI consensus; the main cases replaced after a three-way split, with their
+three labels and the owner's label, and the spares used and skipped; the rubric's
 accuracy on the final file next to the candidate's; and the AI-labels caveat above, in the
 abstract, not only in the text.
 
-## Timing
+## Timing, and one departure stated now
 
-Dated and registered on OSF before the sheet is generated or any model sees any case. The first
-reviewer reply's provenance record must come after the registration timestamp.
+Registered on OSF before any model sees any case. The first reviewer reply's provenance record
+must come after the registration timestamp. **Departure:** this amendment's earlier text said it
+would be registered before the sheet was generated. The sheet was generated and published in
+this public repository on 2026-10-07 (`main` commit
+`d2866baa430d99d98b6d0283be0ed6386a29f123`), and the owner labelled it, before registration.
+No AI reviewer has seen it. The registered text states this so the order is not misread.
 
-## Fields to fill in before registration
+## What is frozen
 
 | Field | Value |
 |---|---|
-| Date and time (UTC) | |
-| Case file and SHA-256 | |
-| Number of cases | |
-| Reviewer models and version strings | |
-| Settings per reviewer | |
-| Prompt file SHA-256 | |
-| Lab commit (40 characters) | |
-| Disagreement rule | |
-| Owner labels (all cases) and agreement threshold | |
+| Registration date and time (UTC) | [to be given by the owner after registering on OSF] |
+| Draft case file `evals/shadow_cases_DRAFT.jsonl` (16 of its 18 cases are used) | `0e5cf74440e7d2c9737d8ed995e14d8d2052e7dbf7f1fc63858777bdcf4d3274` |
+| Left out because a ledger cannot be built from them | `d-paper-one-source`, `d-paper-control-contradicts` |
+| New unlabeled case file `evals/h1_review/extra-cases-UNLABELED.jsonl` (14 cases) | `fb3e1ea5fcfa97a3ddab918b214f6f85a686dcfb65a7d9c9693aafcf29b6e925` |
+| Number of cases | 30, plus 8 spares used only under the replacement rule |
+| Spare case file `evals/h1_review/spare-cases-UNLABELED.jsonl` (8 cases, frozen before registration) | `a47b5012941ccfed69bd08fafa97d82b6fe1cf9a711c9f16adc3a748710364a3` |
+| Masked spare sheet `evals/h1_review/spares/review-sheet.md` | `77ec11c473a6d3c04b40423aea9bb0903c0462c06fd96bcfa20c4f3848785c1e` |
+| Spare answers template `evals/h1_review/spares/answers-template.json` | `609beea3ed9261ad261c79ee5e157b3dd51c208284ddb2040e5fe7e22b946e09` |
+| Masked review sheet `evals/h1_review/review-sheet.md` | `156d96c87d1a6ed90157c1454b004059bad35767dd3cb3b1073598e4a8accc0c` |
+| Answers template `evals/h1_review/answers-template.json` | `54133d28f588e3d45ff838c58fab5b31885a6ba8f6e66bb10a7d21fc0a22b6e5` |
+| Reviewer prompt `evals/h1_review/ai-reviewer-prompt.md` | `6e9fc9c47c2dcc066f8d00764222d1b76caf12b35b489bee3704b93a39831838` |
+| Owner's labels for the spares `evals/h1_review/answers-owner-spares.json` (received 2026-10-07 07:17 UTC) | `9c5ee9cd6c7315321afe622c692080137d51406a9cf8986229707053667a83fd` |
+| Owner's labels `evals/h1_review/answers-owner.json` (received 2026-10-07 06:57 UTC) | `3133d71ea59a1497e93b01d5a885053888755a25e05cb4a67ce299f09516b9f1` |
+| Reviewer models requested | `gpt-5.6-sol`, `gemini-3.6-flash`, `deepseek-flash`, on each vendor's chat page |
+| Settings per reviewer | the chat page's defaults, which cannot be set; web search, memory and personalisation off; a new conversation each; the model name the page shows is recorded with each reply |
+| Instrument | `lab/shadow.py` `71fa73bb736387243b01a31976c9544835d6d2e64285f5ba37de670befbc3bee`, `lab/rubric.py` `164e9d6e5d6761171fb9a5e877f8b94ac26be44606490883144c305b12537133`, `lab/reviewsheet.py` `4d7f395a294534f2794b9fc2922bba2723d7cdbf0c45dfe9039da21beffd0128`; `main` commit `d2866baa430d99d98b6d0283be0ed6386a29f123` (the last commit that changed `lab/shadow.py` or `lab/rubric.py` is `2193a4aa76dfb9a6526d2d5c7f4a17f66111162b`) |
+| Disagreement rule | majority of three; a three-way split is replaced by the next unused spare, in order; H1 not testable if the spares run out |
+| Owner's labels | an independent check, kept apart from the AI consensus, reported as a count and a table, no threshold |
 
-## Open decisions for the owner
+The masked sheet is made from the two case files by the command in `evals/h1_review/README.md`;
+the reviewer sees the sheet, not the case files. The 14 new cases get their labels only from the
+reviewers, and the final labelled file is written after the replies are in and frozen by hash then.
 
-1. API or chat for each reviewer: chat, with an API only where one is free (decided).
-2. What happens to a case where all three reviewers disagree.
-3. Whether the owner is a check on the AI labels or a fourth voter, and the disagreement
-   threshold.
-4. Whether any of the 14 new cases should be changed or dropped after you read the sheet.
-5. Whether H1 is worth running given the weaker claim.
+## Decisions
+
+All made by the owner on 2026-10-07: chat pages for all three reviewers (an API only where one is
+free); a three-way split on a main case is replaced by a pre-written, frozen spare case, and the
+number of replacements and splits is reported; the owner's labels are a separate human check, not
+a fourth vote, with no pass or fail threshold, reported as a count and a table; the 14 new cases
+and 8 spares from this repository's history, written by Claude and unlabeled; the two unbuildable
+draft cases left out; H1 is run despite the weaker claim.

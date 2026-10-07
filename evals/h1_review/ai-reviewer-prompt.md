@@ -20,7 +20,11 @@ Nothing here is frozen. The amendment that would freeze it is in
    `answers-deepseek-flash-1.json`. A retry gets the next number and the first file is kept. The
    reply must be only a JSON object; the comparison refuses it unless every case id is present and
    every route is one of the five.
-4. Record the model name and version string the provider reports, the date and time (UTC), every
+4. **Spare cases are a second conversation.** Each reviewer also labels the spare sheet,
+   `evals/h1_review/spares/review-sheet.md` (ids `spare-01` and so on), in a **new conversation**
+   with this same prompt and that sheet, saved as for example `answers-gpt-5.6-sol-spares-1.json`.
+   The spares are used only if a main case is replaced under the rule in the amendment.
+5. Record the model name and version string the provider reports, the date and time (UTC), every
    setting the page exposes, and the SHA-256 of this prompt file, of the sheet, and of the reply.
 
 The reviewer must not be given anything else: not `lab/rubric.py`, not
@@ -56,7 +60,7 @@ Rules:
 3. Choose exactly one of the five route names for every case. Do not leave any case out and do
    not invent a sixth route.
 4. Reply with one JSON object and nothing else: no text before or after it, no code fence, no
-   explanation. The keys are the case ids exactly as printed (for example "case-01"). Each value
+   explanation. The keys are the case ids exactly as printed (for example "case-01" or "spare-01"). Each value
    is one of the five route names, as a string.
 
 Example of the shape only (these ids and values are not real):
