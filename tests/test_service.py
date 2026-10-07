@@ -89,16 +89,27 @@ def test_a_running_supervisor_beats(tmp_path: Path) -> None:
 
 
 def _spawn_hung(db: Path) -> subprocess.Popen[bytes]:
-    """A process that beat once, long ago, and is now stuck."""
-    code = (
-        "import sys, time, pathlib\n"
-        "from lab import service\n"
-        "service.write_heartbeat(pathlib.Path(sys.argv[1]), stamp=time.time() - 600)\n"
+    """A process with this db's supervisor command line that beat once, long ago, and is
+    now stuck. The stand-in writes the heartbeat itself, in the format
+    ``service.write_heartbeat`` uses, since its own ``lab`` package hides the real one."""
+    if " " in REAL_PYTHON:
+        pytest.skip("the interpreter path contains a space; ps cannot show it unambiguously")
+    package = db.parent / "hung_in" / "lab"
+    package.mkdir(parents=True, exist_ok=True)
+    (package / "__init__.py").write_text("")
+    (package / "supervisor.py").write_text(
+        "import json, os, subprocess, sys, time\n"
+        "db = sys.argv[sys.argv.index('--db') + 1]\n"
+        "pid = os.getpid()\n"
+        "started = subprocess.run(['ps', '-o', 'lstart=', '-p', str(pid)],\n"
+        "                         capture_output=True, text=True).stdout.strip() or None\n"
+        "with open(db + '.heartbeat.tmp', 'w') as fh:\n"
+        "    json.dump({'pid': pid, 'ts': time.time() - 600, 'started': started}, fh)\n"
+        "os.replace(db + '.heartbeat.tmp', db + '.heartbeat')\n"
         "print('ready', flush=True)\n"
-        "time.sleep(60)\n"
-    )
-    proc = subprocess.Popen([sys.executable, "-c", code, str(db)],
-                            stdout=subprocess.PIPE)
+        "time.sleep(60)\n")
+    proc = subprocess.Popen([REAL_PYTHON, "-m", "lab.supervisor", "--db", str(db)],
+                            cwd=package.parent, stdout=subprocess.PIPE)
     assert proc.stdout is not None and proc.stdout.readline().strip() == b"ready"
     return proc
 
@@ -177,6 +188,27 @@ def test_a_reused_pid_is_not_killed(tmp_path: Path) -> None:
         {"pid": os.getpid(), "ts": time.time() - 600, "started": "Thu Jan  1 00:00:00 1970"}))
     verdict = service.check(db, max_age=60)
     assert verdict.action == "not_running"
+
+
+@pytest.mark.safety
+def test_the_heartbeat_pid_is_signalled_only_if_it_is_this_labs_supervisor(
+        tmp_path: Path) -> None:
+    """A stale heartbeat whose pid is alive, with or without a matching start time, is
+    acted on only when that process's command line is this database's supervisor."""
+    db = tmp_path / "lab.db"
+    other = subprocess.Popen(["/bin/sleep", "120"])
+    try:
+        started = service._start_time(other.pid)
+        assert started is not None
+        for fields in ({"started": started}, {}):
+            (tmp_path / "lab.db.heartbeat").write_text(json.dumps(
+                {"pid": other.pid, "ts": time.time() - 600, **fields}))
+            assert service.check(db, max_age=60, dry_run=True).action == "not_running"
+            assert service.check(db, max_age=60).action == "not_running"
+            assert other.poll() is None
+    finally:
+        other.kill()
+        other.wait()
 
 
 # ---------------------------------------- a supervisor that never wrote a heartbeat (#271)
