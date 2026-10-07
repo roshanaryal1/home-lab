@@ -118,3 +118,20 @@ Retries and departures:
 
 The final labels are made once by `lab.h1_labels` (see `evals/h1_review/README.md`) and frozen by
 the SHA-256 it prints.
+
+## The final labels (2026-10-07)
+
+`lab.h1_labels` was run once, on the owner's Mac mini, at `main` commit
+`cac9c83fcb766858c7ca01a1f22317a925857405`, with the command in `evals/h1_review/README.md` and
+the replies in the table above. It wrote 30 cases, so H1 is testable at the registered size.
+
+| File | SHA-256 |
+|---|---|
+| `evals/h1_review/final-cases.jsonl` | `6fe6e3fb3d39d27365bfa5da46e25bfa072f95b494b3f43be17326593236b485` |
+| `evals/h1_review/final-report.json` | `330348cd340fbfc9298e4312b522e004a929a741f15722beb39b90efdf98ecf2` |
+
+The same command on a second machine gave the same case-file hash. These labels are frozen. They
+were not compared with the owner's labels or the drafts before they were fixed.
+
+Next: `lab shadow` for H1 on the final case file, then the comparisons the amendment lists under
+"Reported with the result".
