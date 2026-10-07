@@ -1,0 +1,77 @@
+{
+  "labels": {
+    "d-blog-mech-same-source": "blog",
+    "d-blog-same-source": "post",
+    "d-blog-two-sources": "blog",
+    "d-blog-mech-no-evidence": "post",
+    "x-entry-points": "post",
+    "x-path-with-space": "blog",
+    "d-paper-and-pattern": "blog",
+    "x-removable-volume": "post",
+    "d-paper-no-baseline": "post",
+    "x-flaky-tests": "blog",
+    "d-blog-with-unverified-measure": "paper",
+    "x-selftest-pytest": "post",
+    "x-watchdog-gap": "post",
+    "x-home-readable": "post",
+    "d-verified-without-measurement-type": "insufficient_evidence",
+    "x-zsh-comments": "post",
+    "d-insufficient-only-contradicted": "no_artifact",
+    "d-blog-mech-contradicted": "post",
+    "d-blog-four-sources": "blog",
+    "d-post-single-commit": "post",
+    "x-no-claims": "no_artifact",
+    "x-denylist-gaps": "post",
+    "x-server-queues": "insufficient_evidence",
+    "d-mechanism-alone": "post",
+    "x-m5-claim": "post",
+    "d-contested-pattern": "blog",
+    "x-outlive-stop": "blog",
+    "x-keepawake-lab": "post",
+    "d-paper-two-measurements": "paper",
+    "d-three-bare-claims": "insufficient_evidence"
+  },
+  "testable": true,
+  "main": {
+    "unanimous": 18,
+    "two_to_one": 12,
+    "three_way": 0,
+    "outvoted": {
+      "deepseek": 9,
+      "gemini": 1,
+      "gpt": 2
+    }
+  },
+  "spares": {
+    "unanimous": 3,
+    "two_to_one": 2,
+    "three_way": 3,
+    "outvoted": {
+      "deepseek": 1,
+      "gemini": 0,
+      "gpt": 1
+    }
+  },
+  "replaced": [],
+  "spares_skipped": [],
+  "spares_unused": [
+    "spare-01",
+    "spare-02",
+    "spare-03",
+    "spare-04",
+    "spare-05",
+    "spare-06",
+    "spare-07",
+    "spare-08"
+  ],
+  "split_not_replaced": [],
+  "counts": {
+    "blog": 8,
+    "insufficient_evidence": 3,
+    "no_artifact": 2,
+    "paper": 2,
+    "post": 15
+  },
+  "file": "evals/h1_review/final-cases.jsonl",
+  "sha256": "6fe6e3fb3d39d27365bfa5da46e25bfa072f95b494b3f43be17326593236b485"
+}
