@@ -86,8 +86,7 @@ def final_labels(main: list[tuple[str, dict[str, Any]]], spares: list[tuple[str,
                  builds: Callable[[dict[str, Any]], bool] | None = None) -> dict[str, Any]:
     """Apply the registered rule. ``main`` and ``spares`` are ``blind`` output, in id order.
     ``size`` is the number of cases H1 needs, the registered 30 unless a test sets it.
-    ``builds`` says whether the ledger can build a case; without it every case counts as
-    buildable."""
+    ``builds`` says whether the ledger can build a case; the default asks the ledger itself."""
     size = REGISTERED_SIZE if size is None else size
     main_ids, spare_ids = [n for n, _ in main], [n for n, _ in spares]
     if set(main_replies) != set(spare_replies):
@@ -95,8 +94,8 @@ def final_labels(main: list[tuple[str, dict[str, Any]]], spares: list[tuple[str,
     main_votes = _votes(main_replies, main_ids)
     spare_votes = _votes(spare_replies, spare_ids)
     by_id = dict(main) | dict(spares)
-    unbuildable = {n for n in [*main_ids, *spare_ids]
-                   if builds is not None and not builds(by_id[n])}
+    check = ledger_builds if builds is None else builds
+    unbuildable = {n for n in [*main_ids, *spare_ids] if not check(by_id[n])}
 
     kept: list[tuple[str, str]] = []
     leaving: list[tuple[str, str]] = []
@@ -235,7 +234,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         main_cases = _blinded(args.cases, args.exclude, "case", args.sheet)
         spare_cases = _blinded([args.spares], [], "spare", args.spare_sheet)
         result = final_labels(main_cases, spare_cases, _replies(args.answers),
-                              _replies(args.spare_answers), builds=ledger_builds)
+                              _replies(args.spare_answers))
         data = "".join(json.dumps(c, ensure_ascii=False) + "\n"
                        for c in result.pop("cases")).encode("utf-8")
         # Below the registered size the remaining cases are exploratory only, so they are never

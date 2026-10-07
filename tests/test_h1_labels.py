@@ -304,3 +304,15 @@ def test_the_ledger_check_finds_a_verified_claim_with_one_source() -> None:
                                                 labeled=False)}
     assert not hl.ledger_builds(cases["x-home-readable"])
     assert hl.ledger_builds(cases["x-watchdog-gap"])
+
+
+def test_without_a_builds_check_the_ledger_is_asked() -> None:
+    one_source = {"id": "case-orig-1", "claims": [{"text": "Checked", "kind": "finding",
+                  "verified": True, "evidence": [{"source": "a", "type": "incident",
+                                                  "text": "Once."}]}]}
+    main = [("case-01", one_source), *_blinded(4, "case")[1:]]
+    rows = _same(["case-01", "case-02", "case-03", "case-04"])
+    result = hl.final_labels(main, _blinded(3, "spare"), _replies(rows),
+                             _replies(_same(["spare-01", "spare-02", "spare-03"])), size=4)
+    assert result["unbuildable"] == ["case-01"]
+    assert result["replaced"][0]["spare"] == "spare-01" and result["testable"]
