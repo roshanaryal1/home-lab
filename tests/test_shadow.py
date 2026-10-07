@@ -203,3 +203,130 @@ def test_cli_baseline_only_needs_no_model(capsys: pytest.CaptureFixture[str],
     assert main(["--db", str(tmp_path / "x.db"), "shadow", "--cases", str(CASES)]) == 0
     out = capsys.readouterr().out
     assert "baseline" in out and "candidate" not in out.lower().split("baseline")[0]
+
+
+def _fake_server(monkeypatch: pytest.MonkeyPatch, reply: str | None) -> list[MockAdapter]:
+    """Every adapter the command builds is a scripted one; the list keeps them to inspect.
+    A reply of None makes every request fail, as a server that is down does."""
+    from lab import model as model_mod
+
+    made: list[MockAdapter] = []
+
+    def answer(messages: list[dict[str, str]]) -> str:
+        if reply is None:
+            raise model_mod.ModelError("connection refused")
+        return reply
+
+    def adapter(endpoint: str) -> MockAdapter:
+        made.append(MockAdapter(answer))
+        return made[-1]
+
+    monkeypatch.setattr(model_mod, "OpenAICompatibleAdapter", adapter)
+    return made
+
+
+REV = "a" * 40
+
+
+def _candidate_args(tmp_path: Path, *extra: str) -> list[str]:
+    return ["--db", str(tmp_path / "x.db"), "shadow", "--cases", str(CASES),
+            "--endpoint", "http://127.0.0.1:1/v1", "--model", "m", "--revision", REV, *extra]
+
+
+def test_cli_runs_a_candidate_with_a_fixed_seed_and_records_the_run(
+        capsys: pytest.CaptureFixture[str], tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib
+
+    made = _fake_server(monkeypatch, '{"route": "post", "confidence": 0.9}')
+    record = tmp_path / "run.json"
+    assert main(_candidate_args(tmp_path, "--seed", "7", "--record", str(record))) == 0
+    out = capsys.readouterr().out
+    assert "candidate: accuracy" in out
+    assert made and {c["seed"] for c in made[0].calls} == {7}
+    saved = json.loads(record.read_text())
+    printed = "supported" if saved["verdict"]["recommend"] else "not supported"
+    assert f"verdict: {printed}\n" in out
+    assert saved["valid"] and saved["model_errors"] == []
+    assert saved["settings"]["seed"] == 7 and saved["settings"]["temperature"] == 0
+    assert saved["settings"]["model"]["tokenizer_revision"] == REV
+    assert saved["settings"]["model"]["heavy"] is True
+    assert saved["settings"]["slot_lock"] == str(tmp_path / "x.db.model.lock")
+    assert saved["cases_sha256"] == hashlib.sha256(CASES.read_bytes()).hexdigest()
+    ids = [c.id for c in shadow.load_cases(CASES)]
+    assert [r["case_id"] for r in saved["report"]["rows"]] == ids
+    assert all(r["candidate"] == "post" for r in saved["report"]["rows"])
+    assert "lab_commit" in saved["provenance"]
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".run.json")] == []
+
+
+@pytest.mark.parametrize("given", [[], ["--model", "m"], ["--revision", REV]])
+def test_cli_candidate_needs_a_model_and_a_revision(capsys: pytest.CaptureFixture[str],
+                                                    tmp_path: Path, given: list[str]) -> None:
+    assert main(["--db", str(tmp_path / "x.db"), "shadow", "--cases", str(CASES),
+                 "--endpoint", "http://127.0.0.1:1/v1", *given]) == 1
+    assert "--model and --revision" in capsys.readouterr().err
+
+
+def test_cli_refuses_candidate_options_without_an_endpoint(
+        capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    assert main(["--db", str(tmp_path / "x.db"), "shadow", "--cases", str(CASES),
+                 "--model", "m", "--revision", REV]) == 1
+    assert "without --endpoint" in capsys.readouterr().err
+
+
+def test_cli_refuses_a_revision_that_is_not_the_snapshot(capsys: pytest.CaptureFixture[str],
+                                                         tmp_path: Path) -> None:
+    args = _candidate_args(tmp_path)
+    args[args.index("--model") + 1] = f"/hub/models--x/snapshots/{'b' * 40}"
+    assert main(args) == 1
+    assert "not the snapshot" in capsys.readouterr().err
+
+
+def test_cli_a_failing_server_makes_the_run_invalid_not_abstentions(
+        capsys: pytest.CaptureFixture[str], tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_server(monkeypatch, None)
+    record = tmp_path / "run.json"
+    assert main(_candidate_args(tmp_path, "--record", str(record))) == 1
+    captured = capsys.readouterr()
+    assert "run invalid" in captured.err and "connection refused" in captured.err
+    assert "verdict:" not in captured.out
+    saved = json.loads(record.read_text())
+    assert not saved["valid"] and saved["verdict"] is None and saved["model_errors"]
+
+
+def test_cli_any_other_candidate_failure_also_makes_the_run_invalid(
+        capsys: pytest.CaptureFixture[str], tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    from lab import model as model_mod
+
+    class Broken(MockAdapter):
+        def complete(self, *args: object, **kwargs: object) -> model_mod.Completion:
+            raise ValueError("usage was not a number")
+
+    monkeypatch.setattr(model_mod, "OpenAICompatibleAdapter", lambda endpoint: Broken([]))
+    record = tmp_path / "run.json"
+    assert main(_candidate_args(tmp_path, "--record", str(record))) == 1
+    assert "usage was not a number" in capsys.readouterr().err
+    saved = json.loads(record.read_text())
+    assert not saved["valid"] and saved["verdict"] is None
+
+
+def test_cli_never_overwrites_a_run_record(capsys: pytest.CaptureFixture[str], tmp_path: Path,
+                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_server(monkeypatch, "not json")
+    record = tmp_path / "run.json"
+    record.write_text("earlier run\n")
+    assert main(_candidate_args(tmp_path, "--record", str(record))) == 1
+    assert record.read_text() == "earlier run\n"
+    assert sorted(p.name for p in tmp_path.iterdir() if p.name.startswith(".run")) == []
+
+
+def test_cli_baseline_only_can_record_too(capsys: pytest.CaptureFixture[str],
+                                         tmp_path: Path) -> None:
+    record = tmp_path / "run.json"
+    assert main(["--db", str(tmp_path / "x.db"), "shadow", "--cases", str(CASES),
+                 "--record", str(record)]) == 0
+    saved = json.loads(record.read_text())
+    assert saved["verdict"] is None and saved["settings"] == {} and saved["valid"]

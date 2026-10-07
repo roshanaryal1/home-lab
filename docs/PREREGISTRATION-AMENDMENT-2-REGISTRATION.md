@@ -118,3 +118,45 @@ Retries and departures:
 
 The final labels are made once by `lab.h1_labels` (see `evals/h1_review/README.md`) and frozen by
 the SHA-256 it prints.
+
+## The final labels (2026-10-07)
+
+`lab.h1_labels` was run once, on the owner's Mac mini, at `main` commit
+`cac9c83fcb766858c7ca01a1f22317a925857405`, with the command in `evals/h1_review/README.md` and
+the replies in the table above. It wrote 30 cases, so H1 is testable at the registered size.
+
+| File | SHA-256 |
+|---|---|
+| `evals/h1_review/final-cases.jsonl` | `6fe6e3fb3d39d27365bfa5da46e25bfa072f95b494b3f43be17326593236b485` |
+| `evals/h1_review/final-report.json` | `330348cd340fbfc9298e4312b522e004a929a741f15722beb39b90efdf98ecf2` |
+
+The same command on a second machine gave the same case-file hash. These labels are frozen. They
+were not compared with the owner's labels or the drafts before they were fixed.
+
+## Running H1
+
+`lab shadow` ran only the rubric from the command line; the candidate could be wired only from
+Python. The command now takes the candidate's endpoint, name and revisions, sends temperature 0 and
+one fixed seed (default 0) with every request, prints the adoption verdict, and can write the whole
+run (provenance with the lab commit, settings, every row, the verdict) to a record it never
+overwrites. A request that fails (server down, timeout, refused, a different model answering)
+would otherwise count as the candidate abstaining, so any such failure marks the run invalid: no
+verdict is printed or recorded, and the command exits with an error. The candidate takes the
+same heavy-slot lock as the supervisor, so no other heavy request overlaps the run. A
+`--revision` that is not the snapshot `--model` names is refused. This changes the command-line
+wiring only. The instrument the amendment freezes,
+`lab/shadow.py` and `lab/rubric.py`, is unchanged, and `tests/test_h1_amendment.py` fails if
+either file's SHA-256 differs from the registered one. The run is at a later lab commit than the
+one registered, and the record states which.
+
+The H1 run, on the Mac mini with the model server from `ops/mac-mini-setup.md` section 13 up:
+
+```sh
+uv run python -m lab.cli shadow --cases evals/h1_review/final-cases.jsonl \
+  --endpoint http://127.0.0.1:8080/v1 \
+  --model ~/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ/snapshots/cfcade7221ccd128681961446e5f7906c08cae55 \
+  --revision cfcade7221ccd128681961446e5f7906c08cae55 --weights-mb 17200 \
+  --record evals/h1_review/h1-run.json
+```
+
+After it: the comparisons the amendment lists under "Reported with the result".
