@@ -100,23 +100,40 @@ only that they were not copied from the rubric.
   and how each split was resolved. A reviewer that disagrees with the other two on a large
   share of the cases is reported by name.
 
-## A person checks a sample
+## The owner labels all of the cases
 
-[OWNER TO CHOOSE: a person other than the drafter labels a seeded random sample of 10 cases
-from the same masked sheet, **before seeing** any AI reviewer's labels, the drafted labels or
-any other prior label.] The agreement between that person and the AI labels is reported next to
-the H1 result. If agreement is below [threshold, for example 8 of 10], the result is reported
-as inconclusive about the labels, whatever H1's rule says.
+The owner (not the drafter: the 18 draft labels were written by an earlier AI session) labels
+every case on the same masked sheet the AI reviewers get, **before seeing** any AI reviewer's
+labels, the drafted labels, `lab/rubric.py`, or any other prior label. The owner confirmed on
+2026-10-07 that they had not seen the drafts. The owner built the project and knows how the
+routes are meant to work, so this is a weaker check than an outside person, and the paper says
+the labels were checked by the project owner.
+
+Agreement between the owner and the final labels is reported next to the H1 result. If the owner
+disagrees with the final label on more than [threshold, for example 6 of 30] cases, the result is
+reported as inconclusive about the labels, whatever H1's rule says.
+
+The final label of a case is the label at least two of the three AI reviewers chose. The owner's
+labels are a check on that, not a fourth vote; [OWNER TO CHOOSE: or the owner is a fourth voter and
+a two to two split goes to a stated rule].
 
 ## The case file
 
-- At least 30 buildable cases. 16 of the 18 drafts build in a ledger today; the other 2 are
-  excluded or rewritten as states the ledger can reach.
-- [OWNER TO CHOOSE: where the extra 14 cases come from. Proposed: real incidents and
-  measurements from this repository's own history, not invented ones, chosen before any
-  reviewer sees them. Cases written by the same AI that then labels them would label its own
-  work and are not allowed.]
-- The case file is a new dated file, frozen by its SHA-256 before the sheet is generated.
+- 30 buildable cases: the 16 draft cases that build in a ledger, and 14 new cases.
+  `evals/h1_review/extra-cases-UNLABELED.jsonl` holds the 14. The two draft cases that cannot
+  be built are left out.
+- **The 14 new cases were written by Claude from real events in this repository's history**
+  (closed issues, merged pull requests and the reports in `docs/reviews/`), with the sources
+  named in each case, and the issue and pull request numbers were checked to exist. They carry
+  **no label**: the labels come only from the reviewers. Claude chose which events to include
+  and how to word each claim, and so shaped what the reviewers see; that is a stated threat. A
+  reviewer or the owner who finds a case unfair, wrong or leading can say so before the case
+  file is frozen. Claude did not assign or hint at any label.
+- The 14 cover single incidents, patterns across incidents with a stated mechanism, a
+  measurement with a control but no baseline, a claim with contradicting evidence, thin evidence,
+  and a case with no claims.
+- The case file is frozen by its SHA-256 before the sheet is generated; labels for the 14 are
+  added afterwards from the reviewers and the freeze records both files.
 - The instrument (`lab shadow`) is frozen by the lab commit (40 characters), as registered.
 
 ## Reported with the result
@@ -143,15 +160,13 @@ reviewer reply's provenance record must come after the registration timestamp.
 | Prompt file SHA-256 | |
 | Lab commit (40 characters) | |
 | Disagreement rule | |
-| Sample reviewer (role) and sample size | |
-| Agreement threshold for the sample | |
+| Owner labels (all cases) and agreement threshold | |
 
 ## Open decisions for the owner
 
-1. API or chat interface for each (the models are chosen above; Perplexity is explained above),
-   and whether `gpt-5.6-sol` lets you set the temperature.
+1. API or chat for each reviewer: chat, with an API only where one is free (decided).
 2. What happens to a case where all three reviewers disagree.
-3. Whether a person checks a sample, who, and the agreement threshold.
-4. Where the extra 14 cases come from.
-5. Whether to rewrite or drop the two unbuildable cases.
-6. Whether H1 is worth running at all if the sample check is skipped, given the weaker claim.
+3. Whether the owner is a check on the AI labels or a fourth voter, and the disagreement
+   threshold.
+4. Whether any of the 14 new cases should be changed or dropped after you read the sheet.
+5. Whether H1 is worth running given the weaker claim.

@@ -72,7 +72,10 @@ def _check_claims(claims: list[Any], where: str) -> None:
                                   "supports or contradicts")
 
 
-def load_cases(path: Path) -> list[dict[str, Any]]:
+def load_cases(path: Path, *, labeled: bool = True) -> list[dict[str, Any]]:
+    """The cases of one file. ``labeled=False`` accepts a case with no ``expected`` route, for a
+    file whose labels come from the reviewers and so do not exist yet; ``expected`` is then
+    either absent or null, and a value that is set must still be a known route."""
     cases: list[dict[str, Any]] = []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
@@ -81,8 +84,10 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
             case = json.loads(line)
         except ValueError as exc:
             raise ReviewError(f"{path}:{number}: not JSON") from exc
+        expected_ok = (case.get("expected") in ROUTES if labeled and isinstance(case, dict)
+                       else isinstance(case, dict) and case.get("expected") in (*ROUTES, None))
         if not (isinstance(case, dict) and isinstance(case.get("id"), str)
-                and case.get("expected") in ROUTES and isinstance(case.get("claims"), list)):
+                and expected_ok and isinstance(case.get("claims"), list)):
             raise ReviewError(f"{path}:{number}: needs id, a known expected route and claims")
         _check_claims(case["claims"], f"{path}:{number}")
         cases.append(case)
@@ -209,7 +214,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("sheet", "compare"):
         p = sub.add_parser(name)
-        p.add_argument("--cases", type=Path, required=True)
+        p.add_argument("--cases", type=Path, required=True, nargs="+" if name == "sheet" else None,
+                       help="the case file; for sheet, one or more files, which may hold cases "
+                            "that have no label yet")
         p.add_argument("--seed", type=int, default=DEFAULT_SEED)
         p.add_argument("--exclude", nargs="*", default=[], metavar="ID",
                        help="case ids to leave out (for example cases that cannot be built)")
@@ -222,7 +229,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             p.add_argument("--answers", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        cases = load_cases(args.cases)
+        if args.command == "sheet":
+            cases = [c for path in args.cases for c in load_cases(path, labeled=False)]
+            ids = [c["id"] for c in cases]
+            if len(set(ids)) != len(ids):
+                raise ReviewError("the case files share a case id")
+        else:
+            cases = load_cases(args.cases)
         if args.command == "sheet":
             blinded = blind(cases, args.seed, args.exclude)
             args.out.mkdir(parents=True, exist_ok=True)

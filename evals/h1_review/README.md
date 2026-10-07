@@ -54,6 +54,13 @@ judgement are what can make the test informative.
 4. **Decide, then amend, then run.** Only step 4 is not automated, and it is the
    owner's decision (below).
 
+**2026-10-07: the sheet now has 30 cases** (16 drafts that build, plus 14 new unlabeled cases
+from this repository's real history in `extra-cases-UNLABELED.jsonl`). Generate it with both
+files: `uv run python -m lab.reviewsheet sheet --cases evals/shadow_cases_DRAFT.jsonl
+evals/h1_review/extra-cases-UNLABELED.jsonl --out evals/h1_review --exclude d-paper-one-source
+d-paper-control-contradicts`. The owner labels all 30 on the masked sheet before seeing any
+AI answer.
+
 **2026-10-07: the owner chose an AI reviewer.** The draft amendment is
 `docs/PREREGISTRATION-AMENDMENT-2-DRAFT.md` and the blind prompt is
 `ai-reviewer-prompt.md` (both unregistered, nothing run). Reviewers chosen: GPT, Gemini
