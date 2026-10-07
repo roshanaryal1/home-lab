@@ -227,8 +227,10 @@ H1c, the same run with the candidate's output constrained to the five routes (#1
 as an exploratory run under H1b's rules and **not run** (2026-10-08), because the model server
 cannot constrain it. The `mlx_lm.server` serving the candidate (`mlx-lm` 0.31.3) never reads
 `response_format` from a request (its handler reads only the fields in `mlx_lm/server.py` lines
-1161 to 1198 and 1593 to 1599), and its only per-request logits processors are `logit_bias` and the
-repetition, presence and frequency penalties. Two probe requests with no case text gave the same
+1161 to 1198 and 1593 to 1599), and its only per-request logits processors, built by
+`_make_logits_processors` (`mlx_lm/server.py` line 414) through `make_logits_processors`
+(`mlx_lm/sample_utils.py` line 72), are `logit_bias` and the repetition, presence and frequency
+penalties. Two probe requests with no case text gave the same
 reply, `Hello`, with and without a strict `json_schema` that allowed only `{"route": "alpha"}` or
 `{"route": "beta"}`. On this server H1c would have repeated H1b, not tested constrained decoding,
 so no prompt, schema or record was frozen and no case was sent. Testing it needs a server that
