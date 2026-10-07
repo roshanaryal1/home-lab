@@ -51,6 +51,11 @@ judgement are what can make the test informative.
 4. **Decide, then amend, then run.** Only step 4 is not automated, and it is the
    owner's decision (below).
 
+**2026-10-07: the owner chose an AI reviewer.** The draft amendment is
+`docs/PREREGISTRATION-AMENDMENT-2-DRAFT.md` and the blind prompt is
+`ai-reviewer-prompt.md` (both unregistered, nothing run). It weakens the claim
+from independent human labels to AI-assigned labels, and the amendment says so.
+
 ## What the owner decides before the amendment
 
 - **Who reviews.** Someone other than the drafter and the owner, or the owner
