@@ -363,7 +363,8 @@ def cmd_ops(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) ->
 
 def cmd_resolve(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     journal = OperationJournal(queue._conn)
-    matches = [r for r in journal.unresolved() if r["id"].startswith(args.id)]
+    # An empty argument is not a prefix: it would name the only open operation.
+    matches = [r for r in journal.unresolved() if args.id and r["id"].startswith(args.id)]
     if len(matches) != 1:
         print(f"{len(matches)} unresolved operations match {args.id!r}; "
               "give a longer, unique prefix", file=sys.stderr)
@@ -1513,8 +1514,12 @@ def cmd_control(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace
 
 
 def cmd_cancel(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    # A literal, non-empty prefix: under LIKE, % and _ were wildcards and the
+    # match ignored case, so `cancel %` named the only task there was (#70).
+    prefix = args.task_id
     rows = queue._conn.execute(
-        "SELECT id, state, title FROM tasks WHERE id LIKE ? || '%'", (args.task_id,)).fetchall()
+        "SELECT id, state, title FROM tasks WHERE substr(id, 1, ?) = ?",
+        (len(prefix), prefix)).fetchall() if prefix else []
     if len(rows) != 1:
         print(f"cancel: {'no task' if not rows else 'ambiguous prefix'} matching "
               f"{_escape(args.task_id)}", file=sys.stderr)
