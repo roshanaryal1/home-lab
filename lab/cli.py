@@ -684,6 +684,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "heavy model)")
     sh.add_argument("--max-tokens", type=int, default=256)
     sh.add_argument("--seed", type=int, default=0)
+    sh.add_argument("--system-file", type=Path, default=None,
+                    help="send this file's text as the candidate's system prompt instead of the "
+                         "built-in one; the record keeps its SHA-256")
     sh.add_argument("--record", type=Path, default=None,
                     help="write the run (provenance, settings, every row, verdict) as JSON here")
 
@@ -1546,11 +1549,15 @@ class _SeededModel(model_mod.BoundedModel):
     def __init__(self, inner: model_mod.BoundedModel, seed: int) -> None:
         super().__init__(inner.spec, inner.adapter, inner.controller)
         self.seed = seed
+        self.system: str | None = None
         self.errors: list[str] = []
 
     def generate(self, messages: list[dict[str, str]], *, max_tokens: int | None = None,
                  seed: int | None = None,
                  timeout_seconds: float | None = None) -> model_mod.Completion:
+        if self.system is not None:
+            messages = [{"role": "system", "content": self.system},
+                        *[m for m in messages if m["role"] != "system"]]
         try:
             return super().generate(messages, max_tokens=max_tokens,
                                     seed=self.seed if seed is None else seed,
@@ -1560,7 +1567,7 @@ class _SeededModel(model_mod.BoundedModel):
             raise
 
 
-_CANDIDATE_OPTIONS = ("model", "revision", "tokenizer_revision", "weights_mb")
+_CANDIDATE_OPTIONS = ("model", "revision", "tokenizer_revision", "weights_mb", "system_file")
 
 
 def _shadow_model(args: argparse.Namespace) -> _SeededModel:
@@ -1611,6 +1618,13 @@ def cmd_shadow(args: argparse.Namespace) -> int:
             settings = {"endpoint": args.endpoint, "model": asdict(model.spec),
                         "seed": args.seed, "temperature": 0, "max_tokens": args.max_tokens,
                         "slot_lock": str(model.controller.slot_lock)}
+            if args.system_file is not None:
+                prompt = args.system_file.read_bytes()
+                model.system = prompt.decode("utf-8")
+                if not model.system.strip():
+                    raise ValueError("--system-file is empty")
+                settings["system_prompt"] = {"path": str(args.system_file),
+                                             "sha256": hashlib.sha256(prompt).hexdigest()}
         else:
             given = [f"--{o.replace('_', '-')}" for o in _CANDIDATE_OPTIONS
                      if getattr(args, o) is not None]
