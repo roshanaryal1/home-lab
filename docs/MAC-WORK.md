@@ -144,9 +144,11 @@ LAB_CONTAINER_IMAGE='<name@sha256:...>' uv run pytest tests/test_container.py -v
   to the container executor. M2 and M6 ran in CI. M5 is about the real
   container, so it can only run here.
 
-## 4. Measurements on the real model
+## 4. Measurements on the Mac mini
 
-Why: these numbers only exist on this machine with the real model loaded.
+Why: these numbers only exist on this machine. Most need the real model loaded; the #180
+ceiling measurement does not (it runs the reviewed handlers against local fakes and needs no
+model server or network).
 
 | Issue | What | How |
 |---|---|---|
