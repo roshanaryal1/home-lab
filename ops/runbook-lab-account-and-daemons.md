@@ -24,15 +24,17 @@ on copies of the committed plists and pass `plutil -lint`.
   LaunchAgent. After a reboot it starts only once the operator logs in (FileVault,
   section 17), so until then `tick` records model errors; that is expected.
 
-Variables used below. Replace the `PASTE_...` values first, then paste
-the block once into the terminal:
+Variables used below. Set `REPO` to the folder you cloned into and replace
+the `PASTE_...` values first, then paste the block once into the terminal.
+Coming from `docs/INSTALL.md`, the first four are already set: run only the
+`UV` line.
 
 ```sh
 REPO="$HOME/home-lab"
 COMMIT="PASTE_THE_COMMIT_YOU_WROTE_DOWN"
 MODEL_REV="PASTE_THE_SERVING_MODEL_40_HEX_REVISION"
 BACKUP_VOLUME="/Volumes/PASTE_BACKUP_VOLUME_NAME"
-UV="$HOME/.local/bin/uv"
+UV="$(command -v uv)"
 ```
 
 `MODEL_REV` is the revision of the build the model server is serving (ADR 0001).
@@ -163,7 +165,7 @@ job, and the ping URL file for the dead-man switch.
 ```sh
 P=/Library/LaunchDaemons
 sudo plutil -insert EnvironmentVariables.LAB_OPERATOR_PUBKEY -string /etc/homelab/operator.pub $P/com.homelab.supervisor.plist
-MODEL_ID=$(curl -sf http://127.0.0.1:8080/v1/models | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["id"])')
+MODEL_ID=$(curl -sf http://127.0.0.1:8080/v1/models | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][-1]["id"])')
 if [ -z "$MODEL_ID" ]; then echo "STOP: the model server did not answer; start it and redo this block"; else
 sudo plutil -insert EnvironmentVariables -dictionary $P/com.homelab.tick.plist
 sudo plutil -insert EnvironmentVariables.LAB_MODEL_URL -string http://127.0.0.1:8080/v1 $P/com.homelab.tick.plist
@@ -179,6 +181,11 @@ sudo plutil -lint $P/com.homelab.*.plist
 
 The last three insert lines give the supervisor the same model settings as the
 loop, so the daemon registers the summarizer (section 16).
+
+`MODEL_ID` is the last entry the server lists. `mlx_lm.server` 0.31.3 lists other
+MLX models in your Hugging Face cache that were downloaded by name first and the
+model it is serving last (`handle_models_request` in its `server.py`), so on a
+Mac with such a model the first entry would pin the wrong one.
 
 Interim alert channel, until the Telegram bot exists: alerts go to the
 system log. Owned by `lab`, mode 600, as section 19 asks.
@@ -389,7 +396,7 @@ new commit. Set the three by hand instead, with `OLD` set to the hash you wrote 
 
 ```sh
 COMMIT="PASTE_THE_NEW_COMMIT"
-UV="$HOME/.local/bin/uv"
+UV="$(command -v uv)"
 OLD=$(sudo git -C /opt/homelab rev-parse HEAD)
 echo "deployed now: $OLD, updating to: $COMMIT"
 ```
