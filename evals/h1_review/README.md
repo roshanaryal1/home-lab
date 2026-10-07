@@ -76,6 +76,36 @@ them are historical.** Reviewers chosen: GPT, Gemini
 and DeepSeek; not Claude (it wrote the drafts) and not Qwen (the candidate). It weakens the claim
 from independent human labels to AI-assigned labels, and the amendment says so.
 
+**2026-10-07: the final labels are made by `lab.h1_labels`.** It applies the registered rule
+mechanically: majority of three, a main case on which all three differ is replaced by the
+lowest-numbered unused spare in case order, a spare on which all three differ is skipped, H1 is not
+testable if the spares run out, and no label is made from fewer than three replies. It rebuilds both
+sheets from the case files and refuses to run unless they equal the frozen sheets byte for byte, so
+each neutral id names the case the reviewers saw. It does not read the owner's labels. It writes the
+final case file and a report together, once: if either exists, or either write fails, neither is
+left. If fewer than 30 cases keep a label, the remaining cases go to a file marked `EXPLORATORY`
+instead, never to the final file. Run it once, from the repository
+root:
+
+```sh
+uv run python -m lab.h1_labels \
+  --cases evals/shadow_cases_DRAFT.jsonl evals/h1_review/extra-cases-UNLABELED.jsonl \
+  --exclude d-paper-one-source d-paper-control-contradicts \
+  --sheet evals/h1_review/review-sheet.md \
+  --spares evals/h1_review/spare-cases-UNLABELED.jsonl \
+  --spare-sheet evals/h1_review/spares/review-sheet.md \
+  --answers gpt=evals/h1_review/ai-replies/answers-gpt-5.6-sol-1.json \
+    gemini=evals/h1_review/ai-replies/answers-gemini-3.6-flash-1.json \
+    deepseek=evals/h1_review/ai-replies/answers-deepseek-flash-3.json \
+  --spare-answers gpt=evals/h1_review/ai-replies/answers-gpt-5.6-sol-spares-1.json \
+    gemini=evals/h1_review/ai-replies/answers-gemini-3.6-flash-spares-1.json \
+    deepseek=evals/h1_review/ai-replies/answers-deepseek-flash-spares-2.json \
+  --out evals/h1_review/final-cases.jsonl --report evals/h1_review/final-report.json
+```
+
+The replies used are the ones named in the registration note,
+`docs/PREREGISTRATION-AMENDMENT-2-REGISTRATION.md`.
+
 ## What the owner decides before the amendment (superseded 2026-10-07)
 
 **This section is the earlier, human-reviewer plan and is superseded** by
