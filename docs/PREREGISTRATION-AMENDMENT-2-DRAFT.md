@@ -139,7 +139,7 @@ a two to two split goes to a stated rule].
 ## Reported with the result
 
 Reviewer agreement with the drafts (from `lab reviewsheet compare`); agreement between the
-reviewers; the disagreements and their resolution; the person's sample agreement; the rubric's
+reviewers; the disagreements and their resolution; the owner's agreement with the final labels across all 30 cases; the rubric's
 accuracy on the final file next to the candidate's; and the AI-labels caveat above, in the
 abstract, not only in the text.
 
