@@ -55,7 +55,8 @@ Each has a check that either passes or fails, and a safety boundary it must
 not weaken.
 
 **M0. Finish the lab underneath.** Open items: the timed freeze re-drill
-(#78), the fabricated-signature test (#70), scheduled backups (#67),
+(#78), keeping the queue database out of reach of the code the agent runs
+(#70; its fabricated-signature test passed on 2026-10-06), scheduled backups (#67),
 alerts and an emergency stop from the phone (#79), the power-pull drill
 (#77, #91), and the machine checks in #225, #235 and #211. Done when those
 issues close. They all need the operator at the mini. One script runs them
