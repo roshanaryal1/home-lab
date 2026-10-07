@@ -694,7 +694,7 @@ expect a call either way between runs.
       handler half is #180, below.
 - [x] #180: set `task_max_rss_mb` and `task_max_cpu_seconds` from measured
       peaks of the real reviewed handlers, with stated headroom. Done 2026-10-07:
-      peaks were 36.3 MB and 0.054 s, the owner chose 256 MB (about 7x the memory
+      peaks were 36.3 MB and 0.054 s on the Mac mini (macOS 27.0, `system_profiler`: Apple M6, Mac18,5, 32 GB; the report itself records only Darwin arm64), the owner chose 256 MB (about 7x the memory
       peak) and 30 s (over 500x the CPU peak) instead of the 2x the tool suggests
       (73 MB, 1 s), which is too tight; the supervisor must be
       restarted on the new code for them to apply. The sample tasks are small, so
