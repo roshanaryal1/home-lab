@@ -33,6 +33,9 @@ judgement are what can make the test informative.
      --out evals/h1_review --exclude d-paper-one-source d-paper-control-contradicts
    ```
 
+   Names of the models and builds (Qwen, DWQ, MLX, GGUF and so on) are masked with
+   neutral labels by default (`--mask` changes the list), so the sheet does not
+   reveal the candidate.
    Cases have neutral ids in a seeded shuffle (seed 20260930), the original ids
    and drafted labels are left out, and the routes are described in plain
    words without the rubric's counts. The drafted labels are still in the
@@ -51,20 +54,37 @@ judgement are what can make the test informative.
 4. **Decide, then amend, then run.** Only step 4 is not automated, and it is the
    owner's decision (below).
 
-## What the owner decides before the amendment
+**2026-10-07: the sheet now has 30 cases** (16 drafts that build, plus 14 new unlabeled cases
+from this repository's real history in `extra-cases-UNLABELED.jsonl`). Generate it with both
+files: `uv run python -m lab.reviewsheet sheet --cases evals/shadow_cases_DRAFT.jsonl
+evals/h1_review/extra-cases-UNLABELED.jsonl --out evals/h1_review --exclude d-paper-one-source
+d-paper-control-contradicts`. The owner labels all 30 on the masked sheet before seeing any
+AI answer.
 
-- **Who reviews.** Someone other than the drafter and the owner, or the owner
+**2026-10-07: the owner chose an AI reviewer.** The draft amendment is
+`docs/PREREGISTRATION-AMENDMENT-2-DRAFT.md` and the blind prompt is
+`ai-reviewer-prompt.md` (both unregistered, nothing run). Reviewers chosen: GPT, Gemini
+and DeepSeek; not Claude (it wrote the drafts) and not Qwen (the candidate). It weakens the claim
+from independent human labels to AI-assigned labels, and the amendment says so.
+
+## What the owner decides before the amendment (superseded 2026-10-07)
+
+**This section is the earlier, human-reviewer plan and is superseded** by
+`docs/PREREGISTRATION-AMENDMENT-2-DRAFT.md`, which is the protocol to follow: three AI reviewers
+(GPT, Gemini, DeepSeek) with a majority rule, the owner labelling all 30 cases blind, the two
+unbuildable cases left out, and 14 new unlabeled cases from this repository's history (not
+twelve). The old list is kept below only for the reasoning behind it.
+
+- **Who reviews (old).** Someone other than the drafter and the owner, or the owner
   after a stated gap. The reviewer's independence is the point.
-- **Disagreements.** Proposed: a case where the reviewer differs from the draft
+- **Disagreements (old).** A case where the reviewer differs from the draft
   goes to a second independent reviewer; the drafter never breaks the tie.
-  The rule must be written before the sheet goes out.
-- **The two unbuildable cases.** Rewrite them as states the ledger can reach, or
-  drop them.
-- **Twelve more cases** to reach 30, ideally written or chosen by the reviewer,
-  not by the drafter.
+- **The two unbuildable cases (old).** Rewrite them as states the ledger can reach, or
+  drop them. Now: left out.
+- **Twelve more cases (old)** to reach 30. Now: fourteen, since two drafts are left out.
 - **The instrument.** `lab shadow` changing (for example to handle a verified
   claim that cannot be verified) changes what was frozen at registration, so it
-  needs the same dated amendment.
+  needs the same dated amendment. Still true.
 
 ## Draft amendment fields (not registered)
 
