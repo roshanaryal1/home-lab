@@ -72,9 +72,10 @@ names. A PASS closes the matching check box. A FAIL becomes a new issue.
 Why: these put a secret or an identity on the machine. They are done at the
 keyboard so no secret travels through the repository.
 
-- **Chat bot (#239).** Make a new bot in BotFather, pair it, and run the checks
-  in `ops/mac-mini-setup.md` section 23. Then retire the old raw-shell bot
-  (#184), as that section says.
+- **Chat bot (#239).** Installed and paired on 2026-10-07 (`/status` and a model
+  reply worked from the phone). Still to check, from `ops/mac-mini-setup.md`
+  section 23: an unpaired account, `/stop` from the phone and `lab control show`,
+  and the approval boundary. The old raw-shell bot (#184) was retired the same day.
 - **Container image (#181).** Install Apple `container`, pull one small Linux
   image and note it pinned by digest (`name@sha256:...`). The tests below read
   it from `LAB_CONTAINER_IMAGE`.

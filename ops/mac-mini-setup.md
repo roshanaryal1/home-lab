@@ -800,11 +800,13 @@ never the alert bot and never the old shell bot. Press Start on it once.
 - [ ] `/stop` from the phone, then `lab control show` on the Mac says
       `stopped` and `set by chat:<id>`. Resume with
       `lab control resume --key ~/.lab-operator/operator.key`; the chat cannot.
-- [ ] Retire the raw-shell bot (#184). It runs outside this repository as your
-      own user, so find its job with `launchctl list | grep -i -E "telegram|bot"`,
-      then `launchctl bootout gui/$(id -u)/<its label>` and delete its plist
-      from `~/Library/LaunchAgents`. In BotFather, `/revoke` its token (or
-      `/deletebot`), so a copy of the token stops working. Delete its token and
-      TOTP secret from the Keychain and the TOTP entry from your authenticator.
-      Keep `homelab-telegram-chat`: the alert and chat setups read it. Then
-      remove the raw-shell bullet from SECURITY.md "Known gaps" with the date.
+- [x] Retire the raw-shell bot (#184). Done 2026-10-07: bot deleted in BotFather
+      (its token is dead), its LaunchAgent `com.homelab.telegram-bot` stopped and
+      its plist removed from `~/Library/LaunchAgents`, its token and TOTP secret
+      deleted from the Keychain, the authenticator entry removed. Its source
+      folder outside this repository was left in place. Nothing is left to do. If
+      you ever need to check, look for that exact label with `launchctl list`; do
+      not search for `bot` or `telegram` broadly, because the live chat service
+      `com.homelab.chat` is a system daemon and the alert hook runs under `lab`.
+      Keep the Keychain item `homelab-telegram-chat`: the alert and chat setups
+      read it. SECURITY.md no longer lists the shell bot as a known gap.
