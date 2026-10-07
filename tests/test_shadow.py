@@ -381,4 +381,4 @@ def test_the_h1b_prompt_is_the_built_in_prompt_plus_the_reviewers_definitions() 
     for route in shadow.ROUTES:
         line = next(ln for ln in reviewer.splitlines() if ln.startswith(f"- {route}:"))
         assert line in definitions, route
-    assert "—" not in text
+    assert "\u2014" not in text
