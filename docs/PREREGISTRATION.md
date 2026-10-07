@@ -308,7 +308,9 @@ registered instrument), the DWQ MLX build at revision `cfcade7221ccd128681961446
 temperature 0, seed 0. Labels: amendment 2 (osf.io/q75bx), majority of three AI reviewers, in
 `evals/h1_review/final-cases-v2.jsonl` (30 cases). Record: `evals/h1_review/h1-run.json`
 (SHA-256 `9d06bed917dbea2e1d83e29856b820d68c9c9c5cd1f3967363f3f112148b8b3d`); every request
-answered, no run error. The comparisons below are printed by `scripts/h1_result.py`.
+answered, no run error. The record says `tree_dirty: true`: the Mac checkout held three untracked
+`mac-session-*.md` notes and no changed tracked file. The comparisons below are printed by
+`scripts/h1_result.py`.
 
 | | rubric | candidate |
 |---|---|---|
