@@ -117,13 +117,15 @@ _STATE_FLAGS = os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 def _not_regular(path: Path) -> str | None:
     """Why ``path`` itself, not anything it links to, cannot be used."""
     try:
-        mode = os.lstat(path).st_mode
+        info = os.lstat(path)
     except OSError:
         return None
-    if stat.S_ISLNK(mode):
+    if stat.S_ISLNK(info.st_mode):
         return "is a symbolic link"
-    if not stat.S_ISREG(mode):
+    if not stat.S_ISREG(info.st_mode):
         return "is not a regular file"
+    if info.st_nlink != 1:
+        return "has more than one link"
     return None
 
 

@@ -229,6 +229,28 @@ def test_the_alert_state_file_is_never_written_through_a_link(tmp_path: Path,
 
 
 @pytest.mark.safety
+@pytest.mark.skipif(os.geteuid() == 0, reason="root opens a mode 000 file")
+def test_a_hard_linked_state_file_that_cannot_be_opened_is_refused_not_raised(
+        tmp_path: Path) -> None:
+    script, out = _recorder(tmp_path)
+    cfg = alert.load(_config(tmp_path, [sys.executable, str(script)]))
+    other = tmp_path / "other.txt"
+    other.write_text("unchanged")
+    state = tmp_path / "lab.db.alert"
+    os.link(other, state)
+    os.chmod(other, 0)
+    warnings: list[str] = []
+    try:
+        assert alert.send(cfg, kind="backup", message="m", state_file=state,
+                          warn=warnings.append)
+    finally:
+        os.chmod(other, 0o600)
+    assert out.exists(), "the alert itself still runs"
+    assert any("more than one link" in w for w in warnings), warnings
+    assert other.read_text() == "unchanged"
+
+
+@pytest.mark.safety
 @pytest.mark.parametrize("shape", ["directory", "fifo"])
 def test_an_alert_state_file_that_is_not_a_regular_file_is_reported_and_left_alone(
         tmp_path: Path, shape: str) -> None:
