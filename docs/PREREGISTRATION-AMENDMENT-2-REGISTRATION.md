@@ -192,3 +192,33 @@ Run once, on the Mac mini, with the command above. Record `evals/h1_review/h1-ru
 (SHA-256 `9d06bed917dbea2e1d83e29856b820d68c9c9c5cd1f3967363f3f112148b8b3d`). H1 is not
 supported; the result and every comparison this amendment requires are in
 `docs/PREREGISTRATION.md`, Results, H1.
+
+## H1b, exploratory (2026-10-08, #302)
+
+Not registered and excluded from the registered results; it cannot change H1's verdict.
+It is reported for audit and to say what to test next, not as a second chance for H1. It exists because the registered candidate
+prompt does not define the five routes (see `docs/PREREGISTRATION.md`, Results, H1, "Limit of this
+result"). The 30 cases and their labels were already known, so this is exploratory by design.
+
+Fixed before the run, on #302: the prompt is the built-in one plus the five route definitions
+copied verbatim from the reviewers' prompt, `evals/h1_review/h1b-system-prompt.txt` (SHA-256
+`be093c949df29bb15595c1b260bd68624173218121b50d816bbadc3d505e6944`), merged at `main` commit
+`54863ea` with the new `lab shadow --system-file` flag. One run, no retry, no second prompt tried.
+The same cases (`final-cases-v2.jsonl`), model revision, temperature 0 and seed 0 as H1.
+
+Run once on the Mac mini. Record `evals/h1_review/h1b-run.json` (SHA-256
+`e3b4dda4a674407025b7eb06380317578e89ec9a79aa4c868fa4dcfde62e0e9b`); every request answered, no
+run error.
+
+| | rubric | H1 candidate | H1b candidate |
+|---|---|---|---|
+| accuracy, all 30 cases | 0.833 | 0.100 | 0.433 |
+| coverage | | 0.87 | 1.00 |
+| false promotions | | 5 | 8 |
+
+Reading, and its limits: adding the definitions raised the candidate's accuracy from 0.10 to
+0.43, so the missing definitions explain part of H1's result. They do not explain all of it: the
+candidate is still far below the rubric, and its false promotions went up, not down (it chose
+`post` 17 times and `paper` 6 times, where the final labels have 15 and 2). One run on 30 known
+cases gives no interval worth trusting. Constrained decoding (#179) is untested and stays a
+separate step.

@@ -5,7 +5,7 @@ title = "home-lab gitleaks config"
 [extend]
 useDefault = true
 
-# Sealed evaluation and benchmark records, and the H1 shadow run record, name the model they measured by
+# Sealed evaluation and benchmark records, and the H1 and H1b shadow run records, name the model they measured by
 # its Hugging Face commit, e.g. "tokenizer_revision": "<40 hex>". That is a
 # public identifier, not a key, but generic-api-key reads the word "token"
 # next to a long hex string as one. The exception is limited to that rule,
@@ -17,5 +17,5 @@ description = "Model commit hashes in sealed eval and bench records"
 targetRules = ["generic-api-key"]
 condition = "AND"
 regexTarget = "match"
-paths = ['''^evals/(runs|bench)/[^/]+\.json$''', '''^evals/h1_review/h1-run\.json$''']
+paths = ['''^evals/(runs|bench)/[^/]+\.json$''', '''^evals/h1_review/h1b?-run\.json$''']
 regexes = ['''(?:tokenizer_)?revision"?\s*:\s*"?[0-9a-f]{40}(?:[0-9a-f]{24})?"?$''']
