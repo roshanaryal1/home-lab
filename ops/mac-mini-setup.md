@@ -222,16 +222,25 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
       throwaway database wrote its manifest there and `restore-check`
       verified it.
 - [x] A scheduled backup. Installed and run by launchd on 2026-10-07 (wrote a
-      manifest, `restore check ok`, kept 2; it needed Full Disk Access for the lab
-      interpreter, runbook step 4). Built (#67): `com.homelab.backup.plist` runs
-      `lab backup --keep 14 --alert-config /etc/homelab/alert.json` as `lab`
-      at 02:47. It restore-checks every new backup and fails (and alerts) if
+      manifest, `restore check ok`, kept 2; it needed Full Disk Access, given
+      then to the lab interpreter, runbook step 4). Built (#67):
+      `com.homelab.backup.plist` runs `lab backup --keep 14 --alert-config
+      /etc/homelab/alert.json` as `lab` at 02:47, through the backup launcher
+      since #287. It restore-checks every new backup and fails (and alerts) if
       the check does not pass, then keeps the newest 14 and deletes only its
-      own older files. Install it, set `LAB_BACKUP_DIR` in the installed copy
+      own older files. Install it, build and install the launcher and give it
+      Full Disk Access, set `LAB_BACKUP_DIR` in the installed copy
       to `/Volumes/labbackup/home-lab-backups` with that folder owned by
       `lab` (runbook step 4), run it once with `launchctl kickstart`, and
       confirm a new `*.manifest.json` appears and `backup.log` says
       `restore check ok`.
+- [ ] Move the backup's Full Disk Access from the interpreter to the launcher
+      (#287): runbook, "Moving the backup's Full Disk Access to its launcher".
+      Afterwards the grant covers only `/opt/homelab-backup/lab-backup` and what
+      it starts (the backup, and the alert command when the backup fails), not
+      the lab services or the root-run daemons, which run the interpreter
+      directly. Done when the run there passes, the interpreter is gone from the
+      Full Disk Access list, and the next 02:47 run passes on its own schedule.
 - [x] First full restore drill: `uv run python -m lab.cli drill restore`
       against the live database. Commit the record from `ops/drills/log/`.
       2026-09-30: PASS against `/var/homelab/lab.db`, run as `lab` with
@@ -242,7 +251,11 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
       backup on the backup disk, as `lab`:
       `drill restore --from-backup /Volumes/labbackup/home-lab-backups`
       (the full command is in `ops/drills/README.md`). Not run on 2026-10-08:
-      the folder is `lab`'s, mode 700, so it needs sudo.
+      the folder is `lab`'s, mode 700, so it needs sudo. Once the backup's
+      Full Disk Access sits on its launcher (#287), a drill run from Terminal
+      also needs Terminal's Full Disk Access: turn it on in System Settings,
+      Privacy & Security, Full Disk Access just before the drill, and off right
+      after.
 - [x] Crash drill on the mini: `uv run python -m lab.cli drill crash`.
       2026-09-29: PASS for both kinds; records in `ops/drills/log/`.
 - [ ] Power-pull drill during a running task: pull the plug, boot, confirm
@@ -258,10 +271,10 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
 
 The code is done and tested. What makes it a boundary is which OS account
 can read what, and that needs the machine. The account, the key and the
-supervisor's use of the public key are done on the Mac mini (2026-09-30). Two
-things are not: the fabricated-signature test, and keeping the queue database out
-of reach of the code the agent runs (both unticked below; while the second is
-open the operator boundary is not closed, see SECURITY.md).
+supervisor's use of the public key are done on the Mac mini (2026-09-30), and
+the fabricated-signature test passed there on 2026-10-06. One thing is not:
+keeping the queue database out of reach of the code the agent runs (unticked
+below; while it is open the operator boundary is not closed, see SECURITY.md).
 
 - [x] Create the non-admin `lab` account (section 1) and keep the
       operator (admin) account separate. Done 2026-09-30, all four checks
@@ -279,11 +292,15 @@ open the operator boundary is not closed, see SECURITY.md).
       signature-checked". 2026-09-30: no log under `/var/log/homelab`
       shows it. The first check missed that `tick.err` did, because tick
       builds its own supervisor (#190); fixed on the machine that day.
-- [ ] As `lab`, try `cat ~operator/.lab-operator/operator.key` (expect
+- [x] As `lab`, try `cat ~operator/.lab-operator/operator.key` (expect
       permission denied) and try to approve a test request with a
       fabricated signature (expect `approval_rejected` in the events).
-      2026-09-30: the `cat` half done (`Permission denied`); the
-      fabricated-signature half is still to do.
+      2026-09-30: the `cat` half done (`Permission denied`). 2026-10-06: the
+      fabricated-signature half done by `ops/mac-session.sh` step `signature`,
+      against a scratch database and the real public key: an unsigned grant, one
+      signed with a key `lab` made and a row written directly were each refused
+      with an `approval_rejected` event, 3 of 3
+      (`docs/reviews/2026-10-06-mac-session.md`).
 - [x] As `lab`, list the operator's home folder and a folder below it:
       `sudo -u lab /bin/ls "$HOME"` and `sudo -u lab /bin/ls "$HOME/Public"` must
       both say `Permission denied`. `lab` is in `staff` and the home folder is
@@ -295,6 +312,10 @@ open the operator boundary is not closed, see SECURITY.md).
 - [ ] Put the queue database, policy files and credentials under a
       directory the reviewed handlers' worker processes cannot open (#70
       acceptance: a handler that opens the DB path gets EACCES).
+      2026-10-08: not met. The supervisor, its workers and `/var/homelab`
+      (mode 700) all belong to `lab`, so a worker opens the database like the
+      supervisor does. This needs a design decision first: workers under a
+      second account, or the database owned by something other than `lab`.
 
 ## 12. Real-model injection run (item 4.7, #72)
 

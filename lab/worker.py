@@ -8,11 +8,13 @@ Its only way to act is the line-oriented JSON channel on its stdin and
 stdout, and every request on that channel is resolved by the broker in
 the supervisor, against the context the supervisor built.
 
-What this does not do yet: the worker runs as the same OS user, so a
-hostile handler could still open the database file if it found the
-path. Running workers under the separate lab account (4.5, #70) closes
-that, and needs the Mac mini. Until then the boundary is the process,
-plus the rule that only reviewed code under ``lab.handlers`` is loaded.
+What this does not do yet: the worker runs as the same OS user as the
+supervisor, so a hostile handler could still open the database file if it
+found the path. On the Mac mini that user is the separate ``lab`` account,
+which owns the database, so the account does not close this; the database
+has to be out of the workers' reach (4.5, #70). Until then the boundary is
+the process, plus the rule that only reviewed code under ``lab.handlers``
+is loaded.
 
 Protocol, one JSON object per line:
 

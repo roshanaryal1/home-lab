@@ -86,6 +86,11 @@ keyboard so no secret travels through the repository.
   `/etc/homelab/heartbeat-url` (owned by `lab`, mode 600) at a hidden prompt.
   At the outside service, use a 5 minute period and a 5 minute grace, so the
   alert reaches the phone within ten minutes (owner's decision, 2026-10-01).
+- **The backup's Full Disk Access (#287).** Only you can grant it, in System
+  Settings. Move it from the shared interpreter to the backup launcher, then run
+  the backup once under launchd and check it passes: runbook, "Moving the backup's
+  Full Disk Access to its launcher". That section also turns Terminal's own Full
+  Disk Access off again; it was still on on 2026-10-08.
 - **MCP servers (#256), if you want any.** For each server, run
   `lab mcp snapshot <server> --allow <tools> --key <operator key> --by <you>`
   and add the signed entry to `/etc/homelab/mcp.json`. Nothing runs from an

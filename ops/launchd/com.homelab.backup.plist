@@ -11,16 +11,7 @@
 	<string>com.homelab.backup</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/opt/homelab/.venv/bin/python</string>
-		<string>-m</string>
-		<string>lab.cli</string>
-		<string>--db</string>
-		<string>/var/homelab/lab.db</string>
-		<string>backup</string>
-		<string>--keep</string>
-		<string>14</string>
-		<string>--alert-config</string>
-		<string>/etc/homelab/alert.json</string>
+		<string>/opt/homelab-backup/lab-backup</string>
 	</array>
 	<key>StandardErrorPath</key>
 	<string>/var/log/homelab/backup.err</string>
