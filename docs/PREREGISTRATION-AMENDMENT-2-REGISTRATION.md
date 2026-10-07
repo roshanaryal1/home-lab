@@ -22,7 +22,9 @@ logging in:
 
 - The 15 files in its archive folder have the same SHA-256 as the local upload folder and as
   `MANIFEST.txt`.
-- The 29 answers match the intended text except for the errata below. The selected options match:
+- 28 of the 29 form answers are identical to the intended text. The one that differs is **Study
+  design**, by a single missing space (erratum 1). The **Description**, which is a separate
+  metadata field and not one of the 29, differs only in whitespace (erratum 2). The selected options match:
   foreknowledge "Authors have observed the data, but have not performed the proposed analyses",
   study type Simulation study, no causal inference, blinding by those who code or interpret.
 - The draft the registration came from was started at 07:54 UTC, after the files were uploaded
@@ -36,8 +38,25 @@ logging in:
 3. The registered **files** are the amendment's frozen files under flat names, so the paths in the
    amendment's table (for example `evals/h1_review/review-sheet.md`) appear in OSF as
    `evals_h1_review_review-sheet.md`.
+4. The registered "Context and additional information" says "no AI reviewer has seen any case and no
+   model has produced any label or proposal". Read it as: none of the three registered reviewers and
+   not the candidate model. The same registration discloses, in "Explanation of foreknowledge", that
+   an earlier Claude session wrote the 18 draft labels (16 of those cases are in the frozen set), and
+   that Claude wrote the 14 new cases and the 8 spares without labels.
+5. The status words in files that were registered as they stood ("DRAFT, not registered, not run" at
+   the top of `ai-reviewer-prompt.md`, "not yet registered" in the amendment text) are **historical**.
+   Registration is the state in this note. The registered copies are binding and are not edited.
 
 None of these changes a number, a rule or a hash.
+
+## Which version is binding
+
+The binding versions are the files in the registration (https://osf.io/q75bx/), with the SHA-256 in
+`MANIFEST.txt` and in the amendment's table. Within `ai-reviewer-prompt.md`, the binding text is the
+prompt between the two horizontal rules; the surrounding instructions describe how it is used. The
+repository copies of these files are kept identical, and a test (`tests/test_h1_amendment.py`) fails
+if any file the amendment freezes changes. Any change to them is a departure from the registered
+protocol and has to be stated as one.
 
 ## A gap the registration states
 
@@ -47,8 +66,10 @@ as registered, and no label is produced from fewer than three reviewers.
 
 ## State of the study at registration
 
-No AI reviewer had seen any case, no model had produced any label or proposal, and no accuracy
-figure existed. The owner's own labels (30 main cases, 8 spares) existed and were hashed. The 30-case
+None of the three registered AI reviewers had seen any case, the candidate model had produced no
+proposal, and no accuracy figure existed. Claude, which is not a registered reviewer, had written
+the 18 draft labels (16 of those cases are in the frozen set) and the 14 new cases and 8 spares, as
+the registration itself discloses. The owner's own labels (30 main cases, 8 spares) existed and were hashed. The 30-case
 masked sheet had been generated and published in this public repository before registration; the
 registration says so.
 

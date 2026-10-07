@@ -69,7 +69,10 @@ AI answer.
 
 **2026-10-07: the owner chose an AI reviewer.** The draft amendment is
 `docs/PREREGISTRATION-AMENDMENT-2-DRAFT.md` and the blind prompt is
-`ai-reviewer-prompt.md` (both unregistered, nothing run). Reviewers chosen: GPT, Gemini
+`ai-reviewer-prompt.md`. **Status (updated after registration): both were registered on
+2026-10-07 at https://osf.io/q75bx/ and are frozen; see
+`docs/PREREGISTRATION-AMENDMENT-2-REGISTRATION.md`. Words such as "draft" or "not registered" in
+them are historical.** Reviewers chosen: GPT, Gemini
 and DeepSeek; not Claude (it wrote the drafts) and not Qwen (the candidate). It weakens the claim
 from independent human labels to AI-assigned labels, and the amendment says so.
 
