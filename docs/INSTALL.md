@@ -254,6 +254,14 @@ volume only with Full Disk Access, so it runs through a small launcher that hold
 that grant instead of the interpreter every lab service uses (#287); step 4 of the
 runbook builds it and says what the grant covers.
 
+Once only the launcher holds that grant, the command above, run from Terminal,
+cannot reach a removable volume. Start a manual backup through the job instead,
+so it runs with the launcher's grant:
+
+```sh
+sudo launchctl kickstart system/com.homelab.backup
+```
+
 Keep at least one additional recovery destination for anything that matters.
 
 ## 10. Uninstall

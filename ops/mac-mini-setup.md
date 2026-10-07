@@ -251,7 +251,11 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
       backup on the backup disk, as `lab`:
       `drill restore --from-backup /Volumes/labbackup/home-lab-backups`
       (the full command is in `ops/drills/README.md`). Not run on 2026-10-08:
-      the folder is `lab`'s, mode 700, so it needs sudo.
+      the folder is `lab`'s, mode 700, so it needs sudo. Once the backup's
+      Full Disk Access sits on its launcher (#287), a drill run from Terminal
+      also needs Terminal's Full Disk Access: turn it on in System Settings,
+      Privacy & Security, Full Disk Access just before the drill, and off right
+      after.
 - [x] Crash drill on the mini: `uv run python -m lab.cli drill crash`.
       2026-09-29: PASS for both kinds; records in `ops/drills/log/`.
 - [ ] Power-pull drill during a running task: pull the plug, boot, confirm
