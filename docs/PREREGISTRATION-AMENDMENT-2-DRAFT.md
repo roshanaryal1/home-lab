@@ -134,6 +134,12 @@ owner states they had seen neither the draft labels nor any AI labels, and the l
 been compared with the drafts or with the rubric's output. Only the file's structure was
 checked (every case id present, every route one of the five).
 
+The owner's labels for the 8 spares were received on 2026-10-07 at 07:17 UTC and saved as
+`evals/h1_review/answers-owner-spares.json` (SHA-256
+`9c5ee9cd6c7315321afe622c692080137d51406a9cf8986229707053667a83fd`), on the masked spare sheet,
+before any AI reviewer had seen it. The counts are post 4, blog 2, insufficient_evidence 1, paper
+1. Again only the structure was checked, and the owner states they had seen no AI labels.
+
 The owner's labels are an **independent human check on the AI labels, not a fourth vote**, and
 are kept separate from the AI consensus: the final label of a case is the label at least two of
 the three AI reviewers chose, and the owner's label never enters that count. The owner's
@@ -195,6 +201,7 @@ No AI reviewer has seen it. The registered text states this so the order is not 
 | Masked review sheet `evals/h1_review/review-sheet.md` | `156d96c87d1a6ed90157c1454b004059bad35767dd3cb3b1073598e4a8accc0c` |
 | Answers template `evals/h1_review/answers-template.json` | `54133d28f588e3d45ff838c58fab5b31885a6ba8f6e66bb10a7d21fc0a22b6e5` |
 | Reviewer prompt `evals/h1_review/ai-reviewer-prompt.md` | `6e9fc9c47c2dcc066f8d00764222d1b76caf12b35b489bee3704b93a39831838` |
+| Owner's labels for the spares `evals/h1_review/answers-owner-spares.json` (received 2026-10-07 07:17 UTC) | `9c5ee9cd6c7315321afe622c692080137d51406a9cf8986229707053667a83fd` |
 | Owner's labels `evals/h1_review/answers-owner.json` (received 2026-10-07 06:57 UTC) | `3133d71ea59a1497e93b01d5a885053888755a25e05cb4a67ce299f09516b9f1` |
 | Reviewer models requested | `gpt-5.6-sol`, `gemini-3.6-flash`, `deepseek-flash`, on each vendor's chat page |
 | Settings per reviewer | the chat page's defaults, which cannot be set; web search, memory and personalisation off; a new conversation each; the model name the page shows is recorded with each reply |
