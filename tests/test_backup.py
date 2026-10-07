@@ -267,6 +267,20 @@ def test_restore_drill_from_a_damaged_backup_fails(tmp_path: Path, live) -> None
     assert not result.passed and "hash" in result.actual
 
 
+@pytest.mark.parametrize("field", ["database_sha256", "audit_head"])
+def test_a_manifest_missing_a_field_is_a_recorded_failure_not_a_crash(
+        tmp_path: Path, live, field: str) -> None:
+    _q, db, store = live
+    older, _newer = _two_backups(db, store, tmp_path / "bk")
+    manifest = json.loads(older.read_text())
+    del manifest[field]
+    older.write_text(json.dumps(manifest))
+    with pytest.raises(backup.BackupError, match=field):
+        backup.restore_check(older, tmp_path / "fresh")
+    result = drills.drill_restore_backup(older, tmp_path)
+    assert not result.passed and field in result.actual
+
+
 def test_restore_drill_from_a_folder_without_backups_fails_clearly(tmp_path: Path) -> None:
     (tmp_path / "bk").mkdir()
     (tmp_path / "bk" / "notes.txt").write_text("not a backup")

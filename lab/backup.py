@@ -171,6 +171,11 @@ class RestoreReport:
         self.problems.append(message)
 
 
+# Every field restore_check reads; a manifest without one is unreadable, not a crash.
+_MANIFEST_FIELDS = ("database", "database_sha256", "database_bytes", "schema_version",
+                    "audit_head", "audit_events")
+
+
 def restore_check(manifest_path: Path, into: Path) -> RestoreReport:
     """Restore a backup into a fresh directory and verify everything.
 
@@ -184,8 +189,11 @@ def restore_check(manifest_path: Path, into: Path) -> RestoreReport:
     report = RestoreReport()
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        missing = [k for k in _MANIFEST_FIELDS if k not in manifest]
+        if missing:
+            raise KeyError(", ".join(missing))
         source_db = manifest_path.parent / manifest["database"]
-    except (OSError, ValueError, KeyError) as exc:
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         raise BackupError(f"unreadable manifest {manifest_path}: {exc}") from exc
     if not source_db.exists():
         report.fail(f"backup database {source_db.name} is missing")
