@@ -282,8 +282,11 @@ pairwise `lab bench tune` verdicts agree. Ten records in `evals/runs/`
 
 ### H1
 
-Not run. H1 needs 30 labeled shadow cases (12 exist); its case file will be
-frozen in a dated amendment before any H1 run.
+Not run. H1 needs 30 labeled shadow cases. Its case file and the way its labels are
+assigned were frozen in Amendment 2, registered on OSF at https://osf.io/q75bx/ (DOI
+10.17605/OSF.IO/Q75BX) on 2026-10-07 08:12 UTC, before any of its three registered AI reviewers saw a case (the 16 reused draft cases carry
+labels written by an earlier Claude session, as the amendment discloses); see
+[PREREGISTRATION-AMENDMENT-2-REGISTRATION.md](PREREGISTRATION-AMENDMENT-2-REGISTRATION.md).
 
 ### Exploratory, not part of any hypothesis
 
