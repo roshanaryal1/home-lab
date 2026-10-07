@@ -42,7 +42,7 @@ SPLIT = ("post", "blog", "paper")
 
 def _run(main_rows: dict, spare_rows: dict, n_main: int = 4, n_spare: int = 3) -> dict:
     return hl.final_labels(_blinded(n_main, "case"), _blinded(n_spare, "spare"),
-                           _replies(main_rows), _replies(spare_rows))
+                           _replies(main_rows), _replies(spare_rows), size=n_main)
 
 
 def test_a_two_to_one_case_keeps_the_majority_route() -> None:
@@ -147,6 +147,12 @@ def test_a_sheet_that_differs_is_refused(tmp_path: Path) -> None:
         hl._blinded([REVIEW / "spare-cases-UNLABELED.jsonl"], [], "spare", sheet)
 
 
+@pytest.fixture(autouse=True)
+def _four_case_study(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command's made-up study has four main cases, so four is its registered size."""
+    monkeypatch.setattr(hl, "REGISTERED_SIZE", 4)
+
+
 def _cli_files(tmp_path: Path, spare_route: str = "post") -> list[str]:
     cases = tmp_path / "cases.jsonl"
     spares = tmp_path / "spares.jsonl"
@@ -223,4 +229,58 @@ def test_the_command_says_when_h1_is_not_testable(tmp_path: Path,
         (tmp_path / f"{name}-spare.json").write_text(json.dumps(dict.fromkeys(votes, route)))
     assert hl.main(args) == 0
     assert "not testable" in capsys.readouterr().err
-    assert not json.loads((tmp_path / "report.json").read_text())["testable"]
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert not report["testable"]
+    assert not (tmp_path / "final.jsonl").exists()
+    assert report["file"] == str(tmp_path / "final.EXPLORATORY.jsonl")
+    assert (tmp_path / "final.EXPLORATORY.jsonl").exists()
+
+
+def test_the_registered_size_is_thirty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.undo()
+    assert hl.REGISTERED_SIZE == 30
+    rows = _same(["case-01", "case-02", "case-03", "case-04"])
+    result = hl.final_labels(_blinded(4, "case"), _blinded(3, "spare"), _replies(rows),
+                             _replies(_same(["spare-01", "spare-02", "spare-03"])))
+    assert not result["testable"]
+
+
+def test_a_reply_that_answers_a_case_twice_is_refused(tmp_path: Path,
+                                                      capsys: pytest.CaptureFixture[str]) -> None:
+    args = _cli_files(tmp_path)
+    reply = Path(args[args.index("--answers") + 1].split("=", 1)[1])
+    reply.write_text(reply.read_text()[:-1] + ', "case-01": "paper"}')
+    assert hl.main(args) == 1
+    assert "more than once" in capsys.readouterr().err
+
+
+def test_out_and_report_must_differ(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    args = _cli_files(tmp_path)
+    args[args.index("--report") + 1] = args[args.index("--out") + 1]
+    assert hl.main(args) == 1
+    assert "different files" in capsys.readouterr().err
+
+
+def test_a_failed_report_write_leaves_no_case_file(tmp_path: Path,
+                                                    capsys: pytest.CaptureFixture[str]) -> None:
+    args = _cli_files(tmp_path)
+    args[args.index("--report") + 1] = str(tmp_path / "missing-dir" / "report.json")
+    assert hl.main(args) == 1
+    assert not (tmp_path / "final.jsonl").exists()
+    args[args.index("--report") + 1] = str(tmp_path / "report.json")
+    assert hl.main(args) == 0
+
+
+def test_case_files_that_share_an_id_are_refused(tmp_path: Path) -> None:
+    one, two = tmp_path / "one.jsonl", tmp_path / "two.jsonl"
+    one.write_text(json.dumps(_case("same")) + "\n")
+    two.write_text(json.dumps(_case("same")) + "\n")
+    with pytest.raises(rs.ReviewError, match="share a case id"):
+        hl._blinded([one, two], [], "case", tmp_path / "sheet.md")
+
+
+def test_a_sheet_with_other_line_endings_is_refused(tmp_path: Path) -> None:
+    sheet = tmp_path / "review-sheet.md"
+    sheet.write_bytes((REVIEW / "spares" / "review-sheet.md").read_bytes().replace(b"\n", b"\r\n"))
+    with pytest.raises(rs.ReviewError, match="differs"):
+        hl._blinded([REVIEW / "spare-cases-UNLABELED.jsonl"], [], "spare", sheet)

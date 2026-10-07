@@ -82,7 +82,9 @@ lowest-numbered unused spare in case order, a spare on which all three differ is
 testable if the spares run out, and no label is made from fewer than three replies. It rebuilds both
 sheets from the case files and refuses to run unless they equal the frozen sheets byte for byte, so
 each neutral id names the case the reviewers saw. It does not read the owner's labels. It writes the
-final case file and a report once, and refuses to overwrite them. Run it once, from the repository
+final case file and a report together, once: if either exists, or either write fails, neither is
+left. If fewer than 30 cases keep a label, the remaining cases go to a file marked `EXPLORATORY`
+instead, never to the final file. Run it once, from the repository
 root:
 
 ```sh

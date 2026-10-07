@@ -33,6 +33,7 @@ from typing import Any
 from lab.reviewsheet import ROUTES, ReviewError, blind, load_cases, render_sheet
 
 REVIEWERS = 3
+REGISTERED_SIZE = 30
 
 
 def _majority(labels: Sequence[str]) -> str | None:
@@ -77,8 +78,10 @@ def _agreement(votes: dict[str, dict[str, str]]) -> dict[str, Any]:
 
 def final_labels(main: list[tuple[str, dict[str, Any]]], spares: list[tuple[str, dict[str, Any]]],
                  main_replies: dict[str, object],
-                 spare_replies: dict[str, object]) -> dict[str, Any]:
-    """Apply the registered rule. ``main`` and ``spares`` are ``blind`` output, in id order."""
+                 spare_replies: dict[str, object], size: int | None = None) -> dict[str, Any]:
+    """Apply the registered rule. ``main`` and ``spares`` are ``blind`` output, in id order.
+    ``size`` is the number of cases H1 needs, the registered 30 unless a test sets it."""
+    size = REGISTERED_SIZE if size is None else size
     main_ids, spare_ids = [n for n, _ in main], [n for n, _ in spares]
     if set(main_replies) != set(spare_replies):
         raise ReviewError("the main and spare replies must come from the same reviewers")
@@ -122,7 +125,7 @@ def final_labels(main: list[tuple[str, dict[str, Any]]], spares: list[tuple[str,
     return {
         "cases": cases,
         "labels": {by_id[n]["id"]: route for n, route in kept},
-        "testable": not unreplaced and len(cases) == len(main),
+        "testable": not unreplaced and len(cases) >= size,
         "main": _agreement(main_votes),
         "spares": _agreement(spare_votes),
         "replaced": replacements,
@@ -136,8 +139,11 @@ def final_labels(main: list[tuple[str, dict[str, Any]]], spares: list[tuple[str,
 def _blinded(files: Sequence[Path], exclude: Sequence[str], prefix: str,
              sheet: Path) -> list[tuple[str, dict[str, Any]]]:
     cases = [c for path in files for c in load_cases(path, labeled=False)]
+    ids = [c["id"] for c in cases]
+    if len(set(ids)) != len(ids):
+        raise ReviewError("the case files share a case id")
     blinded = blind(cases, exclude=exclude, prefix=prefix)
-    if render_sheet(blinded) + "\n" != sheet.read_text(encoding="utf-8"):
+    if (render_sheet(blinded) + "\n").encode("utf-8") != sheet.read_bytes():
         raise ReviewError(f"{sheet}: the rebuilt sheet differs from this one, so the neutral "
                           "ids may not name the cases the reviewers saw")
     return blinded
@@ -151,8 +157,35 @@ def _replies(pairs: Sequence[str]) -> dict[str, object]:
             raise ReviewError(f"{pair!r}: give a reply as NAME=PATH")
         if name in out:
             raise ReviewError(f"reviewer {name} is given twice")
-        out[name] = json.loads(Path(path).read_text(encoding="utf-8"))
+        out[name] = json.loads(Path(path).read_text(encoding="utf-8"),
+                               object_pairs_hook=_no_repeats(name))
     return out
+
+
+def _no_repeats(name: str) -> Any:
+    """A JSON object hook that refuses a reply naming one case twice."""
+    def hook(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        keys = [k for k, _ in pairs]
+        repeated = sorted({k for k in keys if keys.count(k) > 1})
+        if repeated:
+            raise ReviewError(f"{name}: a case is answered more than once: {repeated}")
+        return dict(pairs)
+    return hook
+
+
+def _write_once(files: list[tuple[Path, bytes]]) -> None:
+    """Create every file or none: each is opened exclusively, so a second run or a file that
+    already exists stops it, and whatever this run created is removed if a later write fails."""
+    made: list[Path] = []
+    try:
+        for path, data in files:
+            with path.open("xb") as handle:
+                made.append(path)
+                handle.write(data)
+    except BaseException:
+        for path in made:
+            path.unlink(missing_ok=True)
+        raise
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -169,25 +202,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.out.exists() or args.report.exists():
-            raise ReviewError("the output exists; final labels are written once")
+        if args.out.resolve() == args.report.resolve():
+            raise ReviewError("--out and --report must be different files")
         main_cases = _blinded(args.cases, args.exclude, "case", args.sheet)
         spare_cases = _blinded([args.spares], [], "spare", args.spare_sheet)
         result = final_labels(main_cases, spare_cases, _replies(args.answers),
                               _replies(args.spare_answers))
-        text = "".join(json.dumps(c, ensure_ascii=False) + "\n" for c in result.pop("cases"))
-        args.out.write_text(text, encoding="utf-8")
-        result["file"] = str(args.out)
-        result["sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        args.report.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        data = "".join(json.dumps(c, ensure_ascii=False) + "\n"
+                       for c in result.pop("cases")).encode("utf-8")
+        # Below the registered size the remaining cases are exploratory only, so they are never
+        # written where the final file belongs.
+        out = args.out if result["testable"] else args.out.with_name(
+            f"{args.out.stem}.EXPLORATORY{args.out.suffix}")
+        result["file"] = str(out)
+        result["sha256"] = hashlib.sha256(data).hexdigest()
+        report = (json.dumps(result, indent=2) + "\n").encode("utf-8")
+        _write_once([(out, data), (args.report, report)])
+    except FileExistsError as exc:
+        print(f"h1_labels: {exc.filename} exists; final labels are written once", file=sys.stderr)
+        return 1
     except (ReviewError, OSError, ValueError) as exc:
         print(f"h1_labels: {exc}", file=sys.stderr)
         return 1
-    print(f"wrote {len(result['labels'])} cases to {args.out} (sha256 {result['sha256']})")
+    print(f"wrote {len(result['labels'])} cases to {out} (sha256 {result['sha256']})")
     if not result["testable"]:
-        print("H1 is not testable at the registered size: the spares ran out", file=sys.stderr)
+        print("H1 is not testable at the registered size: the spares ran out; the remaining "
+              "cases are exploratory only", file=sys.stderr)
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
