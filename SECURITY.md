@@ -647,14 +647,30 @@ Implemented and tested:
   never follows a symlink inside it, and leaves every other file alone
   (`tests/test_backup_rotation.py`). The folder is set only in the installed,
   root-owned copy of the job (`LAB_BACKUP_DIR`); the committed copy carries
-  a placeholder the command refuses. On the Mac mini the job can reach the
-  removable backup volume only because the lab's Python interpreter
-  (`/opt/homelab-python/.../bin/python3.13`) was given Full Disk Access
-  (2026-10-07, #67): macOS refuses a launchd job that access otherwise. The grant
-  belongs to that binary, not to the `lab` account: every process that runs the
-  interpreter gets it, including the root-run keep-awake and watchdog daemons, so
-  a compromised lab service could read or change the backups on that volume.
-  Narrowing it to a backup-only executable is open as #287. Recovery drills
+  a placeholder the command refuses. On the Mac mini the job reaches the
+  removable backup volume only through a Full Disk Access grant (2026-10-07, #67):
+  macOS refuses a launchd job that access otherwise. The grant belongs to an
+  executable, not to an account. It was first given to the lab's Python
+  interpreter, which put every process that runs the interpreter in reach of the
+  backups, the root-run keep-awake and watchdog daemons included. So the job now
+  runs a launcher of its own (`ops/backup-launcher/lab-backup.c`, built on the
+  mini and installed root-owned at `/opt/homelab-backup/lab-backup`), and the
+  grant goes to that instead (#287). The launcher takes no arguments and starts one
+  fixed command, `python -I -m lab.cli ... backup --keep 14 --alert-config ...`,
+  with only `PATH` and `LAB_BACKUP_DIR` in its environment, so its caller's
+  arguments, environment and working directory cannot change what runs
+  (`tests/test_backup_launcher.py`). The grant covers the launcher when macOS
+  counts it as responsible for itself, as it does under launchd, and what it
+  starts: the backup and, when that fails, the alert command. On the mini a
+  granted interpreter started by an ungranted parent like the launcher was
+  refused, so macOS decides on the parent's grant (2026-10-08). That the launcher's grant reaches its Python child
+  is checked by the first run after the move (runbook, "Moving the backup's Full
+  Disk Access to its launcher"); until the owner makes that move, the interpreter
+  still holds the grant. **Not closed:** the job still reads and writes files
+  that the `lab` account can change, and it can be started outside launchd.
+  Hardening its inputs and outputs is follow-up work for the owner. Both gaps
+  are narrower than the interpreter's grant, which gave any such code the
+  volume at once. Recovery drills
   (`lab drill`, `ops/drills/`) record every run and count as
   demonstrated only on the Mac mini; the monthly drill there is parked.
 - **Constrained decoding and shadow measurement** (`lab/grammar.py`,
