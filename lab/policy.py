@@ -63,6 +63,10 @@ class Decision(StrEnum):
     NEEDS_APPROVAL = "needs_approval"
 
 
+class ApprovalChanged(RuntimeError):
+    """A pending approval is no longer bound to the action hash the operator reviewed."""
+
+
 @dataclass(frozen=True)
 class PolicyResult:
     decision: Decision
@@ -396,11 +400,17 @@ class PolicyEngine:
         decided_by: str,
         valid_for: timedelta = timedelta(minutes=15),
         signer: Ed25519PrivateKey | None = None,
+        action_hash: str | None = None,
     ) -> str | None:
         """Approve a pending request, for a bounded window.
 
         The window is deliberately short. An approval is permission to do
         one thing now, not a standing grant.
+
+        ``action_hash``, when given, is the hash the operator reviewed: the
+        grant is refused with ``ApprovalChanged`` unless the row still holds
+        exactly it, checked in the same transaction as the signature, so a
+        row rewritten after the review is never signed (#70).
 
         Returns the task id if a task was released back to the queue, so
         the caller can report that something will actually happen.
@@ -411,6 +421,8 @@ class PolicyEngine:
                 (approval_id,)).fetchone()
             if row is None:
                 return None
+            if action_hash is not None and row["action_hash"] != action_hash:
+                raise ApprovalChanged("the approval's action hash changed after it was reviewed")
             expires = _ts(_utcnow() + valid_for)
             signature = (operator_keys.sign(signer, approval_id, row["action_hash"],
                                             expires, decided_by)
