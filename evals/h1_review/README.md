@@ -67,20 +67,24 @@ AI answer.
 and DeepSeek; not Claude (it wrote the drafts) and not Qwen (the candidate). It weakens the claim
 from independent human labels to AI-assigned labels, and the amendment says so.
 
-## What the owner decides before the amendment
+## What the owner decides before the amendment (superseded 2026-10-07)
 
-- **Who reviews.** Someone other than the drafter and the owner, or the owner
+**This section is the earlier, human-reviewer plan and is superseded** by
+`docs/PREREGISTRATION-AMENDMENT-2-DRAFT.md`, which is the protocol to follow: three AI reviewers
+(GPT, Gemini, DeepSeek) with a majority rule, the owner labelling all 30 cases blind, the two
+unbuildable cases left out, and 14 new unlabeled cases from this repository's history (not
+twelve). The old list is kept below only for the reasoning behind it.
+
+- **Who reviews (old).** Someone other than the drafter and the owner, or the owner
   after a stated gap. The reviewer's independence is the point.
-- **Disagreements.** Proposed: a case where the reviewer differs from the draft
+- **Disagreements (old).** A case where the reviewer differs from the draft
   goes to a second independent reviewer; the drafter never breaks the tie.
-  The rule must be written before the sheet goes out.
-- **The two unbuildable cases.** Rewrite them as states the ledger can reach, or
-  drop them.
-- **Twelve more cases** to reach 30, ideally written or chosen by the reviewer,
-  not by the drafter.
+- **The two unbuildable cases (old).** Rewrite them as states the ledger can reach, or
+  drop them. Now: left out.
+- **Twelve more cases (old)** to reach 30. Now: fourteen, since two drafts are left out.
 - **The instrument.** `lab shadow` changing (for example to handle a verified
   claim that cannot be verified) changes what was frozen at registration, so it
-  needs the same dated amendment.
+  needs the same dated amendment. Still true.
 
 ## Draft amendment fields (not registered)
 
