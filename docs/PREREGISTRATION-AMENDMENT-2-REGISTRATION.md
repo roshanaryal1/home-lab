@@ -195,7 +195,8 @@ supported; the result and every comparison this amendment requires are in
 
 ## H1b, exploratory (2026-10-08, #302)
 
-Not registered, and it cannot change H1's verdict. It exists because the registered candidate
+Not registered and excluded from the registered results; it cannot change H1's verdict.
+It is reported for audit and to say what to test next, not as a second chance for H1. It exists because the registered candidate
 prompt does not define the five routes (see `docs/PREREGISTRATION.md`, Results, H1, "Limit of this
 result"). The 30 cases and their labels were already known, so this is exploratory by design.
 
