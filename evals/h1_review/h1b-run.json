@@ -1,0 +1,405 @@
+{
+  "started": "2026-10-07T12:17:23+00:00",
+  "cases": "evals/h1_review/final-cases-v2.jsonl",
+  "cases_sha256": "f52e8f309733e78b56d1ac0ba354ff1c178bbf15912a196ef4038e3f93e0b396",
+  "provenance": {
+    "lab_commit": "54863eacecda66705dfb6aa4c19a9183e2e1e362",
+    "tree_dirty": true,
+    "lab_version": "0.1.0",
+    "python": "3.13.15",
+    "sqlite": "3.53.1",
+    "cryptography": "50.0.1",
+    "os": "Darwin 27.0.0",
+    "machine": "arm64",
+    "macos_build": "26A428",
+    "power_settings": "AC Power:\n Sleep On Power Button 1\n autorestartatconnect 0\n lowpowermode         0\n standby              0\n ttyskeepawake        1\n powernap             1\n displaysleep         10\n womp                 1\n networkoversleep     0\n sleep                0\n tcpkeepalive         1\n autorestart          1\n disksleep            0",
+    "power_settings_sha256": "096fdfcb8af7c55a3128ebeec021ad7c529b9ba9fac5b4337eaa7b24cbe05ac8",
+    "on_target": true
+  },
+  "settings": {
+    "endpoint": "http://127.0.0.1:8080/v1",
+    "model": {
+      "name": "/Users/roshanaryal/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ/snapshots/cfcade7221ccd128681961446e5f7906c08cae55",
+      "revision": "cfcade7221ccd128681961446e5f7906c08cae55",
+      "tokenizer_revision": "cfcade7221ccd128681961446e5f7906c08cae55",
+      "context_tokens": 8192,
+      "max_output_tokens": 256,
+      "weights_mb": 17200,
+      "kv_bytes_per_token": 200000,
+      "heavy": true
+    },
+    "seed": 0,
+    "temperature": 0,
+    "max_tokens": 256,
+    "slot_lock": "/Users/roshanaryal/.local/share/home-lab/lab.db.model.lock",
+    "system_prompt": {
+      "path": "evals/h1_review/h1b-system-prompt.txt",
+      "sha256": "be093c949df29bb15595c1b260bd68624173218121b50d816bbadc3d505e6944"
+    }
+  },
+  "model_errors": [],
+  "valid": true,
+  "report": {
+    "rows": [
+      {
+        "case_id": "d-blog-mech-same-source",
+        "expected": "blog",
+        "baseline": "blog",
+        "candidate": "post",
+        "confidence": 0.7,
+        "seconds": 2.00333783403039,
+        "error": null
+      },
+      {
+        "case_id": "d-blog-same-source",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "blog",
+        "confidence": 0.75,
+        "seconds": 0.4598417920060456,
+        "error": null
+      },
+      {
+        "case_id": "d-blog-two-sources",
+        "expected": "blog",
+        "baseline": "blog",
+        "candidate": "post",
+        "confidence": 0.8,
+        "seconds": 0.42866650014184415,
+        "error": null
+      },
+      {
+        "case_id": "d-blog-mech-no-evidence",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "post",
+        "confidence": 0.8,
+        "seconds": 0.42609449988231063,
+        "error": null
+      },
+      {
+        "case_id": "x-entry-points",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "post",
+        "confidence": 0.8,
+        "seconds": 0.42842158395797014,
+        "error": null
+      },
+      {
+        "case_id": "x-path-with-space",
+        "expected": "blog",
+        "baseline": "blog",
+        "candidate": "post",
+        "confidence": 0.8,
+        "seconds": 0.4698264170438051,
+        "error": null
+      },
+      {
+        "case_id": "d-paper-and-pattern",
+        "expected": "blog",
+        "baseline": "paper",
+        "candidate": "paper",
+        "confidence": 0.8,
+        "seconds": 0.5177267920225859,
+        "error": null
+      },
+      {
+        "case_id": "x-removable-volume",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "post",
+        "confidence": 0.8,
+        "seconds": 0.4365902501158416,
+        "error": null
+      },
+      {
+        "case_id": "d-paper-no-baseline",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "paper",
+        "confidence": 0.9,
+        "seconds": 0.4008947091642767,
+        "error": null
+      },
+      {
+        "case_id": "x-flaky-tests",
+        "expected": "blog",
+        "baseline": "blog",
+        "candidate": "post",
+        "confidence": 0.8,
+        "seconds": 0.4625248331576586,
+        "error": null
+      },
+      {
+        "case_id": "d-blog-with-unverified-measure",
+        "expected": "paper",
+        "baseline": "blog",
+        "candidate": "paper",
+        "confidence": 0.8,
+        "seconds": 0.5120658329688013,
+        "error": null
+      },
+      {
+        "case_id": "x-selftest-pytest",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "post",
+        "confidence": 0.8,
+        "seconds": 0.4902951659169048,
+        "error": null
+      },
+      {
+        "case_id": "x-watchdog-gap",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "post",
+        "confidence": 0.7,
+        "seconds": 0.44303412502631545,
+        "error": null
+      },
+      {
+        "case_id": "d-verified-without-measurement-type",
+        "expected": "insufficient_evidence",
+        "baseline": "post",
+        "candidate": "paper",
+        "confidence": 0.9,
+        "seconds": 0.42362083308398724,
+        "error": null
+      },
+      {
+        "case_id": "x-zsh-comments",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "post",
+        "confidence": 0.8,
+        "seconds": 0.4044383750297129,
+        "error": null
+      },
+      {
+        "case_id": "d-insufficient-only-contradicted",
+        "expected": "no_artifact",
+        "baseline": "insufficient_evidence",
+        "candidate": "insufficient_evidence",
+        "confidence": 0.3,
+        "seconds": 0.43233074992895126,
+        "error": null
+      },
+      {
+        "case_id": "d-blog-mech-contradicted",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "blog",
+        "confidence": 0.8,
+        "seconds": 0.4769160831347108,
+        "error": null
+      },
+      {
+        "case_id": "d-blog-four-sources",
+        "expected": "blog",
+        "baseline": "blog",
+        "candidate": "post",
+        "confidence": 0.8,
+        "seconds": 0.4680888750590384,
+        "error": null
+      },
+      {
+        "case_id": "d-post-single-commit",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "post",
+        "confidence": 0.7,
+        "seconds": 0.3944712080992758,
+        "error": null
+      },
+      {
+        "case_id": "x-no-claims",
+        "expected": "no_artifact",
+        "baseline": "no_artifact",
+        "candidate": "no_artifact",
+        "confidence": 1.0,
+        "seconds": 0.3355929588433355,
+        "error": null
+      },
+      {
+        "case_id": "x-denylist-gaps",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "blog",
+        "confidence": 0.8,
+        "seconds": 0.466149291023612,
+        "error": null
+      },
+      {
+        "case_id": "x-server-queues",
+        "expected": "insufficient_evidence",
+        "baseline": "insufficient_evidence",
+        "candidate": "post",
+        "confidence": 0.8,
+        "seconds": 0.4224920419510454,
+        "error": null
+      },
+      {
+        "case_id": "d-mechanism-alone",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "post",
+        "confidence": 0.7,
+        "seconds": 0.5002849160227925,
+        "error": null
+      },
+      {
+        "case_id": "x-m5-claim",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "paper",
+        "confidence": 0.9,
+        "seconds": 0.43341950001195073,
+        "error": null
+      },
+      {
+        "case_id": "d-contested-pattern",
+        "expected": "blog",
+        "baseline": "post",
+        "candidate": "post",
+        "confidence": 0.7,
+        "seconds": 0.46504658297635615,
+        "error": null
+      },
+      {
+        "case_id": "x-outlive-stop",
+        "expected": "blog",
+        "baseline": "blog",
+        "candidate": "post",
+        "confidence": 0.8,
+        "seconds": 0.45911924983374774,
+        "error": null
+      },
+      {
+        "case_id": "x-keepawake-lab",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "post",
+        "confidence": 0.8,
+        "seconds": 0.4262316250242293,
+        "error": null
+      },
+      {
+        "case_id": "d-paper-two-measurements",
+        "expected": "paper",
+        "baseline": "paper",
+        "candidate": "paper",
+        "confidence": 0.95,
+        "seconds": 0.4998262501321733,
+        "error": null
+      },
+      {
+        "case_id": "d-three-bare-claims",
+        "expected": "insufficient_evidence",
+        "baseline": "insufficient_evidence",
+        "candidate": "insufficient_evidence",
+        "confidence": 0.3,
+        "seconds": 0.4412100419867784,
+        "error": null
+      },
+      {
+        "case_id": "s-approval-final",
+        "expected": "post",
+        "baseline": "post",
+        "candidate": "insufficient_evidence",
+        "confidence": 0.3,
+        "seconds": 0.4388770409859717,
+        "error": null
+      }
+    ],
+    "applied": {
+      "d-blog-mech-same-source": "blog",
+      "d-blog-same-source": "post",
+      "d-blog-two-sources": "blog",
+      "d-blog-mech-no-evidence": "post",
+      "x-entry-points": "post",
+      "x-path-with-space": "blog",
+      "d-paper-and-pattern": "paper",
+      "x-removable-volume": "post",
+      "d-paper-no-baseline": "post",
+      "x-flaky-tests": "blog",
+      "d-blog-with-unverified-measure": "blog",
+      "x-selftest-pytest": "post",
+      "x-watchdog-gap": "post",
+      "d-verified-without-measurement-type": "post",
+      "x-zsh-comments": "post",
+      "d-insufficient-only-contradicted": "insufficient_evidence",
+      "d-blog-mech-contradicted": "post",
+      "d-blog-four-sources": "blog",
+      "d-post-single-commit": "post",
+      "x-no-claims": "no_artifact",
+      "x-denylist-gaps": "post",
+      "x-server-queues": "insufficient_evidence",
+      "d-mechanism-alone": "post",
+      "x-m5-claim": "post",
+      "d-contested-pattern": "post",
+      "x-outlive-stop": "blog",
+      "x-keepawake-lab": "post",
+      "d-paper-two-measurements": "paper",
+      "d-three-bare-claims": "insufficient_evidence",
+      "s-approval-final": "post"
+    },
+    "candidate_changed_a_decision": false,
+    "n": 30,
+    "abstained": 0,
+    "candidate_accuracy": 0.43333333333333335,
+    "candidate_accuracy_overall": 0.43333333333333335,
+    "coverage": 1.0,
+    "baseline_accuracy": 0.8333333333333334,
+    "false_promotions": 8,
+    "confusion": {
+      "no_artifact": {
+        "no_artifact": 1,
+        "insufficient_evidence": 1,
+        "post": 0,
+        "blog": 0,
+        "paper": 0
+      },
+      "insufficient_evidence": {
+        "no_artifact": 0,
+        "insufficient_evidence": 1,
+        "post": 1,
+        "blog": 0,
+        "paper": 1
+      },
+      "post": {
+        "no_artifact": 0,
+        "insufficient_evidence": 1,
+        "post": 9,
+        "blog": 3,
+        "paper": 2
+      },
+      "blog": {
+        "no_artifact": 0,
+        "insufficient_evidence": 0,
+        "post": 7,
+        "blog": 0,
+        "paper": 1
+      },
+      "paper": {
+        "no_artifact": 0,
+        "insufficient_evidence": 0,
+        "post": 0,
+        "blog": 0,
+        "paper": 2
+      }
+    },
+    "expected_calibration_error": 0.32666666666666666,
+    "brier": 0.36516666666666675,
+    "latency_p95": 0.5177267920225859,
+    "peak_rss_mb": 47.578125
+  },
+  "verdict": {
+    "recommend": false,
+    "reasons": [
+      "8 false promotion(s): the candidate routed above what the evidence supports",
+      "accuracy gain -0.400 over all cases (an abstention counts as a miss) is below the required 0.050",
+      "this is advice only: a person decides, and the rubric stays the decision"
+    ]
+  }
+}
