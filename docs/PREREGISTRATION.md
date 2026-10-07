@@ -324,6 +324,17 @@ seed 20260930). H1 is **falsified** twice over: five false promotions (one is en
 gain far below +0.05. Coverage, 0.87, met its 0.80 floor. Calibration: ECE 0.417, Brier 0.329. The p95 latency, 0.58 s, is per case; the
 recorded peak RSS, 42 MB, is the harness process, not the model server.
 
+Per class, by final label (cases; right by the rubric; right by the candidate; candidate
+abstained):
+
+| final label | cases | rubric | candidate | abstained |
+|---|---|---|---|---|
+| no_artifact | 2 | 1 | 1 | 0 |
+| insufficient_evidence | 3 | 2 | 1 | 0 |
+| post | 15 | 15 | 1 | 1 |
+| blog | 8 | 6 | 0 | 3 |
+| paper | 2 | 1 | 0 | 0 |
+
 The candidate never answered `blog`, and answered `no_artifact` ten times, six of them on cases
 labelled `post`. The five false promotions were all to `paper`: cases 09, 17, 23, 25 and 28. The
 owner's labels agree with the final label on 23, 25 and 28 and say `insufficient_evidence` for 09

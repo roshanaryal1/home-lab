@@ -50,6 +50,12 @@ def main() -> None:
     show("rubric -> owner", [(rows[i]["baseline"], owner[neutral[i]]) for i in ids])
     show("candidate -> owner", [(str(rows[i]["candidate"]), owner[neutral[i]]) for i in ids])
     print("candidate routes:", dict(Counter(str(rows[i]["candidate"]) for i in ids)))
+    print("per class (final label): cases, rubric right, candidate right, candidate abstained")
+    for route in ("no_artifact", "insufficient_evidence", "post", "blog", "paper"):
+        of = [i for i in ids if final[i] == route]
+        print(f"  {route}: {len(of)}, {sum(rows[i]['baseline'] == route for i in of)}, "
+              f"{sum(rows[i]['candidate'] == route for i in of)}, "
+              f"{sum(rows[i]['candidate'] is None for i in of)}")
     for i in ids:
         cand = rows[i]["candidate"]
         if cand is not None and RANK[cand] > RANK[final[i]]:
