@@ -197,7 +197,8 @@ below were made on the Mac mini M6 after the registration timestamp
 (2026-09-29 14:45:00 UTC), from a clean checkout of the registered commit
 `d8726b43`, except H3, which ran from a clean checkout of `05b8101` (the
 commit that added these results; no file under `lab/` changed between the
-two). Records are sealed in `evals/runs/` (file names give the start time
+two), and except H1, which ran on 2026-10-07 from `main` commit `4308645` with three
+untracked notes and no changed tracked file (see "H1: not supported"). Records are sealed in `evals/runs/` (file names give the start time
 and the first eight hex digits of the record hash).
 
 ### Manipulation check (16:50 UTC)
@@ -282,7 +283,7 @@ pairwise `lab bench tune` verdicts agree. Ten records in `evals/runs/`
 
 ### H1
 
-Not run. H1 needs 30 labeled shadow cases. Its case file and the way its labels are
+Run on 2026-10-07 and **not supported**: see "H1: not supported" below. H1 needs 30 labeled shadow cases. Its case file and the way its labels are
 assigned were frozen in Amendment 2, registered on OSF at https://osf.io/q75bx/ (DOI
 10.17605/OSF.IO/Q75BX) on 2026-10-07 08:12 UTC, before any of its three registered AI reviewers saw a case (the 16 reused draft cases carry
 labels written by an earlier Claude session, as the amendment discloses); see
