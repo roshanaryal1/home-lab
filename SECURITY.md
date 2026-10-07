@@ -747,21 +747,6 @@ every draft by hand.
 - The worker ceilings for the three new handlers are the defaults, not
   values measured on real work. Setting them from measured peaks is #180,
   and it waits for the handlers to run real tasks on the Mac mini.
-- An owner-only Telegram bot gives the owner a shell on the Mac mini
-  from the phone (#184). The chat channel above replaces it (#239), but
-  retiring it is an operator step on the Mac that has not been done yet
-  (`ops/mac-mini-setup.md` section 23): stop its service and revoke its token.
-  Until then it lives outside this repository and
-  bypasses the lab's broker, approvals and audit log: a command sent
-  through it runs as the owner's macOS user, not as the lab account. It
-  answers one paired chat id only, needs a fresh TOTP code to open the
-  shell, refuses replayed codes and locks `/unlock` after five wrong
-  codes. By the owner's choice the shell then stays open until `/lock`
-  or a reboot, so whoever holds the owner's unlocked phone and Telegram
-  session holds that shell. Telegram bot chats are not end-to-end
-  encrypted: commands and output pass through Telegram's servers, so no
-  secrets go through it. Its token, TOTP secret and chat id live only in
-  the macOS Keychain.
 
 ## What does NOT exist yet
 
@@ -779,10 +764,15 @@ absent is worse than no policy:
   print the signed command, but signing needs the operator key, which lives on
   the Mac outside the lab account's reach. A way to sign from the phone without
   moving that key is not designed yet; no new cryptography was added for it.
-- **The chat channel has not run against the real Telegram API.** It is tested
-  against a fake Bot API behind the real egress gateway (`tests/test_chat.py`).
-  Installing it, pairing the chat id and retiring the raw-shell bot are operator
-  steps on the Mac (`ops/mac-mini-setup.md` section 23).
+- **The chat channel is checked on the real Telegram API only in part.** It is
+  tested against a fake Bot API behind the real egress gateway
+  (`tests/test_chat.py`). On 2026-10-07 it was installed on the Mac mini and the
+  paired chat got `/status` and a model reply back
+  (`docs/reviews/2026-10-07-chat-bot-install.md`). Not yet checked there: an
+  unpaired account, `/stop`, the approval boundary and a reboot. The old
+  TOTP-gated raw-shell bot, which ran commands as the owner outside the broker
+  (#184), was retired the same day: the bot deleted in Telegram, its service and
+  plist removed, and its token and TOTP secret deleted from the Keychain.
 - **Memory and CPU ceilings cover reviewed handlers only, and are set from a thin
   measurement.** A reviewed handler's worker process is sampled every
   half second (`ps` over its process group) and killed with the group above
