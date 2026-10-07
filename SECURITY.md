@@ -650,16 +650,11 @@ Implemented and tested:
   refused, so macOS decides on the parent's grant (2026-10-08). That the launcher's grant reaches its Python child
   is checked by the first run after the move (runbook, "Moving the backup's Full
   Disk Access to its launcher"); until the owner makes that move, the interpreter
-  still holds the grant. **Not closed:** the job reads files the `lab` account can
-  change: the alert command in `/etc/homelab/alert.json`, the alert state file
-  next to the database (written without refusing a symlink) and the database path.
-  So code running as `lab` can plant a command or a symlink there and have it act
-  with the grant at the next scheduled run. A process can also start the launcher
-  as responsible for itself without launchd (the private
-  `responsibility_spawnattrs_setdisclaim` call did this without sudo on the mini),
-  which runs the same fixed backup early; run 14 times, that rotates every older
-  backup out. Both are narrower than the interpreter's grant, which gave any such
-  code the volume at once. Recovery drills
+  still holds the grant. **Not closed:** the job still reads and writes files
+  that the `lab` account can change, and it can be started outside launchd.
+  Hardening its inputs and outputs is follow-up work for the owner. Both gaps
+  are narrower than the interpreter's grant, which gave any such code the
+  volume at once. Recovery drills
   (`lab drill`, `ops/drills/`) record every run and count as
   demonstrated only on the Mac mini; the monthly drill there is parked.
 - **Constrained decoding and shadow measurement** (`lab/grammar.py`,
