@@ -133,6 +133,31 @@ the replies in the table above. It wrote 30 cases, so H1 is testable at the regi
 The same command on a second machine gave the same case-file hash. These labels are frozen. They
 were not compared with the owner's labels or the drafts before they were fixed.
 
+## Departure: one case could not be built (2026-10-07)
+
+The first H1 run stopped before the candidate answered any case: `lab shadow` refused to build
+case-14 (`x-home-readable`), whose one claim is marked checked by a person but has only one
+source, and the ledger verifies a claim only with two independent sources. It is the same defect
+that left `d-paper-one-source` out before registration. The registration states 30 buildable
+cases; that was not checked for the 14 new cases, and this one is not buildable. The other 29
+main cases and all 8 spares build.
+
+**Decided by the owner before any model output and before any comparison with the owner's labels
+or the drafts:** a case the ledger cannot build is handled like a three-way split. It leaves the
+set and is replaced, in ascending case order, by the lowest-numbered unused spare that has a
+majority and builds; a spare that cannot be built is skipped. No main case was split, so case-14
+is replaced by spare-01 (`s-approval-final`). `lab.h1_labels` now checks every case against the
+ledger and applies this rule mechanically.
+
+| File | SHA-256 |
+|---|---|
+| `evals/h1_review/final-cases-v2.jsonl` (the file H1 runs on) | `f52e8f309733e78b56d1ac0ba354ff1c178bbf15912a196ef4038e3f93e0b396` |
+| `evals/h1_review/final-report-v2.json` | `8d16d04fd9304d6a71f11fc2ed0f06922df4076e4b3c7848b2c00558a0bb93d8` |
+
+The first file, `final-cases.jsonl`, is kept unchanged. The two files share 29 cases with the same
+labels; only case-14 and spare-01 differ. The replaced case, its three labels and the owner's
+label are reported with the result, as the amendment requires for a replaced case.
+
 ## Running H1
 
 `lab shadow` ran only the rubric from the command line; the candidate could be wired only from
@@ -152,7 +177,7 @@ one registered, and the record states which.
 The H1 run, on the Mac mini with the model server from `ops/mac-mini-setup.md` section 13 up:
 
 ```sh
-uv run python -m lab.cli shadow --cases evals/h1_review/final-cases.jsonl \
+uv run python -m lab.cli shadow --cases evals/h1_review/final-cases-v2.jsonl \
   --endpoint http://127.0.0.1:8080/v1 \
   --model ~/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ/snapshots/cfcade7221ccd128681961446e5f7906c08cae55 \
   --revision cfcade7221ccd128681961446e5f7906c08cae55 --weights-mb 17200 \

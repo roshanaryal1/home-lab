@@ -1,0 +1,93 @@
+{
+  "labels": {
+    "d-blog-mech-same-source": "blog",
+    "d-blog-same-source": "post",
+    "d-blog-two-sources": "blog",
+    "d-blog-mech-no-evidence": "post",
+    "x-entry-points": "post",
+    "x-path-with-space": "blog",
+    "d-paper-and-pattern": "blog",
+    "x-removable-volume": "post",
+    "d-paper-no-baseline": "post",
+    "x-flaky-tests": "blog",
+    "d-blog-with-unverified-measure": "paper",
+    "x-selftest-pytest": "post",
+    "x-watchdog-gap": "post",
+    "d-verified-without-measurement-type": "insufficient_evidence",
+    "x-zsh-comments": "post",
+    "d-insufficient-only-contradicted": "no_artifact",
+    "d-blog-mech-contradicted": "post",
+    "d-blog-four-sources": "blog",
+    "d-post-single-commit": "post",
+    "x-no-claims": "no_artifact",
+    "x-denylist-gaps": "post",
+    "x-server-queues": "insufficient_evidence",
+    "d-mechanism-alone": "post",
+    "x-m5-claim": "post",
+    "d-contested-pattern": "blog",
+    "x-outlive-stop": "blog",
+    "x-keepawake-lab": "post",
+    "d-paper-two-measurements": "paper",
+    "d-three-bare-claims": "insufficient_evidence",
+    "s-approval-final": "post"
+  },
+  "testable": true,
+  "main": {
+    "unanimous": 18,
+    "two_to_one": 12,
+    "three_way": 0,
+    "outvoted": {
+      "deepseek": 9,
+      "gemini": 1,
+      "gpt": 2
+    }
+  },
+  "spares": {
+    "unanimous": 3,
+    "two_to_one": 2,
+    "three_way": 3,
+    "outvoted": {
+      "deepseek": 1,
+      "gemini": 0,
+      "gpt": 1
+    }
+  },
+  "unbuildable": [
+    "case-14"
+  ],
+  "replaced": [
+    {
+      "case": "case-14",
+      "id": "x-home-readable",
+      "reason": "cannot be built",
+      "votes": {
+        "gpt": "post",
+        "gemini": "post",
+        "deepseek": "post"
+      },
+      "spare": "spare-01",
+      "spare_id": "s-approval-final",
+      "route": "post"
+    }
+  ],
+  "spares_skipped": [],
+  "spares_unused": [
+    "spare-02",
+    "spare-03",
+    "spare-04",
+    "spare-05",
+    "spare-06",
+    "spare-07",
+    "spare-08"
+  ],
+  "not_replaced": [],
+  "counts": {
+    "blog": 8,
+    "insufficient_evidence": 3,
+    "no_artifact": 2,
+    "paper": 2,
+    "post": 15
+  },
+  "file": "evals/h1_review/final-cases-v2.jsonl",
+  "sha256": "f52e8f309733e78b56d1ac0ba354ff1c178bbf15912a196ef4038e3f93e0b396"
+}
