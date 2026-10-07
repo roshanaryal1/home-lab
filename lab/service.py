@@ -7,8 +7,9 @@ process when the heartbeat goes stale; launchd then restarts it.
 
 The heartbeat is a small JSON file next to the database: pid, time, and
 the process start time. The watchdog signals a pid it read from that file only
-when the recorded start time still matches ``ps`` (so a pid that was reused by
-another process is never killed), and never pid 0 or 1.
+when the recorded start time is present and still matches ``ps`` (so a pid that
+was reused by another process is never killed), when that process's command
+line is this database's supervisor (the same test as below), and never pid 0 or 1.
 
 One more case, because the file alone cannot show it (2026-10-06, #271): a
 supervisor that hangs after a restart, before its first heartbeat, leaves a file
@@ -213,7 +214,9 @@ def check(db: str | Path, *, max_age: float = DEFAULT_MAX_AGE,
     if age <= max_age:
         return Verdict("healthy", beat.pid, age)
     current = _start_time(beat.pid)
-    if current is None or (beat.started is not None and current != beat.started):
+    if (current is None or beat.started is None or current != beat.started
+            or not _still_that_supervisor(db, beat.pid, 0.0)):
+        # Gone, reused, or not this database's supervisor: look for the real one instead.
         return _unseen_supervisor(db, max_age, dry_run, Verdict("not_running", beat.pid, age))
     if dry_run:
         return Verdict("would_kill", beat.pid, age)
