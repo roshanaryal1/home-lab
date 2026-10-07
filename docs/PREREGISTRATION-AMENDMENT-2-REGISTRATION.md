@@ -80,3 +80,41 @@ one new conversation and the spare sheet in another, with the prompt in
 `evals/h1_review/ai-reviewer-prompt.md`; replies are saved as
 `answers-<reviewer>-<attempt>.json` and `answers-<reviewer>-spares-<attempt>.json`. This note will be
 extended with what happened, including any retry or departure.
+
+## What happened (2026-10-07)
+
+All six conversations are in, saved byte for byte in `evals/h1_review/ai-replies/`, each recorded
+on [#84](https://github.com/roshanaryal1/home-lab/issues/84) with its SHA-256. Only their structure
+was checked. None has been compared with any label.
+
+| Reviewer | Main sheet, used | Spare sheet, used | Set aside, kept |
+|---|---|---|---|
+| `gpt-5.6-sol` | `answers-gpt-5.6-sol-1.json` | `answers-gpt-5.6-sol-spares-1.json` | none |
+| `gemini-3.6-flash` | `answers-gemini-3.6-flash-1.json` | `answers-gemini-3.6-flash-spares-1.json` | none |
+| `deepseek-flash` | `answers-deepseek-flash-3.json` | `answers-deepseek-flash-spares-2.json` | `answers-deepseek-flash-1.json`, `answers-deepseek-flash-2.json`, `answers-deepseek-flash-spares-1.MALFORMED.txt` |
+
+Settings, as reported by the owner. ChatGPT: model gpt-5.6-sol, thinking high, search, memory,
+tools and custom instructions off, new chats. Gemini: model shown as 3.6 Flash, Fast, Google
+Search, personal context, saved info and memory off, new chats, the same for both sheets. DeepSeek:
+Search and DeepThink off, new chats. The DeepSeek page shows no model name or version. The three
+vendors' thinking modes are not equal, because the protocol does not set one. This is a stated
+limit.
+
+Retries and departures:
+
+1. DeepSeek main, attempt 1, was made with Search on. It is set aside under a rule fixed on #84
+   before any comparison.
+2. DeepSeek spares, attempt 1, was malformed (an essay, not one JSON object). The one permitted
+   retry, attempt 2, is used. No route was taken from attempt 1.
+3. **Departure.** DeepSeek main, attempt 2, was well formed, but the page had turned the pasted
+   message (15,019 bytes) into an attachment shown as 13.64 KB. Compared with the frozen sheet, the
+   attachment was missing text in nine cases (case-07, 11, 13, 15, 17, 19, 20, 25 and 26), so the
+   reviewer did not see the frozen sheet. The protocol allows a retry only for a malformed reply, so
+   a third attempt is a departure. It was decided before any label was compared. Attempt 3 was sent
+   in a new chat with the registered prompt and sheet (15,018 bytes, SHA-256
+   `d240e344455ee9d759bb68221b755741bd404687a47e5991caf697650af648a1`). The attachment showed
+   14.67 KB and the owner checked that every case was complete. Attempt 3 is used. The owner also
+   checked that the other five conversations received their full sheets.
+
+The final labels are made once by `lab.h1_labels` (see `evals/h1_review/README.md`) and frozen by
+the SHA-256 it prints.
