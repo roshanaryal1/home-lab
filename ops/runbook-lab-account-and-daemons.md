@@ -309,6 +309,8 @@ done
   (`sudo tail /var/log/homelab/supervisor.log`), and
   `sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db status`
   reports healthy.
+- Keep-awake runs as `lab` too (#235). On a new machine, run step 1 of "Moving
+  keep-awake to the lab account" before this step, and its step 4 once a task runs.
 - Undo one service: `sudo launchctl bootout system/com.homelab.<name>`.
 - Closes: 5 "launchd job ... for the supervisor", "watchdog or heartbeat",
   "structured rotating logs", "queue-aware sleep prevention" (after the
@@ -569,6 +571,122 @@ sudo launchctl bootstrap system $P/com.homelab.backup.plist
 Then add the interpreter to Full Disk Access again (the path that
 `readlink -f /opt/homelab/.venv/bin/python` prints), run step 6 again, and put what
 `backup.err` said on #287. The launcher can stay installed: nothing runs it then.
+
+## Moving keep-awake to the lab account (#235, once)
+
+`com.homelab.keepawake` only reads the database and starts `caffeinate -i` while work
+is pending, so it needs no privilege. Since #235 the committed definition runs it as
+`lab` (its `UserName` key; `launchd.plist(5)` applies that key to jobs in the system
+domain, where all of these daemons are loaded). The installed copy in
+`/Library/LaunchDaemons` keeps running as root until this section is done. Do step 1
+before deploying the commit that brings the change. If step 1 fails, do not deploy
+it: a keep-awake that cannot hold the power assertion lets the Mac sleep with work
+queued. Use one Terminal window, with `REPO` set as at the top of this runbook.
+
+1. **Can `lab` hold the power assertion?** This is the session script's `caffeinate`
+   step. It starts `caffeinate -i -t 15` as `lab` and passes only if
+   `pmset -g assertions` lists a `PreventUserIdleSystemSleep` assertion whose pid is a
+   `caffeinate` running as `lab`. Assertions of other `caffeinate` processes do not
+   count: the root keep-awake daemon holds its own while work is pending, and other
+   sessions may run theirs. The version of the step that passed on 2026-10-06 counted
+   those too, so run it again. Until the commit that adds this section is on `main`,
+   fetch its branch first (`git switch -` takes you back afterwards):
+
+   ```sh
+   cd "$REPO"
+   git fetch origin
+   git switch --detach origin/fix/235-keepawake-as-lab
+   ```
+
+   Then run the step:
+
+   ```sh
+   cd "$REPO"
+   ./ops/mac-session.sh --only caffeinate
+   ```
+
+   It passes when the result says `PASS` with `caffeinate pid <n> runs as lab and
+   holds PreventUserIdleSystemSleep`. Put the report's `caffeinate` section on #235.
+   A `FAIL` that says `no caffeinate line` can be run once more; any other `FAIL`
+   means stop here, and keep-awake stays root. This runs `caffeinate` as `lab` from
+   your Terminal through `sudo`, not from launchd; step 4 checks the daemon itself.
+2. **Deploy** the commit as in "Updating the deployed code". Its `diff --stat` lists
+   `ops/launchd/com.homelab.keepawake.plist` and `lab/service.py`. Leave the
+   keep-awake definition out of that section's reinstall list; step 3 reinstalls it.
+   Other definitions the same update changes are handled as that section says.
+3. **Reinstall the definition and reload it.** The first lines note how long the
+   error log is now, so step 4 reads only new lines:
+
+   ```sh
+   P=/Library/LaunchDaemons
+   ERR0=$(sudo cat /var/log/homelab/keepawake.err | wc -l | tr -d ' ')
+   echo "keepawake.err has $ERR0 lines"
+   sudo launchctl bootout system/com.homelab.keepawake
+   sudo install -o root -g wheel -m 644 /opt/homelab/ops/launchd/com.homelab.keepawake.plist $P/com.homelab.keepawake.plist
+   sudo chown lab /var/log/homelab/keepawake.log /var/log/homelab/keepawake.err
+   plutil -p $P/com.homelab.keepawake.plist
+   sudo launchctl bootstrap system $P/com.homelab.keepawake.plist
+   sleep 5
+   sudo launchctl print system/com.homelab.keepawake | grep -E "state|last exit"
+   ps -o user=,pid=,command= -p $(pgrep -f "lab.cli --db /var/homelab/lab.db keepawake")
+   ```
+
+   `plutil -p` must show `"UserName" => "lab"`, `launchctl print` must show
+   `state = running`, and `ps` must show `lab` as the user. The `chown` is there
+   because the root job created both log files, and `launchd.plist(5)` does not say
+   whether launchd opens them before or after it switches to `UserName`. Giving them
+   to `lab` works either way; their folder already belongs to `lab`.
+4. **Check it while a task is active.** From the phone, send the lab's chat bot a
+   plain message that takes the model a while, such as a request for a long summary
+   (setup section 23); it becomes a task. Keep-awake looks at the queue every 30
+   seconds. About a minute later, while the task is still running:
+
+   ```sh
+   KA=$(pgrep -f "lab.cli --db /var/homelab/lab.db keepawake")
+   CF=$(pgrep -P "$KA" -x caffeinate)
+   echo "keep-awake pid: ${KA:-none}, its caffeinate pid: ${CF:-none}"
+   ps -o user=,pid=,ppid=,command= -p "$KA"
+   ps -o user=,pid=,ppid=,command= -p "$CF"
+   pmset -g assertions | grep "pid ${CF}(caffeinate)"
+   sudo tail -n 3 /var/log/homelab/keepawake.log
+   sudo tail -n +$((ERR0 + 1)) /var/log/homelab/keepawake.err
+   ```
+
+   It passes when the `echo` line shows two pids; both `ps` lines start with `lab`,
+   and the third column of the second one (its parent) is the keep-awake pid; the
+   `pmset` line names that `caffeinate` pid with `PreventUserIdleSystemSleep`; the
+   log's last lines say `hold: <n> task(s) queued or running`; and the last `tail`
+   prints nothing. The match is by pid because `pmset` lists every account's
+   assertions, and other `caffeinate` processes may be running. If the `caffeinate`
+   pid is `none`, wait 30 seconds and run the block again. If the log says
+   `hold: activity within the last 600s`, the task finished first: who holds the
+   assertion is checked the same way, but send a longer message and run the block
+   again to see it under a running task.
+
+   Then the release, the other half of setup section 5's item: about ten minutes
+   after the reply, with nothing else queued, run the block again. The `caffeinate`
+   pid must be `none` and the log's last line must start with `release:`. Put the
+   output of both runs on #235, and tick "Queue-aware sleep prevention" in setup
+   section 5 only if both were seen.
+5. **Roll back** if step 3 or 4 fails: keep-awake does not stay running,
+   `keepawake.err` has new lines, or no `caffeinate` running as `lab` holds the
+   assertion while a task runs. This puts the root definition back:
+
+   ```sh
+   P=/Library/LaunchDaemons
+   sudo launchctl bootout system/com.homelab.keepawake
+   sudo plutil -remove UserName $P/com.homelab.keepawake.plist
+   plutil -p $P/com.homelab.keepawake.plist
+   sudo launchctl bootstrap system $P/com.homelab.keepawake.plist
+   sleep 5
+   ps -o user=,pid=,command= -p $(pgrep -f "lab.cli --db /var/homelab/lab.db keepawake")
+   ```
+
+   `plutil -p` must no longer show `UserName`, and `ps` must show `root`. Without
+   `UserName` the file is the definition from before #235, key for key (checked on
+   copies on 2026-10-08). The code deployed in step 2 runs the same keep-awake
+   either way. Put step 4's output and the new lines of `keepawake.err` on #235. A
+   later update reinstalls this file only if it changes again.
 
 ## What stays open after this sitting
 

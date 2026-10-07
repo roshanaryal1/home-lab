@@ -52,7 +52,7 @@ LAB_CONTAINER_IMAGE='<name@sha256:...>' ./ops/mac-session.sh
 | Step | Issue | Why it needs the Mac |
 |---|---|---|
 | `home` | #225 | Whether `lab` can read your home folder depends on this Mac's real permissions. |
-| `caffeinate` | #235 | Whether a non-admin account can hold a power assertion is a macOS rule. If it passes, the keep-awake daemon moves to `lab`. |
+| `caffeinate` | #235 | Whether a non-admin account can hold a power assertion is a macOS rule. If it passes, the keep-awake daemon moves to `lab` (runbook, "Moving keep-awake to the lab account"). |
 | `signature` | #70 | Uses the real operator public key in `/etc/homelab`. |
 | `backup` | #67 | Writes to the real backup disk as `lab`. |
 | `alert` | #79, #80 | A real alert must reach your phone. |

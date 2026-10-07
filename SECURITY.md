@@ -443,14 +443,16 @@ Implemented and tested:
   on the mini (#70). The account name is validated as a POSIX name, and the
   private key appears only in a check that expects "Permission denied".
 - **Which jobs run as root, and why** (#235). The supervisor, `lab tick`, the
-  status check, the self-test, the daily backup (#67) and the dead-man switch
-  ping (#79) run as the lab account. Two jobs run as root.
-  The watchdog has to: it signals a supervisor owned by another account.
-  `lab keepawake` does not have to: it only reads the database and starts
-  `caffeinate`. It stays root until the operator confirms on the mini that
-  `caffeinate` under the lab account still holds a power assertion from a
-  LaunchDaemon. Then its plist gets `UserName=lab`
-  (`service.keepawake_plist(user="lab")`). Root opening a database the lab account controls was
+  status check, the self-test, the daily backup (#67), the dead-man switch
+  ping (#79), the chat (#239) and `lab keepawake` run as the lab account. One
+  job runs as root, the watchdog, because it signals a supervisor owned by
+  another account; `tests/test_service.py` fails if any other committed job
+  lacks `UserName`. `lab keepawake` only reads the database and starts
+  `caffeinate`, so its committed definition runs it as `lab` since #235. On the
+  mini the installed copy stays root until the operator has checked that a
+  `caffeinate` running as `lab` holds the power assertion and has reinstalled
+  the definition (runbook, "Moving keep-awake to the lab account"). Until then,
+  root opens a database the lab account controls. That was
   tested for the symlink case: with SQLite 3.53.1 a symlinked `-shm` makes
   the open fail, and nothing is followed or written.
 - **Sleep prevention and logs** (`lab/keepawake.py`, `lab/logsetup.py`, H5a).
