@@ -161,6 +161,48 @@ def test_backup_of_a_missing_database_fails_clearly(tmp_path: Path) -> None:
         backup.backup(tmp_path / "nope.db", tmp_path / "bk")
 
 
+def _never_opened(*_args: object, **_kwargs: object) -> None:
+    raise AssertionError("the database was opened before its path was checked")
+
+
+@pytest.mark.safety
+def test_backup_refuses_a_database_path_that_is_a_symbolic_link(
+        tmp_path: Path, live, monkeypatch: pytest.MonkeyPatch) -> None:
+    _q, db, store = live
+    link = tmp_path / "linked.db"
+    link.symlink_to(db)
+    monkeypatch.setattr(backup.sqlite3, "connect", _never_opened)
+    with pytest.raises(backup.BackupError, match="is a symbolic link"):
+        backup.backup(link, tmp_path / "bk", store.root)
+    assert not (tmp_path / "bk").exists(), "refused before anything is read or written"
+
+
+@pytest.mark.safety
+@pytest.mark.parametrize("shape", ["directory", "fifo"])
+def test_backup_refuses_a_database_path_that_is_not_a_regular_file(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str) -> None:
+    path = tmp_path / "lab.db"
+    if shape == "directory":
+        path.mkdir()
+    else:
+        os.mkfifo(path)
+    monkeypatch.setattr(backup.sqlite3, "connect", _never_opened)
+    with pytest.raises(backup.BackupError, match="is not a regular file"):
+        backup.backup(path, tmp_path / "bk")
+    assert not (tmp_path / "bk").exists()
+
+
+def test_a_database_reached_through_a_linked_folder_is_still_backed_up(
+        tmp_path: Path, live) -> None:
+    """Only the last part of the path is checked. The deployed path,
+    /var/homelab/lab.db, goes through /var, which macOS links to /private/var."""
+    _q, db, store = live
+    folder = tmp_path / "linked-folder"
+    folder.symlink_to(db.parent, target_is_directory=True)
+    manifest = backup.backup(folder / db.name, tmp_path / "bk", store.root)
+    assert backup.restore_check(manifest, tmp_path / "restored").ok
+
+
 # ------------------------------------------------------------------ CLI
 
 

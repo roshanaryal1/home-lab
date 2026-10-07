@@ -287,6 +287,39 @@ def test_cli_refuses_a_symlinked_destination_and_a_bad_keep(tmp_path: Path, live
     assert not list(real.iterdir())
 
 
+@pytest.mark.safety
+def test_cli_backup_refuses_a_linked_database_path_and_alerts(tmp_path: Path, live,
+                                                            capsys) -> None:
+    db, _store = live
+    link = tmp_path / "linked.db"
+    link.symlink_to(db)
+    dest = tmp_path / "bk"
+    cfg, out = _recorder(tmp_path)
+    assert main(["--db", str(link), "backup", "--to", str(dest), "--keep", "2",
+                 "--alert-config", str(cfg)]) == 1
+    assert f"backup: {link} is a symbolic link" in capsys.readouterr().err
+    assert not dest.exists(), "nothing is read or written for a refused path"
+    assert out.read_text().startswith("backup: ")
+
+
+@pytest.mark.safety
+def test_a_failed_backup_alerts_and_writes_its_state_only_as_a_regular_file(
+        tmp_path: Path, live, capsys) -> None:
+    db, _store = live
+    elsewhere = tmp_path / "elsewhere.txt"
+    elsewhere.write_text("unchanged")
+    state = Path(f"{db}.alert")
+    state.symlink_to(elsewhere)
+    cfg, out = _recorder(tmp_path)
+    assert main(["--db", str(db), "backup", "--to", str(tmp_path / "bk"), "--keep", "0",
+                 "--alert-config", str(cfg)]) == 1
+    err = capsys.readouterr().err
+    assert "backup: --keep must be at least 1" in err, "the backup result is still reported"
+    assert f"{state} is a symbolic link" in err and "alert: sent" in err
+    assert out.read_text().startswith("backup: "), "the alert still goes out"
+    assert state.is_symlink() and elsewhere.read_text() == "unchanged"
+
+
 # ------------------------------------------------------------------ launchd
 
 

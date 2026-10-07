@@ -67,12 +67,30 @@ def _fsync_dir(path: Path) -> None:
         os.close(fd)
 
 
+def _check_database_path(db_path: Path) -> None:
+    """Refuse a database path that is a symbolic link or not a regular file.
+
+    Only the last part of the path is looked at (``lstat``), so a folder on
+    the way that is a link still works: the deployed ``/var/homelab/lab.db``
+    goes through ``/var``, which macOS links to ``/private/var``. SQLite opens
+    the path itself, so this is checked just before it does, and before
+    anything else is read or written.
+    """
+    try:
+        mode = os.lstat(db_path).st_mode
+    except (FileNotFoundError, NotADirectoryError):
+        raise BackupError(f"no database at {db_path}") from None
+    if stat.S_ISLNK(mode):
+        raise BackupError(f"{db_path} is a symbolic link; give the database file itself")
+    if not stat.S_ISREG(mode):
+        raise BackupError(f"{db_path} is not a regular file")
+
+
 def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
            now: datetime | None = None) -> Path:
     """Snapshot ``db_path`` and its artifacts into ``dest``; return the manifest path."""
     db_path = Path(db_path)
-    if not db_path.exists():
-        raise BackupError(f"no database at {db_path}")
+    _check_database_path(db_path)
     dest = Path(dest)
     dest.mkdir(mode=0o700, parents=True, exist_ok=True)
     stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
