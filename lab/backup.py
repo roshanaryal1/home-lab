@@ -171,6 +171,11 @@ class RestoreReport:
         self.problems.append(message)
 
 
+# Every field restore_check reads; a manifest without one is unreadable, not a crash.
+_MANIFEST_FIELDS = ("database", "database_sha256", "database_bytes", "schema_version",
+                    "audit_head", "audit_events")
+
+
 def restore_check(manifest_path: Path, into: Path) -> RestoreReport:
     """Restore a backup into a fresh directory and verify everything.
 
@@ -184,8 +189,11 @@ def restore_check(manifest_path: Path, into: Path) -> RestoreReport:
     report = RestoreReport()
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        missing = [k for k in _MANIFEST_FIELDS if k not in manifest]
+        if missing:
+            raise KeyError(", ".join(missing))
         source_db = manifest_path.parent / manifest["database"]
-    except (OSError, ValueError, KeyError) as exc:
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         raise BackupError(f"unreadable manifest {manifest_path}: {exc}") from exc
     if not source_db.exists():
         report.fail(f"backup database {source_db.name} is missing")
@@ -244,6 +252,23 @@ def restore_check(manifest_path: Path, into: Path) -> RestoreReport:
 
 _MANIFEST_NAME = re.compile(r"^lab-(\d{8}T\d{6}Z)\.manifest\.json$")
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def newest_manifest(folder: Path) -> Path:
+    """The newest manifest ``backup`` wrote in ``folder``, by the stamp in its name.
+
+    Only names ``backup`` writes count, and only regular files: a symlink
+    with a backup's name is not followed. Nothing in ``folder`` is changed.
+    """
+    folder = Path(folder)
+    try:
+        names = [entry.name for entry in os.scandir(folder)
+                 if _MANIFEST_NAME.match(entry.name) and entry.is_file(follow_symlinks=False)]
+    except OSError as exc:
+        raise BackupError(f"cannot list {folder}: {exc.strerror}") from exc
+    if not names:
+        raise BackupError(f"no backup manifest (lab-*.manifest.json) in {folder}")
+    return folder / max(names)
 
 
 @dataclass
