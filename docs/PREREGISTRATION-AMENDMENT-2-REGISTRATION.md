@@ -185,3 +185,10 @@ uv run python -m lab.cli shadow --cases evals/h1_review/final-cases-v2.jsonl \
 ```
 
 After it: the comparisons the amendment lists under "Reported with the result".
+
+## The H1 run (2026-10-07)
+
+Run once, on the Mac mini, with the command above. Record `evals/h1_review/h1-run.json`
+(SHA-256 `9d06bed917dbea2e1d83e29856b820d68c9c9c5cd1f3967363f3f112148b8b3d`). H1 is not
+supported; the result and every comparison this amendment requires are in
+`docs/PREREGISTRATION.md`, Results, H1.
