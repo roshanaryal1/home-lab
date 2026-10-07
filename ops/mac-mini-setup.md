@@ -764,7 +764,8 @@ chat into tasks (`lab/chat.py`, SECURITY.md "Chat through the broker"). It runs
 as `lab`, so `lab` can read its token: use a **new bot** from BotFather for it,
 never the alert bot and never the old shell bot. Press Start on it once.
 
-- [ ] Install and pair. `setup-plan --apply` already copied
+- [x] Install and pair (done 2026-10-07, see
+      `docs/reviews/2026-10-07-chat-bot-install.md`). `setup-plan --apply` already copied
       `com.homelab.chat.plist` root-owned to `/Library/LaunchDaemons`; if it
       predates this section, copy it from `/opt/homelab/ops/launchd/` the same
       way. The pairing and the token go into the installed copy, which `lab`
@@ -786,10 +787,11 @@ never the alert bot and never the old shell bot. Press Start on it once.
       ```
 
       Mode 600 keeps the token from other local accounts; that launchd loads a
-      600 definition is to be confirmed here. The Keychain is the other source
+      600 definition was confirmed here on 2026-10-07. The Keychain is the other source
       `lab.vault` reads (service `home-lab`, account `telegram-chat-bot`), but
       that path is unexercised from a daemon (#15).
-- [ ] Check from the phone: `/status` answers; a plain message is queued and
+- [x] Check from the phone (2026-10-07: `/status` and a plain message both worked;
+      the unpaired-account part was not checked): `/status` answers; a plain message is queued and
       answered (needs the model settings in the supervisor, section 16); a
       message from another Telegram account gets no answer and shows up as
       `unpaired` in `sudo tail /var/log/homelab/chat.log`.
