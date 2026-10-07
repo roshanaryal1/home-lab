@@ -330,3 +330,55 @@ def test_cli_baseline_only_can_record_too(capsys: pytest.CaptureFixture[str],
                  "--record", str(record)]) == 0
     saved = json.loads(record.read_text())
     assert saved["verdict"] is None and saved["settings"] == {} and saved["valid"]
+
+
+def test_cli_system_file_replaces_the_built_in_prompt_and_is_hashed_in_the_record(
+        capsys: pytest.CaptureFixture[str], tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib
+
+    made = _fake_server(monkeypatch, '{"route": "post", "confidence": 0.9}')
+    prompt = tmp_path / "prompt.txt"
+    prompt.write_text("Custom system text.\n", encoding="utf-8")
+    record = tmp_path / "run.json"
+    assert main(_candidate_args(tmp_path, "--system-file", str(prompt),
+                                "--record", str(record))) == 0
+    sent = made[0].calls[0]["messages"]
+    assert [m["role"] for m in sent] == ["system", "user"]
+    assert sent[0]["content"] == "Custom system text.\n" and sent[1]["content"].startswith("{")
+    saved = json.loads(record.read_text())
+    assert saved["settings"]["system_prompt"] == {
+        "path": str(prompt), "sha256": hashlib.sha256(prompt.read_bytes()).hexdigest()}
+
+
+def test_cli_without_system_file_sends_the_built_in_prompt_and_records_none(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    made = _fake_server(monkeypatch, '{"route": "post", "confidence": 0.9}')
+    record = tmp_path / "run.json"
+    assert main(_candidate_args(tmp_path, "--record", str(record))) == 0
+    assert made[0].calls[0]["messages"][0]["content"] == shadow.SYSTEM
+    assert "system_prompt" not in json.loads(record.read_text())["settings"]
+
+
+def test_cli_refuses_system_file_without_an_endpoint_or_when_empty(
+        capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    prompt = tmp_path / "prompt.txt"
+    prompt.write_text("text", encoding="utf-8")
+    assert main(["--db", str(tmp_path / "x.db"), "shadow", "--cases", str(CASES),
+                 "--system-file", str(prompt)]) == 1
+    assert "--system-file given without --endpoint" in capsys.readouterr().err
+    prompt.write_text(" \n", encoding="utf-8")
+    assert main(_candidate_args(tmp_path, "--system-file", str(prompt))) == 1
+    assert "--system-file is empty" in capsys.readouterr().err
+
+
+def test_the_h1b_prompt_is_the_built_in_prompt_plus_the_reviewers_definitions() -> None:
+    root = Path(__file__).resolve().parent.parent / "evals" / "h1_review"
+    text = (root / "h1b-system-prompt.txt").read_text(encoding="utf-8")
+    reviewer = (root / "ai-reviewer-prompt.md").read_text(encoding="utf-8")
+    assert text.startswith(shadow.SYSTEM + "\n\n")
+    definitions = text[len(shadow.SYSTEM):]
+    for route in shadow.ROUTES:
+        line = next(ln for ln in reviewer.splitlines() if ln.startswith(f"- {route}:"))
+        assert line in definitions, route
+    assert "—" not in text
