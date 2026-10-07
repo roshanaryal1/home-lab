@@ -8,6 +8,10 @@ worth, and does it safely without waiting to be asked. See
 what's actually missing to get there, or
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a current-state diagram.
 
+**To install it on your own Mac, start with [docs/INSTALL.md](docs/INSTALL.md).**
+Where the rest of this README names a machine, a disk or a date, it means the
+project's own Mac mini.
+
 This is the **build**. The **design** came first, from a controlled
 study: one frozen prompt was given to eleven frontier LLM systems,
 each answer was captured verbatim, and the points of agreement and
@@ -122,9 +126,9 @@ safety boundary is on by default and measured in public.** New daily-use
 features (chat, tools, memory) are to be added only through the existing
 broker, so each inherits the lab account, signed approvals and the audit
 log. The cited comparison is [docs/COMPARISON.md](docs/COMPARISON.md); the
-roadmap is decided in [#189](https://github.com/roshanaryal1/home-lab/issues/189),
-and an install guide for your own Mac is [#188](https://github.com/roshanaryal1/home-lab/issues/188).
-Until that guide exists, this repository documents one machine.
+roadmap is decided in [#189](https://github.com/roshanaryal1/home-lab/issues/189).
+The install guide for your own Mac is [docs/INSTALL.md](docs/INSTALL.md); it has not
+yet been tested end to end on a fresh Mac ([#188](https://github.com/roshanaryal1/home-lab/issues/188)).
 
 ## The two rules that shape the code
 
