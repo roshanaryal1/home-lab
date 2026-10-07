@@ -222,16 +222,25 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
       throwaway database wrote its manifest there and `restore-check`
       verified it.
 - [x] A scheduled backup. Installed and run by launchd on 2026-10-07 (wrote a
-      manifest, `restore check ok`, kept 2; it needed Full Disk Access for the lab
-      interpreter, runbook step 4). Built (#67): `com.homelab.backup.plist` runs
-      `lab backup --keep 14 --alert-config /etc/homelab/alert.json` as `lab`
-      at 02:47. It restore-checks every new backup and fails (and alerts) if
+      manifest, `restore check ok`, kept 2; it needed Full Disk Access, given
+      then to the lab interpreter, runbook step 4). Built (#67):
+      `com.homelab.backup.plist` runs `lab backup --keep 14 --alert-config
+      /etc/homelab/alert.json` as `lab` at 02:47, through the backup launcher
+      since #287. It restore-checks every new backup and fails (and alerts) if
       the check does not pass, then keeps the newest 14 and deletes only its
-      own older files. Install it, set `LAB_BACKUP_DIR` in the installed copy
+      own older files. Install it, build and install the launcher and give it
+      Full Disk Access, set `LAB_BACKUP_DIR` in the installed copy
       to `/Volumes/labbackup/home-lab-backups` with that folder owned by
       `lab` (runbook step 4), run it once with `launchctl kickstart`, and
       confirm a new `*.manifest.json` appears and `backup.log` says
       `restore check ok`.
+- [ ] Move the backup's Full Disk Access from the interpreter to the launcher
+      (#287): runbook, "Moving the backup's Full Disk Access to its launcher".
+      Afterwards the grant covers only `/opt/homelab-backup/lab-backup` and what
+      it starts (the backup, and the alert command when the backup fails), not
+      the lab services or the root-run daemons, which run the interpreter
+      directly. Done when the run there passes, the interpreter is gone from the
+      Full Disk Access list, and the next 02:47 run passes on its own schedule.
 - [x] First full restore drill: `uv run python -m lab.cli drill restore`
       against the live database. Commit the record from `ops/drills/log/`.
       2026-09-30: PASS against `/var/homelab/lab.db`, run as `lab` with
