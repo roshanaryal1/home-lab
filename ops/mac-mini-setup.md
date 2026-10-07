@@ -692,9 +692,12 @@ expect a call either way between runs.
       handlers). The model server's half is measured (ADR 0001): 16 GiB idle,
       about +7 GiB at 37K tokens, under the 24.96 GiB Metal ceiling. The
       handler half is #180, below.
-- [ ] #180: set `task_max_rss_mb` and `task_max_cpu_seconds` from measured
-      peaks of the real reviewed handlers, with stated headroom. Until this is
-      done the defaults (2048 MB, 900 s) stay; they were chosen, not measured.
+- [x] #180: set `task_max_rss_mb` and `task_max_cpu_seconds` from measured
+      peaks of the real reviewed handlers, with stated headroom. Done 2026-10-07:
+      peaks were 36 MB and 0.05 s, the owner chose 256 MB and 30 s (about 7x, not
+      the 2x the tool suggests, which is too tight); the supervisor must be
+      restarted on the new code for them to apply. The sample tasks are small, so
+      measure again when a handler does heavy work.
 
 ### Measuring the handler ceilings (#180)
 

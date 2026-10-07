@@ -149,7 +149,7 @@ Why: these numbers only exist on this machine with the real model loaded.
 
 | Issue | What | How |
 |---|---|---|
-| #211 | Is one heavy slot enough? | The `concurrency` step above, then decide. |
+| #211 | Is one heavy slot enough? | Decided 2026-10-07: leave concurrency uncapped (two requests are batched, no memory problem shown) and keep unload on idle (about 30 s reload, frees about 17 GB). |
 | #180 | Per-task memory and CPU ceilings | As `lab`, `uv run python -m lab.cli measure-ceilings`. Commit the report, then set `task_max_rss_mb` and `task_max_cpu_seconds` from it (setup section 22). On Linux the 2x suggestion was 102 MB and 1 s of CPU. Decide then whether 1 s is too tight and a larger `--headroom` is needed. |
 | #84 | Typed decision model in shadow | Setup section 22. Grow the case file past 30 cases first. |
 | #179 | Constrained decoding for routing labels | Blocked until H1's case file is frozen. |

@@ -150,8 +150,11 @@ class SupervisorConfig:
     # Ceilings for a reviewed handler's worker process (H2, #16). The model
     # runs on a separate server, so these bound handler code, not inference.
     # A breach kills the process group and fails the task without retry.
-    task_max_rss_mb: int | None = 2048
-    task_max_cpu_seconds: float | None = 900.0
+    # Set on 2026-10-07 from evals/ceilings/ceilings-20261006T200346+0000-29ec49bb.json:
+    # the three handlers peaked at 36 MB and 0.05 s of CPU on the Mac mini. 2x that (73 MB,
+    # 1 s) is too tight for real work, so the owner chose about 7x: 256 MB and 30 s (#180).
+    task_max_rss_mb: int | None = 256
+    task_max_cpu_seconds: float | None = 30.0
     ceiling_poll_seconds: float = 0.5
     # Path to the operator's public key (item 4.5). When set, only
     # approvals signed with the matching private key are honoured. Falls
