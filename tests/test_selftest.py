@@ -194,6 +194,91 @@ def test_repeat_alerts_are_suppressed_within_the_window(tmp_path: Path) -> None:
     assert len(out.read_text().splitlines()) == 2
 
 
+def test_the_alert_state_file_is_a_private_regular_file(tmp_path: Path) -> None:
+    script, _out = _recorder(tmp_path)
+    cfg = alert.load(_config(tmp_path, [sys.executable, str(script)]))
+    state = tmp_path / "lab.db.alert"
+    assert alert.send(cfg, kind="backup", message="m", state_file=state)
+    info = state.lstat()
+    assert stat.S_ISREG(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o600
+    assert set(json.loads(state.read_text())) == {"backup"}
+
+
+@pytest.mark.safety
+@pytest.mark.parametrize("shape", ["symlink", "dangling symlink", "hard link"])
+def test_the_alert_state_file_is_never_written_through_a_link(tmp_path: Path,
+                                                               shape: str) -> None:
+    script, out = _recorder(tmp_path)
+    cfg = alert.load(_config(tmp_path, [sys.executable, str(script)]))
+    other = tmp_path / "other.txt"
+    state = tmp_path / "lab.db.alert"
+    if shape == "dangling symlink":
+        state.symlink_to(other)
+    else:
+        other.write_text("unchanged")
+        if shape == "symlink":
+            state.symlink_to(other)
+        else:
+            os.link(other, state)
+    assert alert.send(cfg, kind="backup", message="m", state_file=state)
+    assert out.exists(), "the alert itself still runs"
+    if shape == "dangling symlink":
+        assert state.is_symlink() and not other.exists()
+    else:
+        assert other.read_text() == "unchanged"
+
+
+@pytest.mark.safety
+@pytest.mark.parametrize("shape", ["directory", "fifo"])
+def test_an_alert_state_file_that_is_not_a_regular_file_is_reported_and_left_alone(
+        tmp_path: Path, shape: str) -> None:
+    script, out = _recorder(tmp_path)
+    cfg = alert.load(_config(tmp_path, [sys.executable, str(script)]))
+    state = tmp_path / "lab.db.alert"
+    if shape == "directory":
+        state.mkdir()
+    else:
+        os.mkfifo(state)
+    notes: list[str] = []
+    assert alert.send(cfg, kind="backup", message="m", state_file=state, warn=notes.append)
+    assert out.exists(), "the alert itself still runs"
+    assert len(notes) == 1 and f"{state} is not a regular file" in notes[0]
+    assert "not rate limited" in notes[0]
+    kind = stat.S_IFMT(state.lstat().st_mode)
+    assert kind == (stat.S_IFDIR if shape == "directory" else stat.S_IFIFO)
+
+
+@pytest.mark.safety
+def test_the_alert_lock_file_is_never_opened_through_a_symbolic_link(tmp_path: Path) -> None:
+    script, out = _recorder(tmp_path)
+    cfg = alert.load(_config(tmp_path, [sys.executable, str(script)]))
+    state = tmp_path / "lab.db.alert"
+    other = tmp_path / "other.lock"
+    Path(f"{state}.lock").symlink_to(other)
+    notes: list[str] = []
+    assert alert.send(cfg, kind="backup", message="m", state_file=state, warn=notes.append)
+    assert out.exists() and not other.exists()
+    assert len(notes) == 1 and f"{state}.lock is a symbolic link" in notes[0]
+    assert json.loads(state.read_text()).keys() == {"backup"}, "the state file is still used"
+
+
+@pytest.mark.safety
+def test_the_alert_state_file_is_checked_again_when_the_time_is_recorded(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = alert.load(_config(tmp_path, [sys.executable]))
+    state = tmp_path / "lab.db.alert"
+    other = tmp_path / "other.txt"
+    other.write_text("unchanged")
+
+    def hook_that_links_the_state_file(*_a: object) -> bool:
+        state.symlink_to(other)
+        return True
+
+    monkeypatch.setattr(alert, "_run_hook", hook_that_links_the_state_file)
+    assert alert.send(cfg, kind="backup", message="m", state_file=state)
+    assert state.is_symlink() and other.read_text() == "unchanged"
+
+
 # ------------------------------------------------------------------- CLI
 
 
