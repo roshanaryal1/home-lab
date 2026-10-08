@@ -617,6 +617,40 @@ def test_a_snapshot_that_cannot_be_written_stops_the_upgrade(
     assert sorted(p.name for p in tmp_path.iterdir() if p.name.endswith(".partial")) == []
 
 
+def test_a_database_from_before_versioning_is_snapshotted_too(tmp_path: Path) -> None:
+    db = tmp_path / "old.db"
+    legacy_db(db)
+    conn = raw(db)
+    assert current_version(conn) == 0
+    before = snapshot(conn)
+    conn.close()
+
+    with TaskQueue(db) as q:
+        assert current_version(q._conn) == latest_version()
+
+    assert _snapshots_in(tmp_path) == ["old.db.pre-v0.bak"]
+    check = raw(tmp_path / "old.db.pre-v0.bak")
+    assert current_version(check) == 0 and snapshot(check) == before
+    check.close()
+
+
+def test_a_snapshot_another_process_pruned_first_is_not_an_error(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _at_version(tmp_path, 5)
+    (tmp_path / "v.db.pre-v3.bak").write_bytes(b"an older snapshot")
+    real_unlink = os.unlink
+
+    def raced(path: str) -> None:
+        real_unlink(path)       # the other process deletes it first
+        raise FileNotFoundError(2, "No such file or directory", path)
+
+    monkeypatch.setattr(migrations_mod.os, "unlink", raced)
+    conn = raw(db)
+    assert migrate(conn) == latest_version()
+    conn.close()
+    assert _snapshots_in(tmp_path) == ["v.db.pre-v5.bak"]
+
+
 def test_an_in_memory_database_is_never_snapshotted(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)

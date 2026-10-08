@@ -8,10 +8,11 @@ applied in order, each in one transaction, with the number recorded in
 ``PRAGMA user_version`` in the same transaction. A migration either
 happened completely or not at all, and the file itself says which.
 
-Before the first upgrade of a database at a version above 0 and below the
-latest, ``migrate`` copies the file beside itself as ``<name>.pre-vN.bak``
-with SQLite's online backup API, and keeps only the newest such copy. A
-fresh database and ``:memory:`` get none.
+Before a database file below the latest version is upgraded, ``migrate``
+copies the file beside itself as ``<name>.pre-vN.bak`` with SQLite's online
+backup API, and keeps only the newest such copy. A database from before
+versioning (version 0 with tables) gets one too. A fresh database, empty at
+version 0, and ``:memory:`` get none.
 
 Rules for a migration file:
 
@@ -25,6 +26,7 @@ Rules for a migration file:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import sqlite3
@@ -203,14 +205,29 @@ def _prune_snapshots(db: Path, keep: Path) -> None:
         for entry in entries:
             if (entry.name != keep.name and pattern.fullmatch(entry.name)
                     and entry.is_file(follow_symlinks=False)):
-                os.unlink(entry.path)
+                # Another process opening the same file may have pruned it first.
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(entry.path)
+
+
+def _has_tables(conn: sqlite3.Connection) -> bool:
+    """True when the database holds a table of its own, so version 0 is not a fresh file."""
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+        "AND name NOT LIKE 'sqlite!_%' ESCAPE '!' LIMIT 1").fetchone() is not None
+
+
+def _needs_snapshot(conn: sqlite3.Connection, version: int, latest: int) -> bool:
+    """An upgrade of a file with data in it: any version below the latest, except
+    a version 0 file with no tables, which is a fresh one."""
+    return version < latest and (version > 0 or _has_tables(conn))
 
 
 def _snapshot_before_upgrade(conn: sqlite3.Connection, latest: int) -> None:
     """Copy the database beside itself as ``<name>.pre-vN.bak``, before it is upgraded.
 
-    Only a file at a version above 0 and below ``latest`` is copied. The
-    version is read inside the read transaction the copy is taken in, so
+    Only a file ``_needs_snapshot`` accepts is copied. The version is read
+    inside the read transaction the copy is taken in, so
     the copy is exactly the version its name gives, even when another
     process upgrades the file first. A read transaction does not block
     writers in WAL mode.
@@ -221,7 +238,7 @@ def _snapshot_before_upgrade(conn: sqlite3.Connection, latest: int) -> None:
     conn.execute("BEGIN")
     try:
         version = current_version(conn)
-        if not 0 < version < latest:
+        if not _needs_snapshot(conn, version, latest):
             return
         final = db.with_name(f"{db.name}.pre-v{version}.bak")
         fd, name = tempfile.mkstemp(dir=db.parent, prefix=f".{final.name}.",
@@ -262,7 +279,7 @@ def migrate(conn: sqlite3.Connection, directory: Path = MIGRATIONS_DIR) -> int:
         raise SchemaTooNew(
             f"database is at schema version {version}, this build knows up to {latest}"
         )
-    if 0 < version < latest:
+    if _needs_snapshot(conn, version, latest):
         try:
             _snapshot_before_upgrade(conn, latest)
         except (OSError, sqlite3.Error) as exc:
