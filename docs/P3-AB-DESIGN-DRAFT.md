@@ -109,7 +109,7 @@ H2 against H2b (Amendment 1, item 9).
 **Task set and repeats.** `evals/tasks.jsonl`, with the repeat rule in section 1.
 
 **Metrics.** p95 latency and tokens per second from the eval summaries, medians of five.
-Peak footprint, sampled through the five runs (section 7). Tasks passed and errors from
+Peak footprint over the five runs, as section 7 measures it. Tasks passed and errors from
 run 1, by task id.
 
 **Decision rule (written now).** MLX stays unless llama.cpp meets all four conditions:
@@ -251,7 +251,7 @@ Decode speed barely matters for those. The A/B therefore needs two sets:
   Its size and content are **owner to set**.
 
 **Metrics.** Tokens per second (decode), p95 latency, peak footprint with the draft's
-weights inside it (sampled), tasks passed, and answer identity. For answer identity,
+weights inside it (section 7), tasks passed, and answer identity. For answer identity,
 `compare` in `lab/evals.py` (lines 290 to 301) reports which tasks changed between two records.
 
 **Decision rule (written now).** Speculative decoding is adopted only if all four hold:
@@ -312,8 +312,8 @@ pair. Whether the pair fits under the ceiling is not measured.
 repeats, and one timed load for each swap.
 
 **Metrics.** Wall time for the whole task set, loads included. p95 per-task latency,
-loads included. Load time per swap (new, with no repo value). Peak footprint, sampled,
-showing that a swapped-out model leaves the footprint. Tasks passed.
+loads included. Load time per swap (new, with no repo value). Peak footprint (section 7),
+and the sampler's readings showing that a swapped-out model leaves the footprint. Tasks passed.
 
 **Pass counts differ by model.** The baseline passed 20 of 24 and the heavy model 19 of
 24 (`ops/mac-mini-setup.md`, section 14). A task moved to the other model can change its
@@ -347,9 +347,18 @@ before the run.
 - The lab has no footprint measurement. The ADR's figures came from `footprint` on the
   server process, run by hand, in whole GiB ([decisions/0001-heavy-model.md](decisions/0001-heavy-model.md), "Memory").
   The command's options and its sampling method are **UNVERIFIED** here.
-- The sampler records the footprint of the server process at a fixed interval during
-  each arm's five runs, and reports the peak. The interval is **owner to set**. The repo
-  has no value.
+- The deciding number is the peak footprint the system itself keeps for the server
+  process, read once after each arm's five runs. A sampler that reads the footprint at a
+  fixed interval can miss a short peak between two readings, so a sampled maximum is only
+  a lower bound and decides nothing on its own. macOS has two candidates for the kept
+  peak: the `phys_footprint_peak` line in `footprint`'s output, and the "peak memory
+  footprint" line that `/usr/bin/time -l` prints for a process it started. Which kernel
+  counter each reads, and whether they agree, is **UNVERIFIED**. The first run checks it
+  by reading both on the same server start.
+- Each arm starts a fresh server, so the kept peak covers that arm's runs only.
+- The sampler still runs, at an interval the owner sets (the repo has no value). It shows
+  when in a run the footprint rose, and a swapped-out model's drop in A/B 4. If its
+  maximum is above the kept peak, the kept peak is wrong, and the run is not used.
 - RSS (`lab/bench.py`) is reported beside footprint for continuity. It decides nothing.
   The ADR says "Measure footprint, not RSS" (ADR 0001, "Memory").
 - The ceiling is 24.96 GiB (ADR 0001, "Memory"). The admission budget of 20,500 MB
@@ -399,7 +408,8 @@ before the run.
 - The `llama-server` build 11146 launch flags: port, context and speculative options.
 - The `mlx_lm.server` 0.31.3 context flag and draft option. Not in the repo, and not checked in its source.
 - Whether either server supports speculative decoding. Not checked.
-- The `footprint` command's options and sampling method.
+- The `footprint` command's options and sampling method, and which counter its
+  `phys_footprint_peak` and `/usr/bin/time -l`'s "peak memory footprint" read.
 - The ADR's MLX claims of about 10 percent less memory and 15 to 30 percent more speed
   (ADR 0001, "Decision", point 1). No measurement in the repo.
 - Whether `memory_budget.py` exists. [PLAN.md](PLAN.md) section 3.2 and ADR 0001 name it, and
