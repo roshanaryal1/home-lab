@@ -5,7 +5,7 @@ another project comes from that project's own repository files or docs, read on 
 unless it says otherwise. Repository heads at the time of reading: `openclaw/openclaw`
 `ea7cc1066568fbbeece9151c497ecab15923bd2a`, `NousResearch/hermes-agent`
 `38880bd2f1e90dbc9a1aeec03af62539ee64719a`. The GitHub REST API refused this session, so counts
-come from the github.com pages and from git. Both projects change daily; check again before
+come from the github.com pages and from git. Both projects change daily. Check again before
 quoting any of this.
 
 The feature plan that follows from this comparison is in [FEATURE-PLAN.md](FEATURE-PLAN.md).
@@ -42,19 +42,19 @@ Telegram, through the broker (#239).
 agent learns itself "with change history and undo", a plugin SDK and the ClawHub registry
 (`docs/tools/skills.md`, `docs/tools/skill-workshop.md`). Hermes Agent ships 58 bundled and 154
 optional skills, reads the agentskills.io format, and lets the agent create and patch its own
-skills; `skills.write_approval` defaults to off (`website/docs/user-guide/features/skills.md`).
+skills. `skills.write_approval` defaults to off (`website/docs/user-guide/features/skills.md`).
 home-lab imports agentskills.io skills as inert candidates that need the owner's signature (M6).
 
 **Memory and learning.** OpenClaw keeps plain Markdown memory (`USER.md`, `MEMORY.md`, daily
 notes) and says "there is no hidden state" (`docs/concepts/memory.md`). Hermes Agent keeps
 `MEMORY.md` and `USER.md` with size caps, full-text search over past sessions, and memory
-providers such as Honcho as plugins; `memory.write_approval` defaults to off
+providers such as Honcho as plugins. `memory.write_approval` defaults to off
 (`website/docs/user-guide/features/memory.md`). home-lab has owner-inspectable memory and
 agent proposals that need the owner's signature (M4), but no session search.
 
 **Scheduling and automation.** OpenClaw has a built-in scheduler, heartbeat, hooks, webhooks and
 mail triggers (`docs/automation/cron-jobs.md`). Hermes Agent has natural-language cron jobs,
-a no-agent script mode and webhook triggers; headless approval for cron defaults to deny
+a no-agent script mode and webhook triggers. Headless approval for cron defaults to deny
 (`website/docs/user-guide/features/cron.md`). home-lab runs its own jobs under launchd and a
 five-minute loop, but a user cannot schedule a task.
 
@@ -68,12 +68,12 @@ Hermes Agent lists about 52 (`website/docs/integrations/providers.md`). home-lab
 model on loopback.
 
 **Voice, browser, apps.** Both have voice modes, browser automation and companion apps:
-OpenClaw on iOS, Android, macOS, Windows and Linux (`docs/platforms/index.md`); Hermes Agent with
+OpenClaw on iOS, Android, macOS, Windows and Linux (`docs/platforms/index.md`). Hermes Agent has
 a desktop app and an Android package (README). home-lab has none of these.
 
 **Operations.** Both have a `doctor` command, one-line installers for macOS, Linux and Windows,
 an update command with a backup step, and OpenTelemetry export (OpenClaw
-`docs/install/updating.md`, `docs/gateway/opentelemetry.md`; Hermes Agent
+`docs/install/updating.md`, `docs/gateway/opentelemetry.md`. Hermes Agent
 `website/docs/getting-started/updating.md`, `developer-guide/gateway-monitoring.md`). OpenClaw
 also has `openclaw security audit` (`docs/gateway/security/running-the-audit.md`). home-lab has
 `lab status`, a read-only loopback status page and a written install guide, but no installer,
@@ -119,7 +119,7 @@ This is the case for home-lab. It rests on what each project says its own bounda
   skill stays an inert candidate until the owner signs a promotion (M6, 0 of 36 became active).
 
 **4. Prompt injection.** Both projects put prompt injection on its own outside their security
-policy unless it bypasses a boundary (OpenClaw SECURITY.md, "What Usually Is Not a Security Bug";
+policy unless it bypasses a boundary (OpenClaw SECURITY.md, "What Usually Is Not a Security Bug", and
 Hermes Agent SECURITY.md 3.2). home-lab measures it in public: H4 (0 of 9 attacks succeeded with
 the real model driving) and the pre-registered study at https://osf.io/jfp74.
 
@@ -130,8 +130,9 @@ absence in what was read, not proof they do not test it.
 
 **6. Outbound traffic.** OpenClaw sends a daily update check by default
 (`docs/gateway/telemetry.md`). Hermes Agent's shared metrics are off by default
-(`hermes_cli/config_defaults.py`). home-lab has no telemetry: outbound requests go only through
-its egress gateway, to hosts the owner configured.
+(`hermes_cli/config_defaults.py`). home-lab has no telemetry. The chat and the agent's tools reach
+the network only through its egress gateway, to hosts the owner configured. The alert command
+sends to the fixed Telegram API host the owner set it up for (`lab/telegram_alert.py`).
 
 ## Where home-lab is weaker, stated plainly
 
