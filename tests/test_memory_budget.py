@@ -86,6 +86,8 @@ def _record(point: dict[str, object]) -> str:
     (_record(_point(context_tokens=0)), "context_tokens"),
     (_record(_point(measured_mb="19000")), "measured_mb must be a positive number"),
     (_record(_point(measured_mb=-5.0)), "measured_mb must be a positive number"),
+    ('{"measurements": [{"context_tokens": 8192, "measured_mb": 1' + "0" * 400 + ', '
+     '"what": "footprint", "source": "x"}]}', "measured_mb must be a positive number"),
     (_record(_point(what="RSS")), "'footprint' or 'rss'"),
     (_record(_point(source="   ")), "source must say where"),
     (_record(_point(source="x" * 501)), "longer than 500 characters"),
@@ -153,3 +155,12 @@ def test_cli_refuses_a_bad_record_with_exit_1(tmp_path: Path,
 def test_cli_refuses_a_zero_context_with_exit_1(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["memory-budget", "0"]) == 1
     assert "context_tokens" in capsys.readouterr().err
+
+
+def test_cli_prints_a_record_source_escaped(tmp_path: Path,
+                                            capsys: pytest.CaptureFixture[str]) -> None:
+    path = tmp_path / "measured.json"
+    mb.write_record(path, [mb.Measurement(8_192, 19_327.0, "footprint", "M6\x1b[2Jcleared")])
+    assert main(["memory-budget", "--measurements", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "\x1b" not in out and "M6\\u001b[2Jcleared" in out

@@ -432,7 +432,7 @@ def cmd_memory_budget(args: argparse.Namespace) -> int:
             print(f"{m.what:>9}  {m.context_tokens:>9}  {c.predicted_mb:>12}  "
                   f"{m.measured_mb:>11.0f}  {c.error_mb:>+9.0f}  {c.error_percent:>+8.1f}")
         for c in comparisons:
-            print(f"  {c.measurement.context_tokens} tokens: {c.measurement.source}")
+            print(f"  {c.measurement.context_tokens} tokens: {_escape(c.measurement.source)}")
         if any(c.measurement.what == "rss" for c in comparisons):
             print("rss leaves out the Metal cache (ADR 0001), so it reads low as context grows")
     return 0

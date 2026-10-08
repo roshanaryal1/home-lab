@@ -93,7 +93,7 @@ class Measurement:
         _positive_int(self.context_tokens, "context_tokens")
         measured = self.measured_mb
         if isinstance(measured, bool) or not isinstance(measured, (int, float)) \
-                or not math.isfinite(measured) or measured <= 0:
+                or not _finite(measured) or measured <= 0:
             raise MemoryBudgetError(
                 f"measured_mb must be a positive number of MB, not {measured!r}")
         if self.what not in KINDS:
@@ -110,6 +110,14 @@ class Comparison:
     predicted_mb: int
     error_mb: float            # predicted minus measured. Positive means the prediction is high
     error_percent: float       # error_mb as a percent of the measured value
+
+
+def _finite(value: float) -> bool:
+    """math.isfinite, except an int too large for a float is not finite either."""
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _positive_int(value: object, name: str) -> int:
