@@ -122,3 +122,26 @@ def test_an_unknown_log_level_stops_the_daemon_at_start(
     assert capsys.readouterr().err.splitlines() == [
         "supervisor: LAB_LOG_LEVEL must be DEBUG, INFO, WARNING or ERROR, not 'verbose'"]
     assert not db.exists()
+
+
+def test_with_a_log_dir_stderr_gets_only_warnings_and_errors(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    import json
+    import logging
+
+    from lab import logsetup
+    handlers = supervisor.configure_logging(tmp_path / "logs", logging.INFO)
+    try:
+        log = logging.getLogger("lab.test_quiet_stderr")
+        log.info("routine line")
+        log.warning("worth a look")
+        for handler in handlers:
+            handler.flush()
+        err = capsys.readouterr().err
+        assert "worth a look" in err and "routine line" not in err
+        lines = (tmp_path / "logs" / "supervisor.log").read_text(encoding="utf-8").splitlines()
+        assert [json.loads(line)["msg"] for line in lines] == ["routine line", "worth a look"]
+    finally:
+        file_handler, stream = handlers
+        logsetup.teardown(file_handler)
+        logging.getLogger("lab").removeHandler(stream)

@@ -157,9 +157,10 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
 - Rehearsal note: the scratch rehearsal ran `uv sync` as the operator too.
 
 **Log rotation for the launchd logs (#349).** The rule file is `ops/newsyslog/homelab.conf`.
-It rotates the `*.log` and `*.err` files in `/var/log/homelab` (Step 2) at 10 MB and keeps
-five copies, mode 600 and owned by `lab`. Install it as root, then dry-run newsyslog, which
-changes nothing:
+It rotates the `.log` and `.err` files of the scheduled jobs in `/var/log/homelab` (Step 2):
+backup, heartbeat, self-test, status check, tick, watchdog and the weekly eval. Each is
+rotated at 10 MB, and five copies are kept, compressed with bzip2, mode 600 and owned by
+`lab`. Install it as root, then dry-run newsyslog, which changes nothing:
 
 ```sh
 sudo install -d -o root -g wheel -m 755 /etc/newsyslog.d
@@ -167,17 +168,20 @@ sudo install -o root -g wheel -m 644 /opt/homelab/ops/newsyslog/homelab.conf /et
 sudo newsyslog -nvv
 ```
 
-- Check: the dry run lists the files in `/var/log/homelab` with the 10240 KB limit. If it
-  lists none of them, this macOS may not read `/etc/newsyslog.d`. Stop there, and do not
-  move the rules into `/etc/newsyslog.conf` until you have checked how this macOS reads them.
-  `man 5 newsyslog.conf` on the Mac says what the `G` and `N` flags do there. The rules were
+- Check: the dry run lists those files with the 10240 KB limit. If it lists none of them,
+  this macOS may not read `/etc/newsyslog.d`. Stop there, and do not move the rules into
+  `/etc/newsyslog.conf` until you have checked how this macOS reads them. `man 5
+  newsyslog.conf` on the Mac says what the `J` and `N` flags do there. The rules were
   written from the FreeBSD manual that macOS's newsyslog comes from.
 - Status: not yet run on the Mac mini.
-- Caveat: rotation renames the log file. `chat`, `keepawake` and `supervisor` run with
-  KeepAlive and hold their log files open, so after a rotation they keep writing to the
-  renamed copy (`.0`) until they restart, and their next rotation waits for that restart.
-  This is why the copies are not compressed: compressing deletes the renamed copy, and
-  what a daemon wrote after that would be lost. Their service files are not changed here.
+- Not rotated: `chat`, `keepawake` and `supervisor` run with KeepAlive and hold their log
+  files open. After a rotation they would keep writing to the renamed copy, and
+  compressing it would delete what they wrote. Their files stay small instead: chat and
+  keep-awake write almost nothing, the supervisor's full log is its own rotating JSON file,
+  and its stderr (`supervisor.err`) gets only warnings and errors. If one of these files
+  ever grows too large, move it aside and restart that service, for example
+  `sudo mv /var/log/homelab/supervisor.err /var/log/homelab/supervisor.err.old` then
+  `sudo launchctl kickstart -k system/com.homelab.supervisor`.
 - After a code update that changes `ops/newsyslog/homelab.conf`, run the `sudo install`
   command for the rule file again.
 

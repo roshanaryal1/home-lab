@@ -749,6 +749,18 @@ class Supervisor:
         self.close()
 
 
+def configure_logging(log_dir: str | Path, level: int) -> list[logging.Handler]:
+    """The full log goes to the rotating JSON file in ``log_dir``. Stderr gets only
+    warnings and errors: launchd holds it open as ``supervisor.err``, which nothing
+    rotates (``ops/newsyslog/homelab.conf``), so it must stay small. Returns the
+    handlers added, for a caller that removes them again."""
+    from lab import logsetup
+    stream = logging.StreamHandler()
+    stream.setLevel(logging.WARNING)
+    logging.getLogger("lab").addHandler(stream)
+    return [logsetup.configure(log_dir, name="supervisor", level=level), stream]
+
+
 def main(argv: list[str] | None = None) -> int:
     """The daemon entry point launchd runs: ``python -m lab.supervisor --db PATH``."""
     import argparse
@@ -769,8 +781,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     log_dir = args.log_dir or os.environ.get("LAB_LOG_DIR")
     if log_dir:
-        logsetup.configure(log_dir, name="supervisor", level=level)
-        logging.getLogger("lab").addHandler(logging.StreamHandler())
+        configure_logging(log_dir, level)
     else:
         logging.basicConfig(level=level,
                             format="%(asctime)s %(name)s %(levelname)s %(message)s")
