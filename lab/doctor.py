@@ -19,6 +19,7 @@ import os
 import shutil
 import sqlite3
 import stat
+import time
 import urllib.parse
 import urllib.request
 from collections.abc import Mapping
@@ -29,16 +30,18 @@ from pathlib import Path
 from typing import IO
 
 from lab import audit, backup
+from lab import operator as operator_keys
 from lab.migrations import latest_version
 from lab.supervisor import DEPLOYED_OPERATOR_KEY
 
 MIN_FREE_BYTES = 5 * 10**9              # 5 GB on the database's volume
 BACKUP_MAX_AGE = timedelta(hours=36)
-MODEL_TIMEOUT_SECONDS = 3.0
+MODEL_TIMEOUT_SECONDS = 3.0             # the deadline for the GET /models answer
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 MODEL_SCHEMES = frozenset({"http", "https"})
 SELFTEST_KIND = "selftest"              # the event kind lab.selftest records
 _MODELS_MAX_BYTES = 1024 * 1024
+_MODELS_CHUNK_BYTES = 64 * 1024
 _STAMP_FORMAT = "%Y%m%dT%H%M%SZ"        # the stamp backup.backup puts in a manifest name
 
 
@@ -109,6 +112,13 @@ def check_operator_key(env: Mapping[str, str]) -> Check:
     if mode & (stat.S_IWGRP | stat.S_IWOTH):
         return Check("operator_key", False,
                      f"{path} is writable by its group or others, so run chmod go-w on it")
+    # The same loader the supervisor and lab.cli use, so a file that passes here loads
+    # for them too.
+    try:
+        operator_keys.load_public(path)
+    except operator_keys.OperatorKeyError:
+        return Check("operator_key", False,
+                     f"{path} is not a usable operator public key, so {where}")
     return Check("operator_key", True)
 
 
@@ -130,11 +140,44 @@ def _loopback_url(url: str) -> bool:
             and parts.username is None and parts.password is None)
 
 
-def _model_ids(body: bytes) -> set[str]:
+class _ReplyTooLarge(Exception):
+    """The GET /models reply is over _MODELS_MAX_BYTES."""
+
+
+def _read_reply(reply: http.client.HTTPResponse, deadline: float) -> bytes:
+    """The whole body, read a chunk at a time. Past the deadline it raises TimeoutError.
+
+    read1 returns as soon as some bytes arrive, so a server that drips them in is caught
+    at the next chunk, not after the full size is read. A read that stalls is still bounded
+    by the socket timeout.
+    """
+    body = bytearray()
+    while True:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("the reply was still arriving at the deadline")
+        chunk = reply.read1(_MODELS_CHUNK_BYTES)
+        if not chunk:
+            return bytes(body)
+        body += chunk
+        if len(body) > _MODELS_MAX_BYTES:
+            raise _ReplyTooLarge()
+
+
+def _model_ids(body: bytes) -> set[str] | None:
+    """The ids in an OpenAI-style ``{"data": [{"id": ...}, ...]}`` list, or None if the body
+    is not one."""
     try:
-        return {str(item["id"]) for item in json.loads(body)["data"]}
-    except (ValueError, KeyError, TypeError):
-        return set()
+        data = json.loads(body)["data"]
+    except (ValueError, KeyError, TypeError, RecursionError):
+        return None
+    if not isinstance(data, list):
+        return None
+    ids: set[str] = set()
+    for item in data:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            return None
+        ids.add(item["id"])
+    return ids
 
 
 def check_model(env: Mapping[str, str]) -> Check:
@@ -146,15 +189,25 @@ def check_model(env: Mapping[str, str]) -> Check:
                      "credentials that points at a loopback server (127.0.0.1, ::1 or localhost)")
     # No proxy: a proxy from the environment would carry the request off loopback.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
+    # Counted from before the open and checked before each body read.
+    deadline = time.monotonic() + MODEL_TIMEOUT_SECONDS
     try:
         with opener.open(url.rstrip("/") + "/models", timeout=MODEL_TIMEOUT_SECONDS) as reply:
-            body = reply.read(_MODELS_MAX_BYTES)
+            body = _read_reply(reply, deadline)
+    except _ReplyTooLarge:
+        return Check("model", False, "GET /models on LAB_MODEL_URL sent more than "
+                     f"{_MODELS_MAX_BYTES:,} bytes, so check that LAB_MODEL_URL points at the "
+                     "model server")
     except (OSError, ValueError, http.client.HTTPException):
         return Check("model", False, "GET /models on LAB_MODEL_URL gave no successful answer "
                      f"within {MODEL_TIMEOUT_SECONDS:g} seconds, so start the model server or "
                      "fix LAB_MODEL_URL")
+    ids = _model_ids(body)
+    if ids is None:
+        return Check("model", False, "the server at LAB_MODEL_URL did not answer GET /models "
+                     "with a model list, so check that LAB_MODEL_URL points at the model server")
     name = env.get("LAB_MODEL_NAME", "").strip()
-    if name and name not in _model_ids(body):
+    if name and name not in ids:
         return Check("model", False, f"the model server does not list {name}, so fix "
                      "LAB_MODEL_NAME or serve that model")
     return Check("model", True)
@@ -196,6 +249,9 @@ def check_backup(env: Mapping[str, str]) -> Check:
     except ValueError:
         return Check("backup", False, f"cannot read the time in {newest.name}, so run lab backup")
     age = datetime.now(UTC) - taken
+    if age < timedelta(0):
+        return Check("backup", False, f"the newest backup {newest.name} is dated in the future, "
+                     "so check the clock")
     if age < BACKUP_MAX_AGE:
         return Check("backup", True)
     return Check("backup", False, f"the newest backup is {age.total_seconds() / 3600:.0f} hours "

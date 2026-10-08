@@ -23,6 +23,7 @@ from types import SimpleNamespace
 import pytest
 
 from lab import doctor
+from lab import operator as op
 from lab.cli import main
 from lab.migrations import latest_version
 from lab.queue import TaskQueue
@@ -60,13 +61,23 @@ class FakeModelServer:
     requests: list[str] = field(default_factory=list)
 
 
+def operator_public_key(tmp_path: Path) -> Path:
+    """A real Ed25519 public key, written the way lab operator init writes it."""
+    return op.generate(tmp_path / "operator-keys")[1]
+
+
 @pytest.fixture()
 def serve() -> Iterator[Callable[..., FakeModelServer]]:
-    """Start fake model servers on loopback. They are shut down at teardown."""
+    """Start fake model servers on loopback. They are shut down at teardown.
+
+    ``raw`` replaces the model list with those bytes, and ``drip`` sends the headers and
+    then one byte every ``drip`` seconds, for longer than any test waits.
+    """
     servers: list[ThreadingHTTPServer] = []
 
     def start(models: tuple[str, ...] = ("lab-model",), *, delay: float = 0.0,
-              redirect_to: str | None = None) -> FakeModelServer:
+              redirect_to: str | None = None, raw: bytes | None = None,
+              drip: float = 0.0) -> FakeModelServer:
         fake = FakeModelServer(url="")
 
         class Handler(BaseHTTPRequestHandler):
@@ -81,7 +92,18 @@ def serve() -> Iterator[Callable[..., FakeModelServer]]:
                     self.send_header("Location", redirect_to)
                     self.end_headers()
                     return
-                body = json.dumps({"object": "list", "data": [
+                if drip:
+                    self.send_response(200)
+                    self.send_header("Content-Length", "100000")
+                    self.end_headers()
+                    for _ in range(200):   # bounded, so a test that forgets to stop cannot hang
+                        time.sleep(drip)
+                        try:
+                            self.wfile.write(b" ")
+                        except OSError:    # doctor gave up and closed the connection
+                            return
+                    return
+                body = raw if raw is not None else json.dumps({"object": "list", "data": [
                     {"id": model, "object": "model"} for model in models]}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -127,19 +149,35 @@ def test_database_fails_on_an_old_schema_and_leaves_it_unmigrated(db: Path) -> N
 
 
 def test_operator_key_passes_when_no_one_else_can_write_it(tmp_path: Path) -> None:
-    key = tmp_path / "operator.pub"
-    key.write_text("public key")
+    key = operator_public_key(tmp_path)
     os.chmod(key, 0o644)
     assert doctor.check_operator_key({"LAB_OPERATOR_PUBKEY": str(key)}) == doctor.Check(
         "operator_key", True)
 
 
 def test_operator_key_fails_when_the_group_or_others_can_write_it(tmp_path: Path) -> None:
-    key = tmp_path / "operator.pub"
-    key.write_text("public key")
+    key = operator_public_key(tmp_path)
     os.chmod(key, 0o664)
     check = doctor.check_operator_key({"LAB_OPERATOR_PUBKEY": str(key)})
     assert not check.ok and "group or others" in check.message
+
+
+def test_operator_key_fails_when_the_file_is_garbage(tmp_path: Path) -> None:
+    key = tmp_path / "operator.pub"
+    key.write_text("public key")
+    os.chmod(key, 0o644)
+    check = doctor.check_operator_key({"LAB_OPERATOR_PUBKEY": str(key)})
+    assert check == doctor.Check("operator_key", False, f"{key} is not a usable operator public "
+                                 "key, so point LAB_OPERATOR_PUBKEY at the operator.pub that "
+                                 "lab operator init wrote")
+
+
+def test_operator_key_fails_when_it_is_the_private_key_and_does_not_print_it(
+        tmp_path: Path) -> None:
+    private, _ = op.generate(tmp_path / "operator-keys")
+    check = doctor.check_operator_key({"LAB_OPERATOR_PUBKEY": str(private)})
+    assert not check.ok and "not a usable operator public key" in check.message
+    assert "PRIVATE" not in check.line()
 
 
 def test_operator_key_fails_when_none_is_configured() -> None:
@@ -188,6 +226,49 @@ def test_model_fails_when_the_answer_is_slower_than_the_limit(
     server = serve(delay=1.0)
     check = doctor.check_model({"LAB_MODEL_URL": server.url})
     assert not check.ok and "within 0.2 seconds" in check.message
+
+
+def test_model_fails_within_the_deadline_when_the_reply_drips_in(
+        serve: Callable[..., FakeModelServer], monkeypatch: pytest.MonkeyPatch) -> None:
+    # Headers arrive at once and then a byte every 0.1 seconds, so no single read stalls.
+    # Only the total deadline ends it. The old single read would have waited for the body.
+    monkeypatch.setattr(doctor, "MODEL_TIMEOUT_SECONDS", 0.5)
+    server = serve(drip=0.1)
+    started = time.monotonic()
+    check = doctor.check_model({"LAB_MODEL_URL": server.url})
+    elapsed = time.monotonic() - started
+    assert not check.ok and "within 0.5 seconds" in check.message
+    assert elapsed < 2.0
+
+
+def test_model_fails_when_the_reply_is_over_the_size_limit(
+        serve: Callable[..., FakeModelServer], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(doctor, "_MODELS_MAX_BYTES", 16)
+    server = serve(("lab-model",))
+    check = doctor.check_model({"LAB_MODEL_URL": server.url})
+    assert not check.ok and "more than 16 bytes" in check.message
+
+
+@pytest.mark.parametrize("raw", [
+    pytest.param(b"<html><body>Model server</body></html>", id="html"),
+    pytest.param(b'{"data": [', id="bad-json"),
+    pytest.param(b'{"object": "list"}', id="no-data-list"),
+    pytest.param(b'{"data": {"id": "lab-model"}}', id="data-not-a-list"),
+    pytest.param(b'{"data": [{"name": "lab-model"}]}', id="item-without-id"),
+])
+def test_model_fails_when_the_reply_is_not_a_model_list_even_with_no_name_configured(
+        serve: Callable[..., FakeModelServer], raw: bytes) -> None:
+    server = serve(raw=raw)
+    check = doctor.check_model({"LAB_MODEL_URL": server.url})
+    assert check == doctor.Check("model", False, "the server at LAB_MODEL_URL did not answer "
+                                 "GET /models with a model list, so check that LAB_MODEL_URL "
+                                 "points at the model server")
+
+
+def test_model_passes_without_a_name_when_the_reply_is_a_model_list(
+        serve: Callable[..., FakeModelServer]) -> None:
+    server = serve(("lab-model",))
+    assert doctor.check_model({"LAB_MODEL_URL": server.url}) == doctor.Check("model", True)
 
 
 def test_model_does_not_follow_a_redirect_off_loopback(
@@ -240,6 +321,13 @@ def test_backup_fails_when_the_newest_backup_is_older_than_36_hours(tmp_path: Pa
     (tmp_path / f"lab-{stamp(50)}.manifest.json").write_text("{}")
     check = doctor.check_backup({"LAB_BACKUP_DIR": str(tmp_path)})
     assert not check.ok and "hours old" in check.message
+
+
+def test_backup_fails_when_the_newest_backup_is_dated_in_the_future(tmp_path: Path) -> None:
+    name = f"lab-{stamp(-2)}.manifest.json"
+    (tmp_path / name).write_text("{}")
+    assert doctor.check_backup({"LAB_BACKUP_DIR": str(tmp_path)}) == doctor.Check(
+        "backup", False, f"the newest backup {name} is dated in the future, so check the clock")
 
 
 # ------------------------------------------------------------ selftest
@@ -316,8 +404,7 @@ def test_a_fresh_database_with_nothing_configured_fails_and_lists_every_check(
 
 def test_doctor_exits_zero_when_every_check_passes(
         db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    key = tmp_path / "operator.pub"
-    key.write_text("public key")
+    key = operator_public_key(tmp_path)
     os.chmod(key, 0o644)
     backups = tmp_path / "backups"
     backups.mkdir()
