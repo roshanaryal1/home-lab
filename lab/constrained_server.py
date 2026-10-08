@@ -175,6 +175,11 @@ def make_handler(service: Service) -> type[BaseHTTPRequestHandler]:
                 self._send(400, {"error": str(exc)})
             except ConstraintError as exc:
                 self._send(500, {"error": f"constraint: {exc}"})
+            except Exception as exc:
+                # A backend failure (MLX, the tokenizer) is answered, not dropped,
+                # so the run record says why and the server log keeps the trace.
+                self.log_error("backend failed: %r", exc)
+                self._send(500, {"error": f"backend: {type(exc).__name__}: {exc}"[:500]})
 
         def log_message(self, format: str, *args: Any) -> None:
             sys.stderr.write(f"{self.log_date_time_string()} {format % args}\n")

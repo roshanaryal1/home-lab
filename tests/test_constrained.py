@@ -273,6 +273,28 @@ def test_requests_outside_the_fixed_design_are_refused(body: dict[str, object], 
     assert resp.status == status
 
 
+def test_a_backend_failure_is_answered_with_a_500_not_a_dropped_connection() -> None:
+    class Broken(FakeBackend):
+        def generate(self, prompt: list[int], max_tokens: int, seed: int | None,
+                     allowed: constrained_server.Allowed | None) -> list[int]:
+            raise RuntimeError("metal out of memory")
+
+    httpd = constrained_server.serve(constrained_server.Service(Broken()), "127.0.0.1", 0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        conn = HTTPConnection("127.0.0.1", httpd.server_port, timeout=10)
+        conn.request("POST", "/v1/chat/completions", headers={"Content-Type": "application/json"},
+                     body=json.dumps({"messages": [{"role": "user", "content": "x"}]}))
+        resp = conn.getresponse()
+        body = json.loads(resp.read())
+        conn.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    assert resp.status == 500
+    assert body["error"] == "backend: RuntimeError: metal out of memory"
+
+
 def test_a_body_that_is_not_json_is_refused() -> None:
     with pytest.raises(constrained_server.RequestError):
         constrained_server.parse_request(b"not json")
