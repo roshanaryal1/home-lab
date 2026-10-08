@@ -16,8 +16,10 @@ repository owner can do.
 - [ ] Bump `version` in `pyproject.toml` and in `CITATION.cff` together, and
       set `date-released`. The test fails if they differ.
 - [ ] Update CHANGELOG.md: move the Unreleased notes under a
-      `## [<version>] - <date>` heading. `tests/test_changelog.py` fails if
-      the heading for the version in `pyproject.toml` is missing.
+      `## [<version>] - <date>` heading, and leave an empty `## [Unreleased]`
+      heading above it for the next notes. `tests/test_changelog.py` fails if
+      the heading for the version in `pyproject.toml` is missing, or if
+      Unreleased is not the first heading.
 - [ ] Run the evaluation on the mini (`lab eval run`, section 14 of
       `ops/mac-mini-setup.md`) and commit the sealed record, so the release
       contains the exact code, task set and result.
