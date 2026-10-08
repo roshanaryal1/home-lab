@@ -7,6 +7,7 @@ everything reported success.
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,8 @@ from lab.cli import _redact, main
 from lab.policy import PolicyEngine
 from lab.queue import TaskQueue
 from lab.supervisor import Supervisor, SupervisorConfig
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture()
@@ -258,3 +261,12 @@ def test_resolve_refuses_an_empty_prefix(db, capsys) -> None:
     assert run(db, "resolve", "", "--not-happened", "--by", "roshan") == 1
     assert "0 unresolved operations match" in capsys.readouterr().err
     assert run(db, "resolve", "abab", "--not-happened", "--by", "roshan") == 0
+
+
+def test_version_flag_prints_the_version_in_pyproject(capsys) -> None:
+    """`lab --version` names the version the project declares (#330)."""
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--version"])
+    assert exit_info.value.code == 0
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert capsys.readouterr().out == f"lab {project['version']}\n"

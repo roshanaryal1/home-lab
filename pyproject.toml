@@ -16,8 +16,13 @@ dependencies = ["cryptography>=45"]
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "coverage>=7.6", "hypothesis>=6.100"]
 
+[project.scripts]
+lab = "lab.cli:main"
+
 [tool.setuptools]
-packages = ["lab"]
+# Every package under lab/ (find lab -name __init__.py). A package left out
+# here is left out of the wheel, and tests/test_package.py checks for that.
+packages = ["lab", "lab.handlers", "lab.migrations"]
 
 [tool.setuptools.package-data]
 lab = ["migrations/*.sql"]

@@ -221,6 +221,8 @@ step ([#87](https://github.com/roshanaryal1/home-lab/issues/87)).
 
 > **zsh note.** The blocks below have `#` comments at the end of some lines. macOS's default zsh does not treat those as comments when you paste, so run `setopt interactivecomments` first (it lasts for that Terminal window), or leave the comments out.
 
+`lab` and `python -m lab.cli` are the same command. Each command below works with either spelling, for example `uv run lab status`. `lab --version` prints the version.
+
 ```sh
 uv run python -m lab.cli status [--json] [--alert-config F]   # queue, worker health, counters; exit 2 if unhealthy
 uv run python -m lab.cli doctor                   # read-only check: database, operator key, model, disk, backup, selftest, audit chain; exit 1 if any fails

@@ -66,6 +66,32 @@ jobs:
             exit 1
           fi
 
+  package:
+    # The wheel is what an operator installs, so it is built here and run
+    # from a fresh venv outside the checkout. A package missing from the
+    # wheel (#329) fails at import time here, where the source tree on the
+    # path cannot hide it.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Build the wheel
+        run: uv build --wheel --out-dir "$RUNNER_TEMP/dist"
+      - name: Install the wheel into a fresh venv
+        # uv venv takes the interpreter from .python-version, the same
+        # uv-managed build as the other jobs (pyproject [tool.uv]). The venv
+        # lives in RUNNER_TEMP, outside the checkout.
+        run: |
+          uv venv "$RUNNER_TEMP/venv"
+          uv pip install --python "$RUNNER_TEMP/venv/bin/python" "$RUNNER_TEMP"/dist/*.whl
+      - name: Run the installed package from outside the checkout
+        run: |
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/venv/bin/python" -m lab.cli --help
+          "$RUNNER_TEMP/venv/bin/lab" --version
+
   workflow-audit:
     # Static audit of the workflows themselves: unpinned actions, template
     # injection, credential persistence. Fails the build on any finding.
