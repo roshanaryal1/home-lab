@@ -1,150 +1,154 @@
 # home-lab compared with OpenClaw and Hermes Agent
 
-Written 2026-09-30 for #189. Every statement about another project comes
-from that project's own README or SECURITY.md, or from the GitHub API, read
-that day. Repository heads at about the time of reading: `openclaw/openclaw`
-`0e33bb3d`, `NousResearch/hermes-agent` `02e41181`. Both projects change
-daily; re-check before quoting any of this.
+First written 2026-09-30 for #189. Rewritten 2026-10-09 (NZDT) for #326. Every statement about
+another project comes from that project's own repository files or docs, read on 2026-10-08 (UTC),
+unless it says otherwise. Repository heads at the time of reading: `openclaw/openclaw`
+`ea7cc1066568fbbeece9151c497ecab15923bd2a`, `NousResearch/hermes-agent`
+`38880bd2f1e90dbc9a1aeec03af62539ee64719a`. The GitHub REST API refused this session, so counts
+come from the github.com pages and from git. Both projects change daily; check again before
+quoting any of this.
 
-## Size and maturity (GitHub API, 2026-09-30)
+The feature plan that follows from this comparison is in [FEATURE-PLAN.md](FEATURE-PLAN.md).
+
+## Size and maturity
 
 | | OpenClaw | Hermes Agent | home-lab |
 |---|---|---|---|
 | Repository | [openclaw/openclaw](https://github.com/openclaw/openclaw) | [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) | this repository |
-| Created | 2025-11-24 | 2025-07-22 | 2026-09-25 |
-| Stars / forks | 390,802 / 82,200 | 250,081 / 53,383 | new, one owner |
-| Latest release | v2026.9.6 (2026-09-23) | v2026.9.24 (2026-09-24) | none |
-| Language | TypeScript | Python | Python |
-| Licence | MIT (OpenClaw Foundation) | MIT | MIT |
-| Published GitHub security advisories | 722 (14 critical, 249 high, 390 medium, 69 low) | 0 through GitHub's advisory feature | 0 |
+| Stars / forks (github.com page) | 391.6k / 82.3k | 252.2k / 54.3k | new, one owner |
+| Latest stable | v2026.9.9, tagged 2026-10-08 | tag v2026.9.24, 2026-09-24 | none |
+| Language and runtime | TypeScript, Node 24.16+ or 26.1+ (SECURITY.md) | Python | Python 3.13 |
+| Licence | MIT, OpenClaw Foundation | MIT | MIT |
+| Published GitHub security advisories | 722: 14 critical, 249 high, 390 moderate, 69 low (advisories page) | none published (advisories page) | none |
 
-The advisory count measures an active disclosure programme as much as
-risk: OpenClaw triages reports in public, and most were published from
-February to April 2026. Hermes Agent having none published on GitHub does
-not show it has fewer flaws; it may handle reports another way.
+The advisory count measures an active disclosure programme as much as risk. OpenClaw triages
+reports in public. Hermes Agent having none published on GitHub does not show it has fewer
+flaws: search results name several CVEs for it that could not be opened from here, so they are
+unverified.
 
 ## What they do that home-lab does not
 
-Both are mature daily-use agents. home-lab has none of the following yet:
+Both are mature daily-use agents with large communities. home-lab has none of the following, or
+only a small part.
 
-- **Chat everywhere.** OpenClaw meets users in Discord, iMessage, Slack,
-  Teams, Telegram, WhatsApp "and 20+ more" (README). Hermes Agent runs
-  Telegram, Discord, Slack, WhatsApp, Signal and CLI from one gateway, with
-  voice memo transcription (README).
-- **Tools, skills and plugins, with a marketplace.** OpenClaw has tools,
-  skills, a plugin SDK and ClawHub (README). Hermes Agent has skills
-  compatible with the agentskills.io standard, and MCP (README).
-- **Memory and learning.** Hermes Agent: agent-curated memory, autonomous
-  skill creation, skills that improve during use, cross-session search,
-  Honcho user modelling (README).
-- **Scheduling, subagents, remote runtimes.** Hermes Agent: built-in cron,
-  parallel subagents, seven terminal backends including Docker, SSH, Modal
-  and Daytona (README).
-- **Any model.** Both swap hosted and local model providers (READMEs).
-- **One-line install** on macOS, Linux and Windows (Hermes Agent README;
-  OpenClaw's recorded README also documents one-line shell and PowerShell
-  installers for macOS, Linux and Windows).
+**Chat everywhere.** OpenClaw ships A2A, Reef, Telegram and WebChat in the core install and 23
+more channels as official plugins, among them Discord, iMessage, Signal, Slack, Teams and
+WhatsApp (`docs/concepts/features.md`). Hermes Agent serves about 20 platforms from one gateway,
+among them Telegram, Discord, Slack, WhatsApp, Signal, email and Home Assistant, with voice memo
+transcription (`website/docs/user-guide/messaging/index.md`). home-lab has one channel,
+Telegram, through the broker (#239).
+
+**Skills and plugins.** OpenClaw has skills as `SKILL.md` folders, a Skill Workshop for skills the
+agent learns itself "with change history and undo", a plugin SDK and the ClawHub registry
+(`docs/tools/skills.md`, `docs/tools/skill-workshop.md`). Hermes Agent ships 58 bundled and 154
+optional skills, reads the agentskills.io format, and lets the agent create and patch its own
+skills; `skills.write_approval` defaults to off (`website/docs/user-guide/features/skills.md`).
+home-lab imports agentskills.io skills as inert candidates that need the owner's signature (M6).
+
+**Memory and learning.** OpenClaw keeps plain Markdown memory (`USER.md`, `MEMORY.md`, daily
+notes) and says "there is no hidden state" (`docs/concepts/memory.md`). Hermes Agent keeps
+`MEMORY.md` and `USER.md` with size caps, full-text search over past sessions, and memory
+providers such as Honcho as plugins; `memory.write_approval` defaults to off
+(`website/docs/user-guide/features/memory.md`). home-lab has owner-inspectable memory and
+agent proposals that need the owner's signature (M4), but no session search.
+
+**Scheduling and automation.** OpenClaw has a built-in scheduler, heartbeat, hooks, webhooks and
+mail triggers (`docs/automation/cron-jobs.md`). Hermes Agent has natural-language cron jobs,
+a no-agent script mode and webhook triggers; headless approval for cron defaults to deny
+(`website/docs/user-guide/features/cron.md`). home-lab runs its own jobs under launchd and a
+five-minute loop, but a user cannot schedule a task.
+
+**Subagents.** OpenClaw: sub-agents and a swarm mode, on by default since 2026.9.2
+(`CHANGELOG/2026.9.2.md`). Hermes Agent: `delegate_task` with 10 concurrent children by default
+(`hermes_cli/config_defaults.py`). home-lab tasks can create child tasks, which inherit taint,
+but there is no delegation tool.
+
+**Models.** OpenClaw lists 75 provider entries, hosted and local (`docs/providers/index.md`).
+Hermes Agent lists about 52 (`website/docs/integrations/providers.md`). home-lab serves one local
+model on loopback.
+
+**Voice, browser, apps.** Both have voice modes, browser automation and companion apps:
+OpenClaw on iOS, Android, macOS, Windows and Linux (`docs/platforms/index.md`); Hermes Agent with
+a desktop app and an Android package (README). home-lab has none of these.
+
+**Operations.** Both have a `doctor` command, one-line installers for macOS, Linux and Windows,
+an update command with a backup step, and OpenTelemetry export (OpenClaw
+`docs/install/updating.md`, `docs/gateway/opentelemetry.md`; Hermes Agent
+`website/docs/getting-started/updating.md`, `developer-guide/gateway-monitoring.md`). OpenClaw
+also has `openclaw security audit` (`docs/gateway/security/running-the-audit.md`). home-lab has
+`lab status`, a read-only loopback status page and a written install guide, but no installer,
+no `doctor` and no update command.
 
 ## Where home-lab differs on safety
 
-This is the case for home-lab, and it is narrower than "better". It rests
-on what each project says its own security boundary is.
+This is the case for home-lab. It rests on what each project says its own boundary is.
 
-**1. What stops a tricked agent.**
-Hermes Agent: "The only security boundary against an adversarial LLM is
-the operating system. Nothing inside the agent process constitutes
-containment" (SECURITY.md §2.2). Its default terminal backend "runs
-commands directly on the host" (§2.1), and its approval gate "catches
-cooperative-mode mistakes, not adversarial output" (§2.4).
-OpenClaw: "Exec behavior is host-first by default:
-`agents.defaults.sandbox.mode` defaults to `off`" (SECURITY.md, Operator
-Trust Model), and "Tools run on the host for the main session unless you
-configure sandboxing" (README).
-home-lab: the agent runs by default as a separate non-admin OS account,
-`lab`, that cannot become root, cannot read the owner's files or approval
-key, and cannot edit its own code or service definitions. Checked on the
-Mac mini on 2026-09-30 (`ops/runbook-lab-account-and-daemons.md`, steps 2
-and 3). So the operating-system boundary that both projects call the real
-one is home-lab's default, not an opt-in.
+**1. What stops a tricked agent, by default.**
+
+- OpenClaw: "Exec behavior is host-first by default: `agents.defaults.sandbox.mode` defaults to
+  `off`" (SECURITY.md, Operator Trust Model). In the single-operator default, host exec "is
+  allowed without approval prompts" (`docs/gateway/security/trust-model.md`).
+- Hermes Agent: "The only security boundary against an adversarial LLM is the operating system"
+  (SECURITY.md 2.2). Its default terminal backend "runs commands directly on the host"
+  (SECURITY.md 2.1), and its code-execution tool, MCP subprocesses, plugins and skills run on the
+  host even when the terminal uses a container (SECURITY.md 2.2).
+- home-lab: the agent runs by default as a separate non-admin account, `lab`, that cannot become
+  root, cannot read the owner's files or approval key, and cannot edit its own code or service
+  definitions (`ops/runbook-lab-account-and-daemons.md`, steps 2 and 3). Untrusted code runs in a
+  disposable container with no network (M5, 0 of 30 hostile scripts escaped).
 
 **2. Approvals.**
-Hermes Agent's approval gate is a pattern check on shell strings, which its
-own policy calls structurally incomplete (§2.4). OpenClaw requires approval
-for configured actions and treats anyone holding the gateway secret as a
-full operator (Operator Trust Model).
-home-lab: an approval is a signature by the owner's Ed25519 key, which
-lives in the owner's account where the agent's account cannot read it
-(`lab/policy.py`, `lab/supervisor.py`). The agent cannot approve its own
-action, short of an OS privilege escalation.
-**Caveat, found on the first deployment (#190):** this holds only where
-the running process was given the owner's public key. The five-minute
-loop (`lab tick`) builds its own supervisor without it, and runs the queue
-itself whenever the supervisor daemon is down, so in that window
-approvals would not be signature-checked. No tasks or credentials existed
-when this was found. The Mac mini was fixed the same day by giving the
-loop the key; the code is being changed so that a supervisor without the
-key refuses to run tasks at all.
 
-**3. Prompt injection.**
-OpenClaw lists "prompt injection without a policy, auth, approval, sandbox,
-or tool-boundary bypass" as not a security bug (SECURITY.md). Hermes Agent
-likewise puts the boundary at the OS, not the model.
-home-lab measures it: the pre-registered study (https://osf.io/jfp74)
-tests how often the local model refuses injected tool calls (H2, H2b), and
-AgentDojo attack runs are recorded (`docs/PREREGISTRATION.md`). That is a
-measurement, not a defence; its value is that the numbers are public and
-the hypotheses were fixed before the runs.
+- OpenClaw: exec approvals are "operator guardrails to reduce accidental command execution, not
+  a multi-tenant authorization boundary" (SECURITY.md).
+- Hermes Agent: the default approval mode, `smart`, asks an auxiliary model to judge each
+  command (`website/docs/user-guide/security.md`), and its policy says the gate "catches
+  cooperative-mode mistakes, not adversarial output" (SECURITY.md 2.4).
+- home-lab: an approval is a signature by the owner's Ed25519 key, bound to the intent the owner
+  sees (#306), from a key the agent's account cannot read. Pre-registered claim M2: 0 of 32
+  injected chat messages reached an approve-tier tool without a signature.
 
-**4. Plugins.**
-Both run plugins in-process with the agent's full privileges and make
-operator review the boundary (Hermes Agent SECURITY.md §2.5; OpenClaw
-"Plugin Trust Boundary"). home-lab loads handlers only from reviewed code
-under `lab.handlers`, each in its own worker process with a minimal
-environment and no database access, acting only through the broker
-(SECURITY.md, "Known gaps"). It has no plugin marketplace, which makes
-this easier for it.
+**3. Plugins and skills.**
 
-**5. Evidence of recovery.**
-home-lab records recovery drills on the target machine: on 2026-09-30 the
-supervisor was killed (`kill -9`) and frozen (`kill -STOP`), first with a
-result that did not meet the two-minute target and exposed a real gap in the
-watchdog (#271), then, after the fix, twice in 96 s and 97 s on 2026-10-06; and
-a backup restore passed on a still-empty database (`ops/drills/log/`).
-Neither README describes an equivalent published drill record; that is an
+- OpenClaw: plugins load "in-process with the Gateway and are treated as trusted code"
+  (SECURITY.md, Plugin Trust Boundary).
+- Hermes Agent: "Plugins load into the agent process and run with full agent privileges"
+  (SECURITY.md 2.5), and the agent may write skills without approval by default.
+- home-lab: handlers load only from reviewed code under `lab.handlers`, each in its own worker
+  process with a minimal environment, CPU and memory ceilings and no database access. An imported
+  skill stays an inert candidate until the owner signs a promotion (M6, 0 of 36 became active).
+
+**4. Prompt injection.** Both projects put prompt injection on its own outside their security
+policy unless it bypasses a boundary (OpenClaw SECURITY.md, "What Usually Is Not a Security Bug";
+Hermes Agent SECURITY.md 3.2). home-lab measures it in public: H4 (0 of 9 attacks succeeded with
+the real model driving) and the pre-registered study at https://osf.io/jfp74.
+
+**5. Evidence.** home-lab publishes pre-registered safety claims with frozen case sets, run
+records, recovery drills on the target machine (`ops/drills/log/`) and a catalog of real
+incidents (#325). Neither project's README describes an equivalent published record. That is an
 absence in what was read, not proof they do not test it.
+
+**6. Outbound traffic.** OpenClaw sends a daily update check by default
+(`docs/gateway/telemetry.md`). Hermes Agent's shared metrics are off by default
+(`hermes_cli/config_defaults.py`). home-lab has no telemetry: outbound requests go only through
+its egress gateway, to hosts the owner configured.
 
 ## Where home-lab is weaker, stated plainly
 
-- It is not a daily-use agent yet: no chat interface, few real tools, no
-  cross-session memory for a user, no skills a user can install.
-- One machine, one owner, one heavy model at a time on 32 GB.
-- No community, no releases, no install guide yet (#188).
-- Its own phone control path, the Telegram bot, sits outside the repo and
-  bypasses the broker, approvals and audit log (SECURITY.md).
-- Several protections are designed but not built (SECURITY.md, "What does
-  NOT exist yet"). The container executor for untrusted code is built as
-  a module but not yet a broker tool or run on the Mac (#181), and the
-  first deployment already found one gap (#190).
-- The safety claims above have been checked on one Mac mini by its owner,
-  not by an independent review.
+- One chat channel, six reviewed handlers besides the demo, one local model, macOS on Apple
+  silicon only, and only the 32 GB tier measured.
+- No installer, no `doctor`, no update command, no release yet.
+- No voice, no browser automation, no companion apps, no scheduling a user can set, no
+  delegation tool, no session search.
+- No community. The safety claims have been checked by the owner on one Mac mini, not by an
+  independent review.
+- The local model routes poorly on its own (H1: 0.10 against the rubric's 0.83), which is why
+  rules and the owner's signature decide and the model only proposes.
 
-## What this suggests for the roadmap
+## What this suggests
 
-home-lab should not try to out-feature either project. A defensible
-position is: **the personal agent whose safety boundary is on by default
-and measured in public.** Add daily-use features only through the existing
-broker, so every new tool inherits the lab account, signed approvals and
-the audit log:
-
-1. Fix #190, then the install guide (#188).
-2. A chat interface (Telegram first, since it exists), routed through the
-   broker instead of a raw shell.
-3. A small set of tools (files in a workspace, web fetch, calendar read),
-   each behind policy and approvals.
-4. Memory that the owner can inspect, correct and delete (`lab memory`
-   already exists).
-5. The container executor for untrusted code (#181).
-6. Interoperability rather than competition: reading skills in the
-   agentskills.io format, and MCP, each through the broker.
-
-The owner decides this order in #189 before any build work starts.
+home-lab should not try to out-feature either project. Its position is: **the personal agent
+whose safety boundary is on by default and measured in public.** Every feature it takes from
+them comes in through the broker, so it inherits the lab account, signed approvals, the audit log
+and a pre-registered claim where the feature adds risk. [FEATURE-PLAN.md](FEATURE-PLAN.md) lists
+which features, in what order, and what home-lab will not copy.

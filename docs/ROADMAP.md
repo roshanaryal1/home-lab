@@ -196,7 +196,8 @@ cases) on 2026-10-01, and M5 (30 cases, on the real container) on
 ## What this does not try to do
 
 - Match the features or the community of OpenClaw or Hermes Agent
-  (`docs/COMPARISON.md`).
+  (`docs/COMPARISON.md`). The features it does take, through the broker, are in
+  `docs/FEATURE-PLAN.md`.
 - Multi-user or multi-tenant use (#41).
 - A skill marketplace.
 - Real credentials before the three preconditions in the README hold.
