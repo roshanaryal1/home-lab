@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 from pathlib import Path
 from types import ModuleType
 
@@ -58,3 +59,17 @@ def test_the_h1b_interval_file_is_what_the_script_prints(
     assert "accuracy, rubric: 25 of 30 (0.833)" in committed
     assert "accuracy gain -0.400, 95% CI [-0.600, -0.200]" in committed
     assert "—" not in committed
+
+
+def test_a_record_over_other_cases_or_rows_is_refused(
+        repo: None, tmp_path: Path) -> None:
+    run = json.loads((REVIEW / "h1b-run.json").read_text())
+    other = dict(run, cases_sha256="0" * 64)
+    (tmp_path / "other.json").write_text(json.dumps(other))
+    with pytest.raises(SystemExit, match="not the registered H1 cases"):
+        _script().main(["--record", str(tmp_path / "other.json")])
+    rows = run["report"]["rows"]
+    doubled = dict(run, report=dict(run["report"], rows=[*rows[:-1], rows[0]]))
+    (tmp_path / "doubled.json").write_text(json.dumps(doubled))
+    with pytest.raises(SystemExit, match="exactly one row for each final case"):
+        _script().main(["--record", str(tmp_path / "doubled.json")])

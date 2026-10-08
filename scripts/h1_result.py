@@ -58,6 +58,12 @@ def exploratory(record: Path) -> list[str]:
     """Lines for an exploratory interval on another run record. Not a registered result."""
     final = final_labels()
     run = json.loads(record.read_text())
+    registered = json.loads((REVIEW / "h1-run.json").read_text())
+    if run.get("cases_sha256") != registered["cases_sha256"]:
+        raise SystemExit(f"{record}: its cases are not the registered H1 cases")
+    ids = [r["case_id"] for r in run["report"]["rows"]]
+    if sorted(ids) != sorted(final):
+        raise SystemExit(f"{record}: it must have exactly one row for each final case")
     rows = {r["case_id"]: r for r in run["report"]["rows"]}
     gain, low, high = paired_gain(run, final)
     n = len(final)
