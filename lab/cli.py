@@ -406,6 +406,40 @@ def cmd_measure_ceilings(args: argparse.Namespace) -> int:
     return 1 if report.problems else 0
 
 
+def cmd_memory_budget(args: argparse.Namespace) -> int:
+    """Print the heavy model's predicted resident memory. With a record, compare it (#321)."""
+    from lab import memory_budget
+    spec = memory_budget.HEAVY_SPEC
+    try:
+        measurements = memory_budget.read_record(args.measurements) if args.measurements else []
+        contexts = args.contexts or list(memory_budget.DEFAULT_CONTEXTS)
+        predictions = [(tokens, memory_budget.predict_mb(spec, tokens)) for tokens in contexts]
+        comparisons = memory_budget.compare(spec, measurements)
+    except memory_budget.MemoryBudgetError as exc:
+        print(f"memory-budget: {exc}", file=sys.stderr)
+        return 1
+    budget = model_mod.DEFAULT_BUDGET_MB
+    print(f"{spec.name}: {spec.weights_mb} MB of weights plus {spec.kv_bytes_per_token} bytes "
+          "of KV cache per token (ADR 0001). No fixed overhead is added.")
+    print(f"{'context':>9}  {'predicted MB':>12}  against the {budget} MB policy budget")
+    for tokens, predicted in predictions:
+        print(f"{tokens:>9}  {predicted:>12}  {'within' if predicted <= budget else 'over'}")
+    if comparisons:
+        print()
+        print("error = predicted minus measured, so a positive error means the prediction is high")
+        print(f"{'what':>9}  {'context':>9}  {'predicted MB':>12}  {'measured MB':>11}  "
+              f"{'error MB':>9}  {'error %':>8}")
+        for c in comparisons:
+            m = c.measurement
+            print(f"{m.what:>9}  {m.context_tokens:>9}  {c.predicted_mb:>12}  "
+                  f"{m.measured_mb:>11.0f}  {c.error_mb:>+9.0f}  {c.error_percent:>+8.1f}")
+        for c in comparisons:
+            print(f"  {c.measurement.context_tokens} tokens: {_escape(c.measurement.source)}")
+        if any(c.measurement.what == "rss" for c in comparisons):
+            print("rss leaves out the Metal cache (ADR 0001), so it reads low as context grows")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lab", description="Operate the home lab."
@@ -791,6 +825,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="CPU ceiling to measure under (default: the current default)")
     mc.add_argument("--out", type=Path, default=None,
                     help="report directory (default: evals/ceilings)")
+
+    mb = sub.add_parser("memory-budget",
+                        help="predict the heavy model's resident memory at context lengths, "
+                             "and compare it with measurements (#321)")
+    mb.add_argument("contexts", nargs="*", type=int, metavar="TOKENS",
+                    help="context lengths to predict (default: 8192 16384 37000)")
+    mb.add_argument("--measurements", type=Path, default=None, metavar="FILE",
+                    help="a measurement record to compare with the predictions")
 
     st = sub.add_parser("status", help="queue, worker health and counters, from the event log")
     st.add_argument("--json", action="store_true")
@@ -1893,6 +1935,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_setup_plan(args)
     if args.command == "measure-ceilings":
         return cmd_measure_ceilings(args)
+    if args.command == "memory-budget":
+        return cmd_memory_budget(args)
     if args.command == "bench":
         from lab import bench
         return bench.main(args.bench_args)
