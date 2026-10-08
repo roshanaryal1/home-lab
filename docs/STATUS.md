@@ -40,8 +40,10 @@ In this order:
    Disk Access to its launcher" ([#287](https://github.com/roshanaryal1/home-lab/issues/287)). It ends
    by turning Terminal's Full Disk Access off.
 4. The #312 check above, then merge and follow its runbook section.
-5. Replace the outside heartbeat check (its URL was exposed once) and rerun the heartbeat URL step;
-   turn off browser Apple Events and Accessibility permissions used for the OSF work.
+5. Replace the outside heartbeat check. The heartbeat job and its outside check were set up on
+   2026-10-07 and the job pinged it, but the check's URL was exposed once, so make a new check and
+   rerun the heartbeat URL step. The Telegram alert hook is installed and a test alert reached the
+   phone. Also turn off browser Apple Events and Accessibility permissions used for the OSF work.
 6. Drills: interrupted task with a power pull (`lab drill interrupted`, [#91](https://github.com/roshanaryal1/home-lab/issues/91), [#77](https://github.com/roshanaryal1/home-lab/issues/77)),
    network unplug ([#79](https://github.com/roshanaryal1/home-lab/issues/79)), `/stop` from the chat bot,
    monthly restore drill (setup section 10).
