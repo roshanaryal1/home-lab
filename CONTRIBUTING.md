@@ -58,9 +58,10 @@ Three concrete reasons, each learned here rather than imported:
    more. If a change touches `lab/queue.py` `recover()` or the supervisor
    semaphores, say so in the PR body.
    **Schema changes are a new migration**, never an edit: add
-   `lab/migrations/NNNN_name.sql` with the next number (no PRAGMAs, no
-   BEGIN or COMMIT; the runner owns both) and extend
-   `tests/test_migrations.py`. A shipped migration is never edited.
+   `lab/migrations/NNNN_name.sql` with the next number (no PRAGMAs, and no
+   BEGIN or COMMIT, because the runner owns both), its line in
+   `lab/migrations/SHA256SUMS`, and extend `tests/test_migrations.py`.
+   A shipped migration is never edited.
 4. **No new runtime dependencies without justification.** There is one
    (`cryptography`, for approval signatures), added deliberately. This runs unattended;
    every dependency is a thing that can break at 3am. The test suite

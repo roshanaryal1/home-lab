@@ -5,3 +5,11 @@
 # (#79). It never pointed at a real check. The test now uses a value the
 # scanner does not flag; this line covers the commit that is already pushed.
 d39699b01e2404aa0e0f9f195348e6845e8e5833:tests/test_deadman.py:generic-api-key:28
+
+# The public Hugging Face commit of the heavy model,
+# 6e302ea604ad9ab206367e2c501d1571023e7b6d, as a tokenizer_revision in
+# lab/memory_budget.py on the branch research/321-memory-budget. ADR 0001 and
+# PREREGISTRATION.md print the same value. The merged code names it as a
+# constant the scanner does not flag. This line covers the commit already
+# pushed, which CI scans because it reads every branch.
+419b7ba64fbb2914bfcd4514ed302f388adda402:lab/memory_budget.py:generic-api-key:70

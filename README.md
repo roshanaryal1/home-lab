@@ -107,7 +107,7 @@ ssh -N -L 8765:127.0.0.1:8765 <user>@<mac-mini>   # lab dashboard, after `lab da
 | Apple `container`, measured for the untrusted-code tier (used only by the broker's `skill.run`, off unless `LAB_CONTAINER_IMAGE` is set, #255. Since 2026-10-01 the `skill.run` handler holds that tool, approve tier) | 0.64 s median start; inside a container the host's accounts and files were not visible; network is on by default, so the executor always passes `--network none`. On 2026-10-07 the pre-registered M5 claim ran against the real container: 30 hostile scripts (12 network, 10 host path, 8 survivor), 0 failures, with two controls; an outside observer could not see connections to public addresses, so those cases rest on the guest having no network interface (the limits are in the result) | ADR 0007, `docs/PREREGISTRATION-SAFETY.md` |
 | Heavy model memory and speed | 17.2 GB loaded, about 200 KB per token of context, about 16K tokens under the 20.5 GB budget, about 67 tok/s | ADR 0001 |
 | Utility evaluation, 24 tasks | heavy 19, 4B baseline 20; reruns identical | setup section 14, `evals/runs/` |
-| Prompt injection with the real model driving | 0 of 9 attacks succeeded; the model tried 2, the broker stopped both | `SECURITY.md` |
+| Prompt injection with the real model driving | 0 of 9 attacks succeeded in the registered replication (H4, 2026-09-29 UTC); the model tried the injected action in 3 of the 8 scenarios whose handler ran, and the broker stopped all three. The other two real-model runs, not registered, are in `SECURITY.md` | `docs/PREREGISTRATION.md`, Results, H4 |
 | Backup and recovery | encrypted external backup disk; one backup written and restore-checked from the command line on the M6 (2026-10-07, [report](docs/reviews/2026-10-07-mac-session-backup.md)); the scheduled job has run once, by hand, and its own 02:47 run is not yet confirmed; task crash drills passed (2026-09-29); after a supervisor `kill -9` under launchd a new one was found at the first 2 s check, a frozen supervisor was replaced by the watchdog in 96 s and 97 s in two runs (2026-10-06, after the fix for #271), and a first restore drill passed on a still-empty database (2026-09-30) | setup sections 10 and 16, `ops/drills/log/` |
 
 **Pre-registered tests.** The evaluation plan is registered on OSF
@@ -127,8 +127,12 @@ out-feature them. The position is narrower: **the personal agent whose
 safety boundary is on by default and measured in public.** New daily-use
 features (chat, tools, memory) are to be added only through the existing
 broker, so each inherits the lab account, signed approvals and the audit
-log. The cited comparison is [docs/COMPARISON.md](docs/COMPARISON.md); the
-roadmap is decided in [#189](https://github.com/roshanaryal1/home-lab/issues/189).
+log. The cited comparison is [docs/COMPARISON.md](docs/COMPARISON.md). On
+[#189](https://github.com/roshanaryal1/home-lab/issues/189) the owner chose to ship
+v0.1 first, then add features month by month; which features, and what home-lab
+will not copy, is in [docs/FEATURE-PLAN.md](docs/FEATURE-PLAN.md).
+The months to v1.0 and a public launch, and what v1.0 must pass, are in
+[docs/PLAN-7-MONTHS.md](docs/PLAN-7-MONTHS.md).
 The install guide for your own Mac is [docs/INSTALL.md](docs/INSTALL.md); it has not
 yet been tested end to end on a fresh Mac ([#188](https://github.com/roshanaryal1/home-lab/issues/188)).
 
