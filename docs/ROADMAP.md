@@ -8,8 +8,10 @@ are guesses and have not been measured.
 The status lines below were checked against the code, the merged pull
 requests and the issues on 2026-10-08. On that date an options memo on #189
 ([comment](https://github.com/roshanaryal1/home-lab/issues/189#issuecomment-6042898903))
-recommends shipping (b) as v0.1 with no new features; the owner has not
-answered it yet.
+recommends shipping (b) as v0.1 with no new features. On 2026-10-08 the
+owner chose that: ship v0.1, then add features month by month through the
+broker. The features are in [FEATURE-PLAN.md](FEATURE-PLAN.md), and the
+months to v1.0 and a public launch are in [PLAN-7-MONTHS.md](PLAN-7-MONTHS.md).
 
 ## Where we start
 
