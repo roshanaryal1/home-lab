@@ -450,7 +450,8 @@ Implemented and tested:
   lacks `UserName`. `lab keepawake` only reads the database and starts
   `caffeinate`, so its committed definition runs it as `lab` since #235. On the
   mini the installed copy stays root until the operator has checked that a
-  `caffeinate` running as `lab` holds the power assertion and has reinstalled
+  `caffeinate` running as `lab` holds the power assertion, from Terminal and from
+  launchd, and has reinstalled
   the definition (runbook, "Moving keep-awake to the lab account"). Until then,
   root opens a database the lab account controls. That was
   tested for the symlink case: with SQLite 3.53.1 a symlinked `-shm` makes

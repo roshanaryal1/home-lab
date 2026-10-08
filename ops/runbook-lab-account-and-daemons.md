@@ -615,8 +615,42 @@ queued. Use one Terminal window, with `REPO` set as at the top of this runbook.
    It passes when the result says `PASS` with `caffeinate pid <n> runs as lab and
    holds PreventUserIdleSystemSleep`. Put the report's `caffeinate` section on #235.
    A `FAIL` that says `no caffeinate line` can be run once more; any other `FAIL`
-   means stop here, and keep-awake stays root. This runs `caffeinate` as `lab` from
-   your Terminal through `sudo`, not from launchd; step 4 checks the daemon itself.
+   means stop here, and keep-awake stays root.
+
+   That step runs `caffeinate` as `lab` from your Terminal through `sudo`, inside your
+   login session. Keep-awake runs from launchd's system domain with no login session,
+   and no man page says whether `lab` can hold the assertion there. So check that
+   too, before merging. `ops/checks/com.homelab.keepawake-check.plist` is a throwaway
+   daemon that runs only `/usr/bin/caffeinate -i -t 60` as `lab`. It writes no log,
+   and launchd does not restart it when it ends. Load it and look:
+
+   ```sh
+   cd "$REPO"
+   T=/Library/LaunchDaemons/com.homelab.keepawake-check.plist
+   plutil -lint ops/checks/com.homelab.keepawake-check.plist
+   sudo install -o root -g wheel -m 644 ops/checks/com.homelab.keepawake-check.plist $T
+   sudo launchctl bootstrap system $T
+   sleep 5
+   CF=$(pgrep -P 1 -u lab -x caffeinate)
+   echo "caffeinate started by launchd as lab: ${CF:-none}"
+   ps -o user=,pid=,ppid=,command= -p "$CF"
+   pmset -g assertions | grep "pid ${CF}(caffeinate)"
+   ```
+
+   Then remove it, whatever the result:
+
+   ```sh
+   sudo launchctl bootout system/com.homelab.keepawake-check
+   sudo rm /Library/LaunchDaemons/com.homelab.keepawake-check.plist
+   ```
+
+   It passes when the `echo` line shows one pid, the `ps` line starts with `lab` and
+   its third column (the parent) is `1`, launchd itself, and the `pmset` line names
+   that pid with `PreventUserIdleSystemSleep`. If the `echo` line shows `none` or two
+   pids, wait a minute after the removal and run both blocks once more. Put the
+   output on #235 next to the `caffeinate` section. On any other result, stop: do not
+   merge or deploy, and keep-awake stays root. Step 4 checks the real daemon after
+   the deploy.
 2. **Deploy** the commit as in "Updating the deployed code". Its `diff --stat` lists
    `ops/launchd/com.homelab.keepawake.plist` and `lab/service.py`. Leave the
    keep-awake definition out of that section's reinstall list; step 3 reinstalls it.

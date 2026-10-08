@@ -70,6 +70,18 @@ def test_only_the_watchdog_runs_as_root() -> None:
     assert as_root == ["com.homelab.watchdog.plist"]
 
 
+def test_the_keepawake_check_daemon_only_runs_caffeinate_as_lab_once() -> None:
+    """The runbook's check before #235's change merges (step 1): caffeinate as lab
+    from launchd, with no log file and no restart, and the committed copy is current."""
+    data = plistlib.loads(service.keepawake_check_plist(user="lab"))
+    assert data == {"Label": "com.homelab.keepawake-check", "UserName": "lab",
+                    "RunAtLoad": True,
+                    "ProgramArguments": ["/usr/bin/caffeinate", "-i", "-t", "60"]}
+    committed = (Path(__file__).resolve().parent.parent / "ops" / "checks"
+                 / "com.homelab.keepawake-check.plist")
+    assert committed.read_bytes() == service.keepawake_check_plist(user="lab")
+
+
 def test_ops_copies_of_the_plists_are_current(tmp_path: Path) -> None:
     root = Path(__file__).resolve().parent.parent / "ops" / "launchd"
     py, wd, db = "/opt/homelab/.venv/bin/python", "/opt/homelab", "/var/homelab/lab.db"

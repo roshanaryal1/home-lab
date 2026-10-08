@@ -47,6 +47,7 @@ WATCHDOG_INTERVAL_SECONDS = 30
 TICK_LABEL = "com.homelab.tick"
 TICK_INTERVAL_SECONDS = 300
 KEEPAWAKE_LABEL = "com.homelab.keepawake"
+KEEPAWAKE_CHECK_LABEL = "com.homelab.keepawake-check"
 BACKUP_LABEL = "com.homelab.backup"
 BACKUP_KEEP = 14
 # The committed backup definition carries this placeholder; the operator puts
@@ -273,6 +274,21 @@ def keepawake_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
     """
     return _plist(KEEPAWAKE_LABEL, [python, "-m", "lab.cli", "--db", db, "keepawake"], workdir,
                   UserName=user, RunAtLoad=True, KeepAlive=True, ThrottleInterval=30)
+
+
+def keepawake_check_plist(*, user: str, seconds: int = 60) -> bytes:
+    """A throwaway daemon for the check before keep-awake moves to ``user`` (#235).
+
+    It runs only ``caffeinate -i`` as ``user`` from launchd's system domain, with no
+    login session, as keep-awake will. It writes no log, and launchd does not
+    restart it when it ends. The operator loads it, checks that its pid holds the
+    power assertion, and removes it (runbook, "Moving keep-awake to the lab
+    account", step 1).
+    """
+    return plistlib.dumps({
+        "Label": KEEPAWAKE_CHECK_LABEL, "UserName": user, "RunAtLoad": True,
+        "ProgramArguments": ["/usr/bin/caffeinate", "-i", "-t", str(seconds)],
+    })
 
 
 def selftest_plist(*, user: str, python: str, workdir: str, db: str,
