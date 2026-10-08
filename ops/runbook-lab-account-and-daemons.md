@@ -435,6 +435,24 @@ echo "deployed now: $OLD, updating to: $COMMIT"
 Read both lines before going on: `deployed now` must be a 40 character hash and
 `updating to` must not still say `PASTE_`.
 
+**Back up before anything changes.** A migration can be undone only from a backup,
+because once the new code has upgraded the database, the old code refuses to open it.
+The new code also writes a second copy first, `/var/homelab/lab.db.pre-vN.bak` beside
+the database (`N` is the version it upgrades from), and keeps only the newest one.
+Take the backup now, while the old code is still in place. `BACKUP_VOLUME` must be set
+in this window and the volume attached, as at the top of this runbook:
+
+```sh
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db backup --keep 14 --to "$BACKUP_VOLUME/home-lab-backups/before-update"
+sudo ls -l "$BACKUP_VOLUME/home-lab-backups/before-update"
+```
+
+The first line must print `wrote` and then `restore check ok`, and the listing must
+show a new `lab-*.manifest.json`. If it does not, stop here: the update waits until a
+backup has restored. A failure with `unable to open database file` means the terminal
+app cannot reach the volume (see the Full Disk Access note in the backup folder section
+above).
+
 The deployment is owned by root so the lab account cannot change what it runs.
 As in step 3, ownership passes to you for the update and returns to root after,
 and `git` and `uv sync` run as you, never as root:
