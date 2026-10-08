@@ -5,13 +5,16 @@ from __future__ import annotations
 import os
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+import lab.migrations as migrations_mod
 from lab.migrations import (
+    AFTER,
     MIGRATIONS_DIR,
     MigrationError,
     SchemaTooNew,
@@ -378,17 +381,22 @@ def test_oversized_result_is_refused_and_the_task_stays_running(tmp_path: Path) 
 # ------------------------------------------------ migration 14: chat origin
 
 
-def _at_version(tmp_path: Path, version: int) -> Path:
-    """A database migrated only up to ``version``, through the real runner."""
+def _migrations_up_to(tmp_path: Path, version: int) -> Path:
+    """A migrations folder holding the shipped files up to ``version`` and no later one."""
     directory = tmp_path / f"migrations_upto_{version}"
     directory.mkdir()
     for found in discover():
         if found.version <= version:
             shutil.copy(found.path, directory / found.path.name)
+    return directory
+
+
+def _at_version(tmp_path: Path, version: int) -> Path:
+    """A database migrated only up to ``version``, through the real runner."""
     db = tmp_path / "v.db"
     conn = raw(db)
     conn.execute("PRAGMA journal_mode = WAL")
-    assert migrate(conn, directory) == version
+    assert migrate(conn, _migrations_up_to(tmp_path, version)) == version
     conn.close()
     return db
 
@@ -487,3 +495,180 @@ def test_migration_16_adds_a_provenance_table_that_refuses_a_partial_record(
                 q._conn.execute(insert, tuple(row))
         assert q._conn.execute(
             "SELECT acquired_at FROM workspace_acquisitions").fetchone()[0]
+
+
+# ------------------------------------- every step, against a fresh schema (#348)
+
+
+def schema(conn: sqlite3.Connection) -> list[tuple[object, ...]]:
+    """Every schema object as (type, name, table, SQL with its spacing collapsed)."""
+    return sorted(
+        (kind, name, table, " ".join(sql.split()) if sql is not None else None)
+        for kind, name, table, sql in conn.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_master")
+    )
+
+
+@pytest.mark.parametrize("version", range(1, latest_version()))
+def test_every_upgrade_step_reaches_the_schema_of_a_fresh_database(
+        tmp_path: Path, version: int) -> None:
+    upgraded = raw(_at_version(tmp_path, version))
+    assert migrate(upgraded) == latest_version()
+    fresh = raw(tmp_path / "fresh.db")
+    assert migrate(fresh) == latest_version()
+    assert schema(upgraded) == schema(fresh)
+    upgraded.close()
+    fresh.close()
+
+
+# ------------------------------------ the snapshot before an upgrade (#348)
+
+
+def _snapshots_in(folder: Path) -> list[str]:
+    return sorted(p.name for p in folder.glob("*.pre-v*.bak"))
+
+
+def test_an_upgrade_is_preceded_by_a_private_snapshot_of_the_old_version(
+        tmp_path: Path) -> None:
+    db = _at_version(tmp_path, 5)
+    conn = raw(db)
+    conn.execute("INSERT INTO tasks (id, title) VALUES ('kept', 'before the upgrade')")
+    before = snapshot(conn)
+    conn.close()
+
+    with TaskQueue(db) as q:
+        assert current_version(q._conn) == latest_version()
+
+    assert _snapshots_in(tmp_path) == ["v.db.pre-v5.bak"]
+    copy = tmp_path / "v.db.pre-v5.bak"
+    assert stat.S_IMODE(copy.stat().st_mode) == 0o600
+    check = raw(copy)
+    assert current_version(check) == 5
+    assert check.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    assert snapshot(check) == before
+    check.close()
+
+
+def test_a_fresh_database_gets_no_snapshot_and_neither_does_a_current_one(
+        tmp_path: Path) -> None:
+    db = tmp_path / "lab.db"
+    TaskQueue(db).close()
+    assert _snapshots_in(tmp_path) == []
+    TaskQueue(db).close()
+    assert _snapshots_in(tmp_path) == []
+
+
+def test_only_the_newest_snapshot_of_a_database_is_kept(tmp_path: Path) -> None:
+    db = _at_version(tmp_path, 5)
+    for stale in ("v.db.pre-v1.bak", "v.db.pre-v3.bak", "v.db.pre-v5.bak"):
+        (tmp_path / stale).write_bytes(b"not a database")
+    (tmp_path / "other.db.pre-v3.bak").write_bytes(b"someone else's snapshot")
+
+    with TaskQueue(db):
+        pass
+
+    assert _snapshots_in(tmp_path) == ["other.db.pre-v3.bak", "v.db.pre-v5.bak"]
+    check = raw(tmp_path / "v.db.pre-v5.bak")
+    assert current_version(check) == 5  # replaced by a real copy, not the stale bytes
+    check.close()
+
+
+def test_a_snapshot_never_deletes_a_newer_one(tmp_path: Path) -> None:
+    db = _at_version(tmp_path, 5)
+    # A process that saw the file at version 6 made this copy. A slower process
+    # copying version 5 must leave it alone.
+    (tmp_path / "v.db.pre-v6.bak").write_bytes(b"another process's newer copy")
+    (tmp_path / "v.db.pre-v4.bak").write_bytes(b"an older copy")
+
+    with TaskQueue(db):
+        pass
+
+    assert _snapshots_in(tmp_path) == ["v.db.pre-v5.bak", "v.db.pre-v6.bak"]
+
+
+def test_a_failed_upgrade_keeps_the_snapshot_and_the_original_at_the_old_version(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    old = latest_version() - 1
+    db = _at_version(tmp_path, old)
+    conn = raw(db)
+    conn.execute("INSERT INTO tasks (id, title) VALUES ('kept', 'before the upgrade')")
+    conn.close()
+
+    def boom(_conn: sqlite3.Connection) -> None:
+        raise RuntimeError("forced failure")
+
+    monkeypatch.setitem(AFTER, latest_version(), boom)
+    conn = raw(db)
+    with pytest.raises(MigrationError, match="rolled back"):
+        migrate(conn)
+    conn.close()
+
+    assert _snapshots_in(tmp_path) == [f"v.db.pre-v{old}.bak"]
+    for path in (db, tmp_path / f"v.db.pre-v{old}.bak"):
+        check = raw(path)
+        assert current_version(check) == old
+        assert check.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert [r[0] for r in check.execute("SELECT title FROM tasks")] == ["before the upgrade"]
+        check.close()
+
+
+def test_a_snapshot_that_cannot_be_written_stops_the_upgrade(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    old = latest_version() - 1
+    db = _at_version(tmp_path, old)
+
+    def no_space(_source: sqlite3.Connection, _dest: Path) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(migrations_mod, "online_copy", no_space)
+    conn = raw(db)
+    with pytest.raises(MigrationError, match="nothing was migrated"):
+        migrate(conn)
+    assert current_version(conn) == old
+    conn.close()
+    assert _snapshots_in(tmp_path) == []
+    assert sorted(p.name for p in tmp_path.iterdir() if p.name.endswith(".partial")) == []
+
+
+def test_a_database_from_before_versioning_is_snapshotted_too(tmp_path: Path) -> None:
+    db = tmp_path / "old.db"
+    legacy_db(db)
+    conn = raw(db)
+    assert current_version(conn) == 0
+    before = snapshot(conn)
+    conn.close()
+
+    with TaskQueue(db) as q:
+        assert current_version(q._conn) == latest_version()
+
+    assert _snapshots_in(tmp_path) == ["old.db.pre-v0.bak"]
+    check = raw(tmp_path / "old.db.pre-v0.bak")
+    assert current_version(check) == 0 and snapshot(check) == before
+    check.close()
+
+
+def test_a_snapshot_another_process_pruned_first_is_not_an_error(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _at_version(tmp_path, 5)
+    (tmp_path / "v.db.pre-v3.bak").write_bytes(b"an older snapshot")
+    real_unlink = os.unlink
+
+    def raced(path: str) -> None:
+        real_unlink(path)       # the other process deletes it first
+        raise FileNotFoundError(2, "No such file or directory", path)
+
+    monkeypatch.setattr(migrations_mod.os, "unlink", raced)
+    conn = raw(db)
+    assert migrate(conn) == latest_version()
+    conn.close()
+    assert _snapshots_in(tmp_path) == ["v.db.pre-v5.bak"]
+
+
+def test_an_in_memory_database_is_never_snapshotted(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    assert migrate(conn, _migrations_up_to(tmp_path, 5)) == 5
+    assert migrate(conn) == latest_version()
+    assert _snapshots_in(tmp_path) == []
+    conn.close()
