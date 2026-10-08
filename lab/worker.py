@@ -37,6 +37,7 @@ import asyncio
 import contextlib
 import importlib
 import json
+import math
 import os
 import signal
 import subprocess
@@ -69,8 +70,10 @@ class CeilingExceeded(PermanentFailure):
     def __init__(self, resource: str, limit: float, observed: float | None = None) -> None:
         self.resource, self.limit, self.observed = resource, limit, observed
         if resource == "memory":
+            # Rounded up, so a reading over the limit never reads as the limit (#316).
             text = (f"memory ceiling of {limit:g} MB exceeded"
-                    + (f" (observed {observed:.0f} MB)" if observed is not None else ""))
+                    + (f" (observed {math.ceil(observed)} MB)" if observed is not None
+                       else ""))
         else:
             text = f"cpu ceiling of {limit:g}s exceeded"
         super().__init__(text)

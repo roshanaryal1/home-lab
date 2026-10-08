@@ -19,6 +19,7 @@ import asyncio
 import contextlib
 import fcntl
 import logging
+import math
 import os
 import socket
 import sys
@@ -666,7 +667,7 @@ class Supervisor:
                 self.queue.record_event(task.id, "resource_ceiling_exceeded", {
                     "resource": exc.resource,
                     ("limit_mb" if exc.resource == "memory" else "limit_seconds"): exc.limit,
-                    **({"observed_mb": round(exc.observed)} if exc.observed is not None
+                    **({"observed_mb": math.ceil(exc.observed)} if exc.observed is not None
                        else {})})
             try:
                 self.queue.fail(token, f"permanent: {exc}", retry=False)
