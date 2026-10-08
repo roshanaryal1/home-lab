@@ -115,9 +115,11 @@ Four records, all on one commit, all 70 tasks:
 1. **Start A, C1.** The registered grammar, as H2 ran it (the existing `--grammar` option,
    `lab/evals.py`, lines 342 to 364). This is the control.
 2. **Start A, C2.** The fixed-order grammar (section 4). This is the exploratory condition.
-3. **Start B, C1.** The server restarted with the same flags, then C1 again. This tests
-   whether the server start sets the order.
-4. **Rerun of C2** on start A, with `lab eval rerun`.
+3. **Rerun of C2** on start A, with `lab eval rerun`, before the server is restarted.
+   `lab eval rerun` reuses the endpoint in the record, so it must run while start A is
+   still the server behind it.
+4. **Start B, C1.** The server restarted with the same flags, then C1 again. This tests
+   whether the order holds across a second start.
 
 Each record is reported. None replaces another (Amendment 1, item 8).
 
@@ -163,7 +165,8 @@ These readings are for the owner's notes. None changes H2.
 - If C2 has no more wrong-tool calls than C1 on start A, and C2 passes the constraint check,
   the fixed order is a candidate fix in this runtime. It is a candidate only. Any further
   claim needs a new hypothesis, registered before its run (section 10).
-- If C1 on start B gives the same order as C1 on start A, the server start did not set the order.
+- If C1 on start B gives the same order as C1 on start A, the order was stable across these
+  two starts. That does not show the start has no effect: both starts could set the same order.
 - If C1 on start B gives `arguments` first in every answer, as record `8f918047` did, the order
   changed between starts, and the schema did not set it.
 - If C2 fails the constraint check, the record says so, and no order claim is made.
