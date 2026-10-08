@@ -60,6 +60,8 @@ DEFAULT_CONTEXTS: tuple[int, ...] = (8192, 16384, 37000)
 KINDS = ("footprint", "rss")
 POINT_KEYS = frozenset({"context_tokens", "measured_mb", "what", "source"})
 MAX_SOURCE_CHARS = 500
+# Far above any context this lab runs. It keeps every prediction a finite float.
+MAX_CONTEXT_TOKENS = 1_048_576
 
 # The heavy model as ADR 0001 measured it: the plain 4-bit build, whose footprint
 # table is in the ADR. The DWQ build the server runs since 2026-09-30 reported the
@@ -90,7 +92,7 @@ class Measurement:
     source: str                # where the reading came from: machine, command, date
 
     def __post_init__(self) -> None:
-        _positive_int(self.context_tokens, "context_tokens")
+        _context_tokens(self.context_tokens)
         measured = self.measured_mb
         if isinstance(measured, bool) or not isinstance(measured, (int, float)) \
                 or not _finite(measured) or measured <= 0:
@@ -126,10 +128,19 @@ def _positive_int(value: object, name: str) -> int:
     return value
 
 
+def _context_tokens(value: object) -> int:
+    """A context length: a positive whole number no larger than MAX_CONTEXT_TOKENS."""
+    tokens = _positive_int(value, "context_tokens")
+    if tokens > MAX_CONTEXT_TOKENS:
+        raise MemoryBudgetError(
+            f"context_tokens must be a positive whole number no larger than {MAX_CONTEXT_TOKENS}")
+    return tokens
+
+
 def predict_mb(spec: ModelSpec, context_tokens: int) -> int:
     """Predicted resident MB at ``context_tokens``: the weights plus the KV cache for that
     many tokens, rounded down to whole MB. No fixed overhead, since ADR 0001 states none."""
-    tokens = _positive_int(context_tokens, "context_tokens")
+    tokens = _context_tokens(context_tokens)
     return spec.weights_mb + kv_cache_mb(spec, tokens)
 
 

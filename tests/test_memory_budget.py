@@ -41,7 +41,13 @@ def test_prediction_adds_no_fixed_overhead() -> None:
     assert mb.predict_mb(spec, 1) == mb.predict_mb(spec, 8_192) == 1_000
 
 
-@pytest.mark.parametrize("tokens", [0, -1, 8192.5, True])
+def test_the_largest_allowed_context_predicts_a_finite_mb() -> None:
+    # 200,000 bytes times 1,048,576 tokens is 209,715.2 MB, so 209,715 MB of cache,
+    # plus 17,180 MB of weights, is 226,895.
+    assert mb.predict_mb(mb.HEAVY_SPEC, mb.MAX_CONTEXT_TOKENS) == 226_895
+
+
+@pytest.mark.parametrize("tokens", [0, -1, 8192.5, True, 1_048_577])
 def test_prediction_refuses_a_context_that_is_not_a_positive_whole_number(tokens) -> None:
     with pytest.raises(mb.MemoryBudgetError, match="context_tokens"):
         mb.predict_mb(mb.HEAVY_SPEC, tokens)  # type: ignore[arg-type]
@@ -84,6 +90,9 @@ def _record(point: dict[str, object]) -> str:
     (_record(_point(context_tokens=True)), "context_tokens must be a positive whole number"),
     (_record(_point(context_tokens=8192.0)), "context_tokens must be a positive whole number"),
     (_record(_point(context_tokens=0)), "context_tokens"),
+    ('{"measurements": [{"context_tokens": 1' + "0" * 309 + ', '
+     '"measured_mb": 19000.0, "what": "footprint", "source": "x"}]}',
+     "context_tokens must be a positive whole number no larger than"),
     (_record(_point(measured_mb="19000")), "measured_mb must be a positive number"),
     (_record(_point(measured_mb=-5.0)), "measured_mb must be a positive number"),
     ('{"measurements": [{"context_tokens": 8192, "measured_mb": 1' + "0" * 400 + ', '
@@ -155,6 +164,17 @@ def test_cli_refuses_a_bad_record_with_exit_1(tmp_path: Path,
 def test_cli_refuses_a_zero_context_with_exit_1(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["memory-budget", "0"]) == 1
     assert "context_tokens" in capsys.readouterr().err
+
+
+def test_cli_refuses_a_huge_context_record_with_exit_1(tmp_path: Path,
+                                                       capsys: pytest.CaptureFixture[str]) -> None:
+    path = tmp_path / "huge.json"
+    path.write_text('{"measurements": [{"context_tokens": 1' + "0" * 309 + ', '
+                    '"measured_mb": 19000.0, "what": "footprint", "source": "x"}]}',
+                    encoding="utf-8")
+    assert main(["memory-budget", "--measurements", str(path)]) == 1
+    err = capsys.readouterr().err
+    assert "memory-budget: " in err and "context_tokens" in err and "Traceback" not in err
 
 
 def test_cli_prints_a_record_source_escaped(tmp_path: Path,
