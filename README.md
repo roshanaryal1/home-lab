@@ -127,8 +127,12 @@ out-feature them. The position is narrower: **the personal agent whose
 safety boundary is on by default and measured in public.** New daily-use
 features (chat, tools, memory) are to be added only through the existing
 broker, so each inherits the lab account, signed approvals and the audit
-log. The cited comparison is [docs/COMPARISON.md](docs/COMPARISON.md); the
-roadmap is decided in [#189](https://github.com/roshanaryal1/home-lab/issues/189).
+log. The cited comparison is [docs/COMPARISON.md](docs/COMPARISON.md). On
+[#189](https://github.com/roshanaryal1/home-lab/issues/189) the owner chose to ship
+v0.1 first, then add features month by month; which features, and what home-lab
+will not copy, is in [docs/FEATURE-PLAN.md](docs/FEATURE-PLAN.md).
+The months to v1.0 and a public launch, and what v1.0 must pass, are in
+[docs/PLAN-7-MONTHS.md](docs/PLAN-7-MONTHS.md).
 The install guide for your own Mac is [docs/INSTALL.md](docs/INSTALL.md); it has not
 yet been tested end to end on a fresh Mac ([#188](https://github.com/roshanaryal1/home-lab/issues/188)).
 
