@@ -41,7 +41,7 @@ from typing import Any
 
 from lab import audit
 from lab.artifacts import ArtifactStore
-from lab.migrations import latest_version
+from lab.migrations import latest_version, online_copy
 
 MANIFEST_VERSION = 1
 _CHUNK = 1024 * 1024
@@ -102,12 +102,7 @@ def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
 
     source = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        target = sqlite3.connect(tmp_db)
-        try:
-            source.backup(target)
-            target.execute("PRAGMA journal_mode = DELETE")
-        finally:
-            target.close()
+        online_copy(source, tmp_db)
     except BaseException:
         tmp_db.unlink(missing_ok=True)
         raise
