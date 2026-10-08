@@ -159,8 +159,9 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
 **Log rotation for the launchd logs (#349).** The rule file is `ops/newsyslog/homelab.conf`.
 It rotates the `.log` and `.err` files of the scheduled jobs in `/var/log/homelab` (Step 2):
 backup, heartbeat, self-test, status check, tick, watchdog and the weekly eval. Each is
-rotated at 10 MB, and five copies are kept, compressed with bzip2, mode 600 and owned by
-`lab`. Install it as root, then dry-run newsyslog, which changes nothing:
+rotated at 10 MB, and five copies are kept, mode 600 and owned by `lab`. The copies are not
+compressed, so a job that is running when its file rotates loses nothing: it finishes in the
+renamed copy. Install it as root, then dry-run newsyslog, which changes nothing:
 
 ```sh
 sudo install -d -o root -g wheel -m 755 /etc/newsyslog.d
@@ -171,12 +172,12 @@ sudo newsyslog -nvv
 - Check: the dry run lists those files with the 10240 KB limit. If it lists none of them,
   this macOS may not read `/etc/newsyslog.d`. Stop there, and do not move the rules into
   `/etc/newsyslog.conf` until you have checked how this macOS reads them. `man 5
-  newsyslog.conf` on the Mac says what the `J` and `N` flags do there. The rules were
+  newsyslog.conf` on the Mac says what the `N` flag does there. The rules were
   written from the FreeBSD manual that macOS's newsyslog comes from.
 - Status: not yet run on the Mac mini.
 - Not rotated: `chat`, `keepawake` and `supervisor` run with KeepAlive and hold their log
-  files open. After a rotation they would keep writing to the renamed copy, and
-  compressing it would delete what they wrote. Their files stay small instead: chat and
+  files open. After a rotation they would keep writing to the renamed copy until they
+  restart, so rotating them would not bound their files. Their files stay small instead: chat and
   keep-awake write almost nothing, the supervisor's full log is its own rotating JSON file,
   and its stderr (`supervisor.err`) gets only warnings and errors. If one of these files
   ever grows too large, move it aside and restart that service, for example

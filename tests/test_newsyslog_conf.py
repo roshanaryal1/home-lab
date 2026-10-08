@@ -53,12 +53,18 @@ def test_every_rule_has_seven_fields_and_names_one_file() -> None:
 
 
 def test_the_logs_stay_private_to_the_lab_account() -> None:
-    for _path, owner, mode, count, size, _when, _flags in rules():
+    for _path, owner, mode, *_rest in rules():
         assert owner == "lab:", owner
         assert mode == "600", mode
-        assert count.isdigit() and size.isdigit(), (count, size)
 
 
-def test_rotation_compresses_and_signals_nothing() -> None:
+def test_each_file_rotates_at_10_mb_and_keeps_five_copies() -> None:
+    for _path, _owner, _mode, count, size, when, _flags in rules():
+        assert (count, size, when) == ("5", "10240", "*")
+
+
+def test_rotation_signals_nothing_and_never_deletes_a_copy_a_job_still_writes() -> None:
+    # A job running at the rotation keeps writing to the renamed copy until it exits.
+    # Compression (J bzip2, X xz, Y zstd, Z gzip) would delete that copy.
     for *_rest, flags in rules():
-        assert set(flags) == {"J", "N"}, flags
+        assert flags == "N", flags
