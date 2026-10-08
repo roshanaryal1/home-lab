@@ -127,7 +127,9 @@ Results.
   run. The server the candidate runs on, `mlx_lm.server` 0.31.3, ignores
   `response_format`, so constraining the output would only have repeated H1b
   ([evidence](https://github.com/roshanaryal1/home-lab/issues/179#issuecomment-6042730490)).
-  Testing it needs a server that enforces a schema, which is the owner's choice.
+  On 2026-10-09 the owner chose to build constrained decoding into our own
+  loopback server on the same weights (#179, option 2). It is built in #320 and
+  not yet run.
 
 ## What is not promised
 
