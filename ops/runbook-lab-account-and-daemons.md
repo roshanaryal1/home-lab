@@ -414,6 +414,13 @@ line, `backup.err` must be empty, and the folder must hold a new
 Do this when a merged change has to reach the Mac mini (#204). It has not been
 tried yet: the first run is the owner's, and its result belongs in this section.
 
+The weekly eval job (`com.homelab.weekly-eval`, #321) is new, so the owner
+installs it as in this section: it shows in the `diff --stat` as a new file.
+Its four `PASTE_` values are `ProgramArguments` entries 10, 12, 14 and 16
+(counted from 0): the served model's name, revision, tokenizer revision and
+weight size in MB. Fill them in, then check that `plutil -p` shows no
+`PASTE_`, before it is bootstrapped.
+
 The installed service definitions in `/Library/LaunchDaemons` are copies. A code
 update does not change them, so first look at what the update touches, then
 decide whether they need reinstalling.
