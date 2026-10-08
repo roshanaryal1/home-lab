@@ -1,20 +1,33 @@
 # Status and handoff
 
-Last updated 2026-10-08 (NZDT). Read this first when picking the work up in a new session,
+Last updated 2026-10-09 (NZDT). Read this first when picking the work up in a new session,
 on any account or machine. It says what is done, what is waiting and on whom, and what must not
 be redone. The detail lives in the documents it links; this page only points.
 
 ## Where things stand
 
-- `main` has everything merged. Open pull requests: **#312 only** (keep-awake as the `lab`
-  account, [#235](https://github.com/roshanaryal1/home-lab/issues/235)). Do **not** merge it until
-  the owner has run `./ops/mac-session.sh --only caffeinate` from that branch and it passed; the
-  steps are in its runbook section "Moving keep-awake to the lab account".
-- Merged on 2026-10-07 and 2026-10-08: #305 drills (interrupted task, restore from a backup),
-  #306 approvals bound to the intent the operator sees, #307 backup launcher that holds Full Disk
+- Open pull requests: **#312** (keep-awake as the `lab` account,
+  [#235](https://github.com/roshanaryal1/home-lab/issues/235)).
+  Do **not** merge #312 until both checks in step 1 of its runbook section "Moving keep-awake to
+  the lab account" have passed on the Mac mini: `./ops/mac-session.sh --only caffeinate` from
+  that branch, and the same check from launchd with a throwaway daemon (added 2026-10-09).
+- #312 must also be up to date with `main` before it merges. It was brought up to date on
+  2026-10-09 with a merge commit, and every later merge to `main` puts it behind again. Merge
+  `main` into it (a merge commit, never a rebase or force-push) and wait for green checks. If
+  that merge changed `ops/mac-session.sh`, run both checks again on the updated branch before
+  merging: a pass from before the merge does not cover the new script.
+- Merged on 2026-10-08 (NZDT): #300 H1 run record, #301 H1 result, #303 `lab shadow
+  --system-file`, #304 H1b run, #305 drills (interrupted task, restore from a backup), #306
+  approvals bound to the intent the operator sees, #307 backup launcher that holds Full Disk
   Access, #308 H1c not run, #309 watchdog checks it is signalling the supervisor, #310 install
-  guide fixes, #311 roadmap and Mac-work status, #313 backup file handling checks.
-- Nothing merged since 2026-10-07 is deployed on the Mac mini yet. Deploying is the owner's step.
+  guide fixes, #311 roadmap and Mac-work status, #313 backup file handling checks, #314 this page.
+  Of these, #303, #305, #306, #307, #309 and #313 change code the Mac mini runs.
+- Merged on 2026-10-09 (NZDT): #319 (when a worker is killed at its memory ceiling, the reading
+  it records is rounded up, so it never shows as the limit itself, #316). It changes code the
+  Mac mini runs.
+- Nothing merged since 2026-10-07 is deployed on the Mac mini yet. Not verified from a session:
+  the deployed commit is visible only on the mini, where the first block of "Updating the
+  deployed code" prints it (`deployed now`). Deploying is the owner's step.
 
 ## Research results (do not redo)
 
@@ -39,7 +52,7 @@ In this order:
 3. Move the backup's Full Disk Access to its launcher: runbook section "Moving the backup's Full
    Disk Access to its launcher" ([#287](https://github.com/roshanaryal1/home-lab/issues/287)). It ends
    by turning Terminal's Full Disk Access off.
-4. The #312 check above, then merge and follow its runbook section.
+4. The two #312 checks above, then merge and follow its runbook section.
 5. Replace the outside heartbeat check. The heartbeat job and its outside check were set up on
    2026-10-07 and the job pinged it, but the check's URL was exposed once, so make a new check and
    rerun the heartbeat URL step. The Telegram alert hook is installed and a test alert reached the
@@ -59,6 +72,8 @@ Decisions:
   the issue).
 - [#83](https://github.com/roshanaryal1/home-lab/issues/83): when to publish the first release; steps
   are on the issue and in [RELEASE-NOTES-DRAFT.md](RELEASE-NOTES-DRAFT.md).
+- [#318](https://github.com/roshanaryal1/home-lab/issues/318): a point in the owner's private notes;
+  record the outcome on the issue in general terms.
 - The owner keeps private security review notes on the Mac mini, outside this repository. Ask the
   owner before acting on anything security-related that is not in an issue.
 
