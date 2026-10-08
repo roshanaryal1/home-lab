@@ -98,6 +98,7 @@ from lab.egress import EgressGateway
 from lab.journal import OperationJournal
 from lab.ledger import Ledger, LedgerError
 from lab.memory import Memory, MemoryRefused
+from lab.migrations import MigrationError
 from lab.policy import ApprovalChanged, PolicyEngine, intent_hash, task_intent
 from lab.queue import Task, TaskQueue
 from lab.skillstore import SkillStore, SkillStoreError
@@ -409,6 +410,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--db", type=Path, default=DEFAULT_DB,
                         help=f"database path (default: {DEFAULT_DB})")
+    parser.add_argument("--debug", action="store_true",
+                        help="show the traceback for a database or file error, not one line")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("approvals", help="list what is waiting for a decision")
@@ -1854,8 +1857,7 @@ COMMANDS = {
 }
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "skills" and args.skills_command != "import":
         return cmd_skills(args)
     if args.command == "prereg":
@@ -1910,6 +1912,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "skills":            # only import gets here, see above
             return cmd_skills_import(queue, policy, args)
         return COMMANDS[args.command](queue, policy, args)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return _dispatch(args)
+    except (sqlite3.DatabaseError, MigrationError, OSError) as exc:
+        # A file that is not a database, a newer schema, a locked database, or a
+        # path that cannot be opened is expected, so it prints one line. An OSError
+        # with no file name (a reset connection, a timeout) is not a file problem,
+        # so it keeps its traceback, as do other errors. --debug re-raises them all.
+        if args.debug or (isinstance(exc, OSError) and exc.filename is None):
+            raise
+        print(f"lab: {_escape(exc)}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
