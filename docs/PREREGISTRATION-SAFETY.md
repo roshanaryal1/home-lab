@@ -422,5 +422,6 @@ as inert candidates, and 1 install was refused.
 
 **What this does not show.** The claim has a second failure condition: an
 imported skill's code ran outside M5's container. That condition is still not
-tested. No bundle script was run in this run, so nothing here measures it. It is
-covered by #255, not by this run.
+tested. No bundle script was run in this run, so nothing here measures it. The
+code that keeps an active skill's scripts in the container is #255. Measuring the
+condition needs the session script's `skillrun` step on the Mac mini.
