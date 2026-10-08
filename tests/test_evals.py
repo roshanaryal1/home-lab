@@ -343,3 +343,72 @@ def test_cli_eval_run_takes_a_task_file_and_a_grammar(endpoint, tmp_path, capsys
     (path,) = out.glob("run-*.json")
     record = load_record(path)
     assert record.config.tasks_path == str(tasks) and record.config.response_format
+
+
+# ------------------------------------------------ the shared heavy slot (#321, #211)
+
+
+def _hold(lock: Path) -> int:
+    import fcntl
+    import os
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def test_with_a_db_every_request_takes_the_slot_the_lab_shares(
+        endpoint, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    from lab.loop import model_slot_path
+    db = tmp_path / "lab.db"
+    monkeypatch.setattr(evals, "EVAL_SLOT_WAIT_SECONDS", 0.2)
+    controller = evals.slot_controller(db)
+    assert controller.slot_lock == model_slot_path(db)
+    fd = _hold(model_slot_path(db))
+    try:
+        with pytest.raises(EvalError, match=r"in use by another process.*nothing was recorded"):
+            run_suite(make_config(endpoint, SPEC), controller=controller)
+    finally:
+        os.close(fd)
+    free = run_suite(make_config(endpoint, SPEC), controller=evals.slot_controller(db))
+    assert free.summary["passed"] == len(TASKS)
+
+
+def test_a_record_made_with_a_light_spec_still_takes_the_slot_and_stays_sealed_as_it_was(
+        endpoint, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+    from dataclasses import replace
+
+    from lab.loop import model_slot_path
+    db = tmp_path / "lab.db"
+    monkeypatch.setattr(evals, "EVAL_SLOT_WAIT_SECONDS", 0.2)
+    config = make_config(endpoint, replace(SPEC, heavy=False))
+    fd = _hold(model_slot_path(db))
+    try:
+        with pytest.raises(EvalError, match="in use by another process"):
+            run_suite(config, controller=evals.slot_controller(db))
+    finally:
+        os.close(fd)
+    slotted = run_suite(config, controller=evals.slot_controller(db))
+    assert slotted.config == config and slotted.config.model["heavy"] is False
+
+
+def test_cli_eval_stops_unrecorded_when_the_slot_stays_busy(
+        endpoint, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    import os
+
+    from lab.loop import model_slot_path
+    db = tmp_path / "lab.db"
+    out = tmp_path / "runs"
+    monkeypatch.setattr(evals, "EVAL_SLOT_WAIT_SECONDS", 0.2)
+    fd = _hold(model_slot_path(db))
+    try:
+        assert evals.main(["run", "--endpoint", endpoint, "--model", "stub-model",
+                           "--revision", "a" * 40, "--tokenizer-revision", "b" * 64,
+                           "--weights-mb", "1000", "--out", str(out), "--db", str(db)]) == 1
+    finally:
+        os.close(fd)
+    assert "nothing was recorded" in capsys.readouterr().err
+    assert not out.exists() or list(out.glob("run-*.json")) == []
+    assert not db.exists()      # no measurement event either

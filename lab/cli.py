@@ -34,6 +34,7 @@ Usage:
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
+    python3 -m lab.cli doctor
     python3 -m lab.cli backup [--to DIR] [--artifacts DIR] [--keep N] [--alert-config FILE]
     python3 -m lab.cli heartbeat --url-file FILE
     python3 -m lab.cli restore-check MANIFEST --into DIR
@@ -75,6 +76,7 @@ from lab import (
     backup,
     control,
     deadman,
+    doctor,
     drills,
     emitter,
     keepawake,
@@ -404,6 +406,40 @@ def cmd_measure_ceilings(args: argparse.Namespace) -> int:
     return 1 if report.problems else 0
 
 
+def cmd_memory_budget(args: argparse.Namespace) -> int:
+    """Print the heavy model's predicted resident memory. With a record, compare it (#321)."""
+    from lab import memory_budget
+    spec = memory_budget.HEAVY_SPEC
+    try:
+        measurements = memory_budget.read_record(args.measurements) if args.measurements else []
+        contexts = args.contexts or list(memory_budget.DEFAULT_CONTEXTS)
+        predictions = [(tokens, memory_budget.predict_mb(spec, tokens)) for tokens in contexts]
+        comparisons = memory_budget.compare(spec, measurements)
+    except memory_budget.MemoryBudgetError as exc:
+        print(f"memory-budget: {exc}", file=sys.stderr)
+        return 1
+    budget = model_mod.DEFAULT_BUDGET_MB
+    print(f"{spec.name}: {spec.weights_mb} MB of weights plus {spec.kv_bytes_per_token} bytes "
+          "of KV cache per token (ADR 0001). No fixed overhead is added.")
+    print(f"{'context':>9}  {'predicted MB':>12}  against the {budget} MB policy budget")
+    for tokens, predicted in predictions:
+        print(f"{tokens:>9}  {predicted:>12}  {'within' if predicted <= budget else 'over'}")
+    if comparisons:
+        print()
+        print("error = predicted minus measured, so a positive error means the prediction is high")
+        print(f"{'what':>9}  {'context':>9}  {'predicted MB':>12}  {'measured MB':>11}  "
+              f"{'error MB':>9}  {'error %':>8}")
+        for c in comparisons:
+            m = c.measurement
+            print(f"{m.what:>9}  {m.context_tokens:>9}  {c.predicted_mb:>12}  "
+                  f"{m.measured_mb:>11.0f}  {c.error_mb:>+9.0f}  {c.error_percent:>+8.1f}")
+        for c in comparisons:
+            print(f"  {c.measurement.context_tokens} tokens: {_escape(c.measurement.source)}")
+        if any(c.measurement.what == "rss" for c in comparisons):
+            print("rss leaves out the Metal cache (ADR 0001), so it reads low as context grows")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lab", description="Operate the home lab."
@@ -657,6 +693,7 @@ def build_parser() -> argparse.ArgumentParser:
     stc.add_argument("--report-ok", action="store_true",
                      help="with --alert-config, also send one short alert when every check "
                      "passes, so a result arrives every morning")
+    sub.add_parser("doctor", help="read-only health check: exit 1 if any check fails")
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
@@ -788,6 +825,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="CPU ceiling to measure under (default: the current default)")
     mc.add_argument("--out", type=Path, default=None,
                     help="report directory (default: evals/ceilings)")
+
+    mb = sub.add_parser("memory-budget",
+                        help="predict the heavy model's resident memory at context lengths, "
+                             "and compare it with measurements (#321)")
+    mb.add_argument("contexts", nargs="*", type=int, metavar="TOKENS",
+                    help="context lengths to predict (default: 8192 16384 37000)")
+    mb.add_argument("--measurements", type=Path, default=None, metavar="FILE",
+                    help="a measurement record to compare with the predictions")
 
     st = sub.add_parser("status", help="queue, worker health and counters, from the event log")
     st.add_argument("--json", action="store_true")
@@ -1022,6 +1067,15 @@ def cmd_selftest(args: argparse.Namespace) -> int:
             # failure alert needs, and the config's rate limit still applies.
             _send_alert(args, "selftest_ok", f"selftest ok: {len(report.checks)} checks")
     return 0 if report.ok else 1
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens, so it never creates or migrates
+    the database. Exit 0 when every check passes, 1 when any fails."""
+    checks = doctor.run(args.db, os.environ)
+    for check in checks:
+        print(_escape(check.line()))
+    return 0 if all(check.ok for check in checks) else 1
 
 
 def _backup_destination(args: argparse.Namespace) -> Path:
@@ -1869,6 +1923,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_tick(args)
     if args.command == "selftest":
         return cmd_selftest(args)
+    if args.command == "doctor":
+        return cmd_doctor(args)
     if args.command == "keepawake":
         return cmd_keepawake(args)
     if args.command == "shadow":
@@ -1879,6 +1935,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_setup_plan(args)
     if args.command == "measure-ceilings":
         return cmd_measure_ceilings(args)
+    if args.command == "memory-budget":
+        return cmd_memory_budget(args)
     if args.command == "bench":
         from lab import bench
         return bench.main(args.bench_args)

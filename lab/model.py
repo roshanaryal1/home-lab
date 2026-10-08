@@ -70,6 +70,11 @@ class AdmissionRefused(ModelError):
     """The request was refused before the model was called."""
 
 
+class SlotBusy(AdmissionRefused):
+    """The heavy slot stayed in use for the whole wait. Unlike the other refusals,
+    it says nothing about the request itself, so a caller may treat it apart."""
+
+
 class ModelMismatch(ModelError):
     """The server answered as a different model than the one pinned."""
 
@@ -99,6 +104,13 @@ class ModelSpec:
         if not self.name or self.context_tokens <= 0 or self.max_output_tokens <= 0 \
                 or self.weights_mb <= 0 or self.max_output_tokens > self.context_tokens:
             raise ValueError("model limits must be positive and output must fit the context")
+
+
+def kv_cache_mb(spec: ModelSpec, tokens: int) -> int:
+    """Whole MB of KV cache for ``tokens`` tokens, rounded down (MB is 10**6 bytes).
+    Admission charges one MB more than this as its margin. The memory budget check
+    predicts with this figure alone."""
+    return spec.kv_bytes_per_token * tokens // 1_000_000
 
 
 def estimate_tokens(text: str) -> int:
@@ -166,7 +178,7 @@ class AdmissionController:
                 f"prompt of about {prompt_tokens} tokens plus {max_tokens} output exceeds "
                 f"the {spec.context_tokens} token context")
         seconds = min(timeout_seconds or self.max_seconds, self.max_seconds)
-        cache_mb = spec.kv_bytes_per_token * (prompt_tokens + max_tokens) // 1_000_000 + 1
+        cache_mb = kv_cache_mb(spec, prompt_tokens + max_tokens) + 1
         with self._lock:
             resident_after = (sum(mb for n, mb in self._resident.items() if n != spec.name)
                               + spec.weights_mb + cache_mb)
@@ -187,7 +199,7 @@ class AdmissionController:
         acquired = (self._heavy.acquire(timeout=self.slot_wait_seconds) if self.slot_wait_seconds
                     else self._heavy.acquire(blocking=False))
         if not acquired:
-            raise AdmissionRefused("the heavy inference slot is in use")
+            raise SlotBusy("the heavy inference slot is in use")
         fd = -1
         try:
             if self.slot_lock is not None:
@@ -198,7 +210,7 @@ class AdmissionController:
                         break
                     except BlockingIOError:
                         if time.monotonic() >= deadline:
-                            raise AdmissionRefused(
+                            raise SlotBusy(
                                 f"the heavy inference slot is in use by another process "
                                 f"({self.slot_lock})") from None
                         time.sleep(0.05)
