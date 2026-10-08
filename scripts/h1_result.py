@@ -33,7 +33,7 @@ LOW, HIGH = 249, 9749  # the 2.5th and 97.5th percentile positions of the sorted
 
 def final_labels() -> dict[str, str]:
     final = {}
-    for line in (REVIEW / "final-cases-v2.jsonl").read_text().splitlines():
+    for line in (REVIEW / "final-cases-v2.jsonl").read_text(encoding="utf-8").splitlines():
         case = json.loads(line)
         final[case["id"]] = case["expected"]
     return final
@@ -57,8 +57,8 @@ def sha256(path: Path) -> str:
 def exploratory(record: Path) -> list[str]:
     """Lines for an exploratory interval on another run record. Not a registered result."""
     final = final_labels()
-    run = json.loads(record.read_text())
-    registered = json.loads((REVIEW / "h1-run.json").read_text())
+    run = json.loads(record.read_text(encoding="utf-8"))
+    registered = json.loads((REVIEW / "h1-run.json").read_text(encoding="utf-8"))
     if run.get("cases_sha256") != registered["cases_sha256"]:
         raise SystemExit(f"{record}: its cases are not the registered H1 cases")
     ids = [r["case_id"] for r in run["report"]["rows"]]
