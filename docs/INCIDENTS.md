@@ -6,7 +6,7 @@ This file lists the real incidents in the repository's records. P3 needs a failu
 
 An incident is a real failure or defect found on the Mac mini or in real use. A fault injected on purpose does not count. The rules used here:
 
-- Drill records in `ops/drills/log/` do not count, because their faults are injected on purpose.
+- The fault a drill injects does not count. A defect the drill was not meant to cause, such as a wrong drill summary (INC-013), counts when a record shows it.
 - A rate from a benchmark or evaluation run is a result, not an incident. A single real failure counts.
 - A finding from a test or a code review counts only when a record shows that it happened on the machine or in real use.
 - Each row cites a record that was read. If the record is unclear, the item is listed at the end instead.
