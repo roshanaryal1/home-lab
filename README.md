@@ -223,6 +223,7 @@ step ([#87](https://github.com/roshanaryal1/home-lab/issues/87)).
 
 ```sh
 uv run python -m lab.cli status [--json] [--alert-config F]   # queue, worker health, counters; exit 2 if unhealthy
+uv run python -m lab.cli doctor                   # read-only check: database, operator key, model, disk, backup, selftest, audit chain; exit 1 if any fails
 uv run python -m lab.cli approvals                # what is waiting for a decision
 uv run python -m lab.cli show <id>                # read the exact call before deciding
 uv run python -m lab.cli approve <id> --by you --key operator.key --expect-hash <prefix>
@@ -258,6 +259,7 @@ uv run python -m lab.cli route <task> [--want paper]   # post, blog, paper or no
 uv run python -m lab.cli shadow --cases evals/shadow_cases.jsonl   # measure the rubric on labeled cases; a model candidate is compared in shadow, never applied
 uv run python -m lab.cli dashboard [--port 8765]   # read-only status page on loopback; no controls, GET only, everything escaped
 uv run python -m lab.cli ledger show <task>       # claims, their evidence and status; review, verify
+uv run python -m lab.cli memory-budget [TOKENS ...] [--measurements FILE]   # predicted resident memory of the heavy model at each context length (default 8192 16384 37000). With a measurement record, the error against it (#321)
 uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record; --db notes it as a measurement
 uv run python -m lab.cli eval rerun <record>      # repeat a run from its record alone, then compare
 uv run python -m lab.cli bench run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # cold start, first token, decode speed, server memory
