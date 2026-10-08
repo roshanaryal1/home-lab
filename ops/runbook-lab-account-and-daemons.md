@@ -628,9 +628,10 @@ queued. Use one Terminal window, with `REPO` set as at the top of this runbook.
    P=/Library/LaunchDaemons
    ERR0=$(sudo cat /var/log/homelab/keepawake.err | wc -l | tr -d ' ')
    echo "keepawake.err has $ERR0 lines"
+   sudo ls -l /var/log/homelab/keepawake.log /var/log/homelab/keepawake.err
    sudo launchctl bootout system/com.homelab.keepawake
    sudo install -o root -g wheel -m 644 /opt/homelab/ops/launchd/com.homelab.keepawake.plist $P/com.homelab.keepawake.plist
-   sudo chown lab /var/log/homelab/keepawake.log /var/log/homelab/keepawake.err
+   sudo chown -h lab /var/log/homelab/keepawake.log /var/log/homelab/keepawake.err
    plutil -p $P/com.homelab.keepawake.plist
    sudo launchctl bootstrap system $P/com.homelab.keepawake.plist
    sleep 5
@@ -638,11 +639,12 @@ queued. Use one Terminal window, with `REPO` set as at the top of this runbook.
    ps -o user=,pid=,command= -p $(pgrep -f "lab.cli --db /var/homelab/lab.db keepawake")
    ```
 
-   `plutil -p` must show `"UserName" => "lab"`, `launchctl print` must show
-   `state = running`, and `ps` must show `lab` as the user. The `chown` is there
-   because the root job created both log files, and `launchd.plist(5)` does not say
-   whether launchd opens them before or after it switches to `UserName`. Giving them
-   to `lab` works either way; their folder already belongs to `lab`.
+   Both `ls -l` lines must start with `-`, a regular file. If either does not, stop
+   and go to step 5. `plutil -p` must show `"UserName" => "lab"`, `launchctl print`
+   must show `state = running`, and `ps` must show `lab` as the user. The `chown` is
+   there because the root job created both log files, and `launchd.plist(5)` does not
+   say whether launchd opens them before or after it switches to `UserName`. Giving
+   them to `lab` works either way; their folder already belongs to `lab`.
 4. **Check it while a task is active.** From the phone, send the lab's chat bot a
    plain message that takes the model a while, such as a request for a long summary
    (setup section 23); it becomes a task. Keep-awake looks at the queue every 30
