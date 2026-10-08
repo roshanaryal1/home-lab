@@ -1,6 +1,6 @@
 # Status and handoff
 
-Last updated 2026-10-08 (NZDT). Read this first when picking the work up in a new session,
+Last updated 2026-10-09 (NZDT). Read this first when picking the work up in a new session,
 on any account or machine. It says what is done, what is waiting and on whom, and what must not
 be redone. The detail lives in the documents it links; this page only points.
 
@@ -10,10 +10,16 @@ be redone. The detail lives in the documents it links; this page only points.
   account, [#235](https://github.com/roshanaryal1/home-lab/issues/235)). Do **not** merge it until
   the owner has run `./ops/mac-session.sh --only caffeinate` from that branch and it passed; the
   steps are in its runbook section "Moving keep-awake to the lab account".
-- Merged on 2026-10-07 and 2026-10-08: #305 drills (interrupted task, restore from a backup),
-  #306 approvals bound to the intent the operator sees, #307 backup launcher that holds Full Disk
+- #312 must also be up to date with `main` before it merges. It was brought up to date on
+  2026-10-09 with a merge commit, and every later merge to `main` puts it behind again. Merge
+  `main` into it (a merge commit, never a rebase or force-push) and wait for green checks. This
+  changes what the caffeinate check runs only if `main` changed `ops/mac-session.sh`.
+- Merged on 2026-10-08 (NZDT): #300 H1 run record, #301 H1 result, #303 `lab shadow
+  --system-file`, #304 H1b run, #305 drills (interrupted task, restore from a backup), #306
+  approvals bound to the intent the operator sees, #307 backup launcher that holds Full Disk
   Access, #308 H1c not run, #309 watchdog checks it is signalling the supervisor, #310 install
-  guide fixes, #311 roadmap and Mac-work status, #313 backup file handling checks.
+  guide fixes, #311 roadmap and Mac-work status, #313 backup file handling checks, #314 this page.
+  Of these, #303, #305, #306, #307, #309 and #313 change code the Mac mini runs.
 - Nothing merged since 2026-10-07 is deployed on the Mac mini yet. Deploying is the owner's step.
 
 ## Research results (do not redo)
