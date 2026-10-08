@@ -33,3 +33,17 @@ def test_every_rule_names_the_launchd_logs_and_has_valid_values() -> None:
         assert re.fullmatch(r"[0-7]{3,4}", mode), mode
         assert count.isdigit() and size.isdigit(), (count, size)
         assert "G" in flags, flags
+
+
+def test_the_logs_stay_private_to_the_lab_account() -> None:
+    for _path, owner, mode, *_rest in rules():
+        assert owner == "lab:", owner
+        assert mode == "600", mode
+
+
+def test_rotation_signals_nothing_and_never_deletes_a_copy_a_daemon_still_writes() -> None:
+    # A KeepAlive daemon keeps writing to the renamed copy until it restarts.
+    # Compression (J bzip2, X xz, Y zstd, Z gzip) would delete that copy.
+    for *_rest, flags in rules():
+        assert "N" in flags, flags
+        assert not set(flags) & set("JXYZ"), flags
