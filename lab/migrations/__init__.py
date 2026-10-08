@@ -10,7 +10,7 @@ happened completely or not at all, and the file itself says which.
 
 Before a database file below the latest version is upgraded, ``migrate``
 copies the file beside itself as ``<name>.pre-vN.bak`` with SQLite's online
-backup API, and keeps only the newest such copy. A database from before
+backup API, and deletes the older copies of that file. A database from before
 versioning (version 0 with tables) gets one too. A fresh database, empty at
 version 0, and ``:memory:`` get none.
 
@@ -198,12 +198,19 @@ def _check_snapshot(path: Path, version: int) -> None:
         )
 
 
-def _prune_snapshots(db: Path, keep: Path) -> None:
-    """Delete the other ``<name>.pre-vN.bak`` files beside ``db``, regular files only."""
-    pattern = re.compile(re.escape(db.name) + r"\.pre-v\d+\.bak")
+def _prune_snapshots(db: Path, version: int) -> None:
+    """Delete the ``<name>.pre-vN.bak`` files beside ``db`` with N below ``version``,
+    regular files only.
+
+    Only older copies go. A process that copied version 5 and was slow to get
+    here must not delete the version 6 copy that another process made after
+    upgrading the file further.
+    """
+    pattern = re.compile(re.escape(db.name) + r"\.pre-v(\d+)\.bak")
     with os.scandir(db.parent) as entries:
         for entry in entries:
-            if (entry.name != keep.name and pattern.fullmatch(entry.name)
+            match = pattern.fullmatch(entry.name)
+            if (match and int(match.group(1)) < version
                     and entry.is_file(follow_symlinks=False)):
                 # Another process opening the same file may have pruned it first.
                 with contextlib.suppress(FileNotFoundError):
@@ -261,7 +268,7 @@ def _snapshot_before_upgrade(conn: sqlite3.Connection, latest: int) -> None:
             raise
     finally:
         conn.execute("ROLLBACK")
-    _prune_snapshots(db, keep=final)
+    _prune_snapshots(db, version)
 
 
 def migrate(conn: sqlite3.Connection, directory: Path = MIGRATIONS_DIR) -> int:

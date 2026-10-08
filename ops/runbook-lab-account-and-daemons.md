@@ -438,7 +438,7 @@ Read both lines before going on: `deployed now` must be a 40 character hash and
 **Back up before anything changes.** A migration can be undone only from a backup,
 because once the new code has upgraded the database, the old code refuses to open it.
 The new code also writes a second copy first, `/var/homelab/lab.db.pre-vN.bak` beside
-the database (`N` is the version it upgrades from), and keeps only the newest one.
+the database (`N` is the version it upgrades from), and deletes the older ones.
 Take the backup now, while the old code is still in place. `BACKUP_VOLUME` must be set
 in this window and the volume attached, as at the top of this runbook:
 

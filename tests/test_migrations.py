@@ -573,6 +573,19 @@ def test_only_the_newest_snapshot_of_a_database_is_kept(tmp_path: Path) -> None:
     check.close()
 
 
+def test_a_snapshot_never_deletes_a_newer_one(tmp_path: Path) -> None:
+    db = _at_version(tmp_path, 5)
+    # A process that saw the file at version 6 made this copy. A slower process
+    # copying version 5 must leave it alone.
+    (tmp_path / "v.db.pre-v6.bak").write_bytes(b"another process's newer copy")
+    (tmp_path / "v.db.pre-v4.bak").write_bytes(b"an older copy")
+
+    with TaskQueue(db):
+        pass
+
+    assert _snapshots_in(tmp_path) == ["v.db.pre-v5.bak", "v.db.pre-v6.bak"]
+
+
 def test_a_failed_upgrade_keeps_the_snapshot_and_the_original_at_the_old_version(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     old = latest_version() - 1
