@@ -28,7 +28,7 @@ v1.0 ships only when every check below passes. Each is a yes or no.
    `lab doctor` passes for each (#188, feature 1).
 4. `lab update` moves a running lab from the previous release to this one without losing data,
    and rolls back with one command (feature 2).
-5. Migration tests start from every released schema version.
+5. Migration tests start from every released schema version, and all of them pass.
 
 **Running and recovery**
 
@@ -81,8 +81,9 @@ home-lab collects no telemetry, so the launch is judged by what people choose to
 
 ## The plan by month
 
-Features 1 to 6 in [FEATURE-PLAN.md](FEATURE-PLAN.md) are required for v1.0. Features 7 to 16
-go in if they are on time. The cut rule: a feature that is not merged, with its claim passed, by
+Features 1 to 6 in [FEATURE-PLAN.md](FEATURE-PLAN.md) are required for v1.0. A missing one holds
+v1.0 back until it is merged and its claim, if it has one, has passed. Features 7 to 16 go in if
+they are on time. The cut rule is for them: one that is not merged, with its claim passed, by
 15 March 2027 moves to after v1.0.
 
 ### Month 1: October 2026. Close the base and ship v0.1
@@ -258,8 +259,8 @@ From #321, in order. None of these reruns or edits a registered result.
   install test on a second Mac also checks that the guide works away from it.
 - **Scope.** Sixteen features is more than one owner can review in five months. The cut rule
   above protects the date.
-- **The model.** The local model routes poorly on its own (H1). Features must not depend on the
-  model's judgment for safety. Rules and the owner's signature decide.
+- **The model.** Features must not depend on the model's judgment for safety. Rules and the
+  owner's signature decide.
 - **Fast competitors.** OpenClaw and Hermes Agent ship weekly. home-lab does not race them on
   features. It competes on a boundary that is on by default and measured.
 - **The review's cost.** An outside security review may cost money. The owner decides the

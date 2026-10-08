@@ -222,4 +222,6 @@ cases) on 2026-10-01, and M5 (30 cases, on the real container) on
    web fetch with summary.
 4. Who reviews security independently, and when? Not answered.
 5. Which option in the 2026-10-08 memo on #189: ship (b) as v0.1, wrap
-   Hermes Agent, or hold the product and finish the research? Not answered.
+   Hermes Agent, or hold the product and finish the research? Answered on
+   2026-10-08: ship (b) as v0.1, then add features month by month through
+   the broker.
