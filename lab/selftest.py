@@ -119,6 +119,10 @@ def _check_safety_tests(tests_dir: Path) -> Check:
         return _failed("safety_tests", exc)
     summary = next((ln for ln in reversed(proc.stdout.splitlines())
                     if re.search(r"\d+ (passed|failed|error)", ln)), proc.stdout[-200:])
+    if not summary.strip() and proc.returncode != 0:
+        # pytest never started (for example "No module named pytest", #270), so the
+        # reason is on stderr. Its last line says why.
+        summary = next((ln for ln in reversed(proc.stderr.splitlines()) if ln.strip()), "")
     return Check("safety_tests", proc.returncode == 0, summary.strip("= ").strip()[:200])
 
 

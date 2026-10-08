@@ -135,14 +135,16 @@ root-owned so the lab account cannot change what it runs.
 The clone and `uv sync` run as the operator, never as root: `uv sync`
 builds the project with its build backend, and that code must not run with
 root privileges. Root only creates the empty directories and takes
-ownership afterwards.
+ownership afterwards. `--extra dev` installs pytest, which the nightly
+self-test needs to run the safety tests. A plain `uv sync --locked` removes it
+again (#270).
 
 ```sh
 sudo install -d -o "$USER" -g staff -m 755 /opt/homelab /opt/homelab-python
 git clone https://github.com/roshanaryal1/home-lab.git /opt/homelab
 git -C /opt/homelab -c advice.detachedHead=false checkout "$COMMIT"
 cd /opt/homelab && UV_PYTHON_INSTALL_DIR=/opt/homelab-python \
-  UV_PYTHON_PREFERENCE=only-managed "$UV" sync --locked
+  UV_PYTHON_PREFERENCE=only-managed "$UV" sync --locked --extra dev
 sudo chown -R root:wheel /opt/homelab /opt/homelab-python
 sudo chmod -R go-w /opt/homelab /opt/homelab-python
 ```
@@ -444,7 +446,7 @@ sudo chown -R "$USER" /opt/homelab /opt/homelab-python
 git -C /opt/homelab fetch origin
 git -C /opt/homelab -c advice.detachedHead=false checkout "$COMMIT"
 git -C /opt/homelab diff --stat "$OLD" "$COMMIT" -- ops/launchd lab/service.py ops/backup-launcher
-cd /opt/homelab && UV_PYTHON_INSTALL_DIR=/opt/homelab-python UV_PYTHON_PREFERENCE=only-managed "$UV" sync --locked
+cd /opt/homelab && UV_PYTHON_INSTALL_DIR=/opt/homelab-python UV_PYTHON_PREFERENCE=only-managed "$UV" sync --locked --extra dev
 sudo chown -R root:wheel /opt/homelab /opt/homelab-python
 sudo chmod -R go-w /opt/homelab /opt/homelab-python
 ```

@@ -422,6 +422,23 @@ def test_a_pytest_that_cannot_launch_fails_the_check(db: Path, tmp_path: Path,
     assert not check.ok and "OSError" in check.detail
 
 
+def test_a_missing_pytest_is_named_in_the_detail(db: Path, tmp_path: Path,
+                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    """#270: with pytest missing, stdout is empty, and the failure used to say nothing."""
+    import subprocess as sp
+    tests = tmp_path / "t"
+    tests.mkdir()
+
+    def no_pytest(args: list[str], **k: object) -> sp.CompletedProcess[str]:
+        return sp.CompletedProcess(args, 1, stdout="",
+                                   stderr="/opt/homelab/.venv/bin/python: No module named pytest\n")
+
+    monkeypatch.setattr(sp, "run", no_pytest)
+    report = selftest.run(db, tests_dir=tests, run_safety_tests=True)
+    check = next(c for c in report.checks if c.name == "safety_tests")
+    assert not check.ok and "No module named pytest" in check.detail
+
+
 def test_a_relative_tests_dir_is_resolved_once(db: Path, tmp_path: Path,
                                                monkeypatch: pytest.MonkeyPatch) -> None:
     tests = tmp_path / "suite"
