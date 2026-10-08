@@ -37,7 +37,9 @@ be redone. The detail lives in the documents it links; this page only points.
   false promotions. Reported beside H1, never replaces it
   ([registration note](PREREGISTRATION-AMENDMENT-2-REGISTRATION.md)).
 - **H1c** (constrained decoding, #179): **not run**. The served `mlx_lm.server` 0.31.3 ignores
-  `response_format`. #179 lists three options; the owner has not chosen.
+  `response_format`. On 2026-10-09 the owner chose option 2: our own constrained decoding on the
+  same MLX weights. The code and the run plan are in #320 (`docs/H1C-RUN-PLAN.md`). The run is
+  the owner's, on the Mac mini.
 - M2, M5 and M6 safety claims: 0 failures ([docs/PREREGISTRATION-SAFETY.md](PREREGISTRATION-SAFETY.md)).
 
 ## Waiting on the owner (needs sudo, hardware or a decision)
