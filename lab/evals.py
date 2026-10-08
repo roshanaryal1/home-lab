@@ -46,6 +46,7 @@ from lab.model import (
     ModelError,
     ModelSpec,
     OpenAICompatibleAdapter,
+    SlotBusy,
     parse_tool_call,
 )
 
@@ -242,6 +243,13 @@ def run_suite(config: RunConfig, adapter: Adapter | None = None, *,
             reply = model.generate([{"role": "user", "content": task.prompt}],
                                    max_tokens=config.max_tokens, seed=config.seed,
                                    timeout_seconds=config.timeout_seconds)
+        except SlotBusy as exc:
+            # A busy slot says nothing about the model. Counting it as a failed task
+            # would put a wrong score in the record, so the run stops unrecorded.
+            raise EvalError(
+                f"stopped at task {task.id}: {exc} for {model.controller.slot_wait_seconds:g} "
+                f"seconds, so nothing was recorded; run it again when the model is free"
+            ) from exc
         except ModelError as exc:
             results.append(TaskResult(task.id, False, "", 0, 0, time.monotonic() - begin,
                                       f"{type(exc).__name__}: {exc}"))

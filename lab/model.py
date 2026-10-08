@@ -70,6 +70,11 @@ class AdmissionRefused(ModelError):
     """The request was refused before the model was called."""
 
 
+class SlotBusy(AdmissionRefused):
+    """The heavy slot stayed in use for the whole wait. Unlike the other refusals,
+    it says nothing about the request itself, so a caller may treat it apart."""
+
+
 class ModelMismatch(ModelError):
     """The server answered as a different model than the one pinned."""
 
@@ -187,7 +192,7 @@ class AdmissionController:
         acquired = (self._heavy.acquire(timeout=self.slot_wait_seconds) if self.slot_wait_seconds
                     else self._heavy.acquire(blocking=False))
         if not acquired:
-            raise AdmissionRefused("the heavy inference slot is in use")
+            raise SlotBusy("the heavy inference slot is in use")
         fd = -1
         try:
             if self.slot_lock is not None:
@@ -198,7 +203,7 @@ class AdmissionController:
                         break
                     except BlockingIOError:
                         if time.monotonic() >= deadline:
-                            raise AdmissionRefused(
+                            raise SlotBusy(
                                 f"the heavy inference slot is in use by another process "
                                 f"({self.slot_lock})") from None
                         time.sleep(0.05)

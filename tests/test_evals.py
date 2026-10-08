@@ -356,7 +356,7 @@ def _hold(lock: Path) -> int:
     return fd
 
 
-def test_with_a_db_every_request_waits_for_the_slot_the_lab_shares(
+def test_with_a_db_every_request_takes_the_slot_the_lab_shares(
         endpoint, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import os
 
@@ -367,11 +367,10 @@ def test_with_a_db_every_request_waits_for_the_slot_the_lab_shares(
     assert controller.slot_lock == model_slot_path(db)
     fd = _hold(model_slot_path(db))
     try:
-        busy = run_suite(make_config(endpoint, SPEC), controller=controller)
+        with pytest.raises(EvalError, match=r"in use by another process.*nothing was recorded"):
+            run_suite(make_config(endpoint, SPEC), controller=controller)
     finally:
         os.close(fd)
-    assert busy.summary["passed"] == 0
-    assert all("in use by another process" in (r.error or "") for r in busy.results)
     free = run_suite(make_config(endpoint, SPEC), controller=evals.slot_controller(db))
     assert free.summary["passed"] == len(TASKS)
 
@@ -387,15 +386,16 @@ def test_a_record_made_with_a_light_spec_still_takes_the_slot_and_stays_sealed_a
     config = make_config(endpoint, replace(SPEC, heavy=False))
     fd = _hold(model_slot_path(db))
     try:
-        busy = run_suite(config, controller=evals.slot_controller(db))
+        with pytest.raises(EvalError, match="in use by another process"):
+            run_suite(config, controller=evals.slot_controller(db))
     finally:
         os.close(fd)
-    assert all("in use by another process" in (r.error or "") for r in busy.results)
-    assert busy.config == config and busy.config.model["heavy"] is False
+    slotted = run_suite(config, controller=evals.slot_controller(db))
+    assert slotted.config == config and slotted.config.model["heavy"] is False
 
 
-def test_cli_eval_with_a_db_takes_the_slot(endpoint, tmp_path: Path,
-                                           monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+def test_cli_eval_stops_unrecorded_when_the_slot_stays_busy(
+        endpoint, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     import os
 
     from lab.loop import model_slot_path
@@ -406,9 +406,9 @@ def test_cli_eval_with_a_db_takes_the_slot(endpoint, tmp_path: Path,
     try:
         assert evals.main(["run", "--endpoint", endpoint, "--model", "stub-model",
                            "--revision", "a" * 40, "--tokenizer-revision", "b" * 64,
-                           "--weights-mb", "1000", "--out", str(out), "--db", str(db)]) == 0
+                           "--weights-mb", "1000", "--out", str(out), "--db", str(db)]) == 1
     finally:
         os.close(fd)
-    assert f"passed 0/{len(TASKS)}" in capsys.readouterr().out
-    (record,) = out.glob("run-*.json")
-    assert "in use by another process" in record.read_text(encoding="utf-8")
+    assert "nothing was recorded" in capsys.readouterr().err
+    assert not out.exists() or list(out.glob("run-*.json")) == []
+    assert not db.exists()      # no measurement event either
