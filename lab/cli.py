@@ -995,7 +995,8 @@ def _send_alert(args: argparse.Namespace, kind: str, message: str) -> None:
         print(f"alert: {exc}", file=sys.stderr)
         return
     sent = alert.send(config, kind=kind, message=message,
-                      state_file=Path(f"{args.db}.alert"))
+                      state_file=Path(f"{args.db}.alert"),
+                      warn=lambda note: print(f"alert: {note}", file=sys.stderr))
     print(f"alert: {'sent' if sent else 'not sent (suppressed or the hook failed)'}",
           file=sys.stderr)
 

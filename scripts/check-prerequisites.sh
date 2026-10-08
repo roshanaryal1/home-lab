@@ -11,7 +11,12 @@ printf '%s\n' 'home-lab prerequisite check'
 printf '%s\n' '=========================='
 
 if [ "$(uname -s)" = 'Darwin' ]; then
-  ok "macOS: $(sw_vers -productVersion 2>/dev/null || printf unknown)"
+  # MLX, which serves the model, asks for macOS 14.0 or later (its install page).
+  macos="$(sw_vers -productVersion 2>/dev/null || true)"
+  case "${macos%%.*}" in
+    ''|*[!0-9]*) printf '%s\n' 'INFO: could not read the macOS version; MLX needs 14.0 or later.' ;;
+    *) if [ "${macos%%.*}" -ge 14 ]; then ok "macOS: $macos"; else fail "macOS 14 or later (detected: $macos)"; fi ;;
+  esac
 else
   fail 'macOS (this installer currently targets macOS)'
 fi

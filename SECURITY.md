@@ -637,7 +637,11 @@ Implemented and tested:
   directory and fails on any of: file hash or size differing from the
   manifest, SQLite integrity check, schema version, foreign keys, the
   audit chain or its head, or any artifact blob missing or altered
-  (`tests/test_backup.py`). Backups are not encrypted and are only as
+  (`tests/test_backup.py`). `lab backup` refuses a database path that is a
+  symbolic link or not a regular file before reading anything, and the alert
+  state file next to the database is only written as a regular file with one
+  link, never through a symbolic link (`tests/test_backup.py`,
+  `tests/test_selftest.py`). Backups are not encrypted and are only as
   private as the directory they are written to. The daily job
   (`com.homelab.backup`, as the lab account) runs `lab backup --keep 14`: it
   restore-checks every new backup and fails, alerting through the alert

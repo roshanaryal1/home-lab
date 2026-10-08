@@ -22,13 +22,14 @@ def _stub(directory: Path, name: str, body: str) -> None:
 
 
 def run(tmp_path: Path, *, system: str = "Darwin", arch: str = "arm64", memory_gb: int = 32,
-        free_gb: int = 200, with_uv: bool = True) -> subprocess.CompletedProcess[str]:
+        free_gb: int = 200, with_uv: bool = True,
+        macos: str = "27.0") -> subprocess.CompletedProcess[str]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     home = tmp_path / "home"
     home.mkdir()
     _stub(bin_dir, "uname", f'case "$1" in -m) echo {arch};; *) echo {system};; esac')
-    _stub(bin_dir, "sw_vers", "echo 27.0")
+    _stub(bin_dir, "sw_vers", f"echo {macos}")
     _stub(bin_dir, "sysctl", f"echo {memory_gb * GB}")
     _stub(bin_dir, "df", 'echo "Filesystem 1024-blocks Used Available Capacity"; '
                          f'echo "/dev/x 1 1 {free_gb * 1024 * 1024} 1%"')
@@ -66,6 +67,29 @@ def test_a_machine_that_is_not_a_mac_fails(tmp_path) -> None:
     result = run(tmp_path, system="Linux")
     assert result.returncode == 1
     assert "MISSING: macOS" in result.stdout and "FAILED" in result.stdout
+
+
+def test_a_macos_older_than_mlx_supports_fails_and_names_the_floor(tmp_path) -> None:
+    """MLX's install page asks for macOS 14.0 or later (#188)."""
+    result = run(tmp_path, macos="13.6.1")
+    assert result.returncode == 1
+    assert "MISSING: macOS 14 or later (detected: 13.6.1)" in result.stdout
+
+
+def test_macos_14_and_later_pass_the_version_check(tmp_path) -> None:
+    for version in ("14.0", "15.7", "27.0"):
+        sub = tmp_path / version
+        sub.mkdir()
+        result = run(sub, macos=version)
+        assert result.returncode == 0, result.stdout
+        assert f"OK: macOS: {version}" in result.stdout
+
+
+def test_an_unreadable_macos_version_is_reported_not_guessed(tmp_path) -> None:
+    result = run(tmp_path, macos="")
+    assert result.returncode == 0, result.stdout
+    assert "INFO: could not read the macOS version" in result.stdout
+    assert "OK: macOS" not in result.stdout
 
 
 def test_an_intel_mac_fails(tmp_path) -> None:

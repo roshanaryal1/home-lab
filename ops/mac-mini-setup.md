@@ -7,6 +7,12 @@ reference architecture produced by the companion study
 sections 10 to 13. Where the study's systems disagreed, the
 `[adjudicated]` choice is the one written down here.
 
+**This checklist is the record of the project's own Mac mini**, not an install
+guide. Names in it, such as the backup volume `labbackup`, and its dates and
+measurements are that machine's. To install home-lab on your own Mac, follow
+[docs/INSTALL.md](../docs/INSTALL.md), which takes such values from variables
+(`$REPO`, `$BACKUP_VOLUME`, `$MODEL_REV`).
+
 Target hardware: Apple M6 (base) Mac mini, 32 GB unified memory,
 512 GB internal SSD, 1 TB external SSD, always on, on AC power.
 
@@ -180,6 +186,11 @@ cd ~/home-lab
 uv sync --locked --extra dev    # Python from .python-version, deps from uv.lock
 uv run python -m pytest tests/ -q   # expect all green before going further
 ```
+
+This checkout, in the `lab` account's home, is for running the tests as `lab`
+(section 22 uses it too). The services do not run from it: they run from the
+root-owned copy in `/opt/homelab`, which `lab` cannot change
+(`ops/runbook-lab-account-and-daemons.md` step 3).
 
 The supervisor and queue are machine-independent and are already
 tested. Steps 3 onward of the build order (model adapter, residency
