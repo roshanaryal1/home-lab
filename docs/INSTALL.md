@@ -328,7 +328,7 @@ Keep at least one additional recovery destination for anything that matters.
 Stop and unload the services first:
 
 ```sh
-for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbeat chat; do
+for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbeat chat weekly-eval; do
   sudo launchctl bootout "system/com.homelab.$s" 2>/dev/null || true
 done
 ```
