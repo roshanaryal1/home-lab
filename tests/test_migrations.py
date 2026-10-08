@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+import lab.migrations as migrations_mod
 from lab.migrations import (
     AFTER,
     MIGRATIONS_DIR,
@@ -596,6 +597,24 @@ def test_a_failed_upgrade_keeps_the_snapshot_and_the_original_at_the_old_version
         assert check.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert [r[0] for r in check.execute("SELECT title FROM tasks")] == ["before the upgrade"]
         check.close()
+
+
+def test_a_snapshot_that_cannot_be_written_stops_the_upgrade(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    old = latest_version() - 1
+    db = _at_version(tmp_path, old)
+
+    def no_space(_source: sqlite3.Connection, _dest: Path) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(migrations_mod, "online_copy", no_space)
+    conn = raw(db)
+    with pytest.raises(MigrationError, match="nothing was migrated"):
+        migrate(conn)
+    assert current_version(conn) == old
+    conn.close()
+    assert _snapshots_in(tmp_path) == []
+    assert sorted(p.name for p in tmp_path.iterdir() if p.name.endswith(".partial")) == []
 
 
 def test_an_in_memory_database_is_never_snapshotted(
