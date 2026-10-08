@@ -1,0 +1,9 @@
+EXPLORATORY. Not a registered result, and it changes no verdict.
+record: evals/h1_review/h1b-run.json
+record SHA-256: e3b4dda4a674407025b7eb06380317578e89ec9a79aa4c868fa4dcfde62e0e9b
+cases: evals/h1_review/final-cases-v2.jsonl, 30 cases, SHA-256 f52e8f309733e78b56d1ac0ba354ff1c178bbf15912a196ef4038e3f93e0b396
+method: paired bootstrap of the per-case difference, candidate correct minus rubric correct (an abstention counts as a miss). Cases are resampled with replacement, and the interval is the 2.5th and 97.5th percentile of the resampled gains.
+resamples: 10,000, seed: 20260930
+accuracy, candidate: 13 of 30 (0.433)
+accuracy, rubric: 25 of 30 (0.833)
+accuracy gain -0.400, 95% CI [-0.600, -0.200]

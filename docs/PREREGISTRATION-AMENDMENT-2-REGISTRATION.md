@@ -235,3 +235,11 @@ reply, `Hello`, with and without a strict `json_schema` that allowed only `{"rou
 `{"route": "beta"}`. On this server H1c would have repeated H1b, not tested constrained decoding,
 so no prompt, schema or record was frozen and no case was sent. Testing it needs a server that
 enforces a schema, which is a new runtime and the owner's decision; the evidence is on #179.
+
+Added 2026-10-09: an exploratory interval for H1b, from its sealed record
+`evals/h1_review/h1b-run.json` (SHA-256 `e3b4dda4a674407025b7eb06380317578e89ec9a79aa4c868fa4dcfde62e0e9b`),
+is in `evals/h1_review/h1b-interval.txt`. It was made by `uv run python scripts/h1_result.py --record
+evals/h1_review/h1b-run.json`, with the same paired bootstrap as H1 (10,000 resamples, seed 20260930).
+The H1b accuracy gain against the rubric is -0.400, with a 95% CI of [-0.600, -0.200]. The method first
+reproduces the registered H1 numbers, -0.733 and [-0.867, -0.567]. This interval is exploratory and
+changes no verdict: H1 is not supported, and H1b stays outside the registered results.
