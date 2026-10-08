@@ -1,12 +1,14 @@
 """Structured, rotating, private logs (H5a, checklist section 5).
 
 One JSON object per line with four fixed keys (``ts``, ``level``,
-``logger``, ``msg``). ``json.dumps`` with ASCII output escapes newlines
+``logger``, ``msg``), and an ``exc`` key holding the traceback when the
+record carries one. ``json.dumps`` with ASCII output escapes newlines
 and control characters, so text that came from a task, a web page or a
 model cannot forge a second record or move a terminal cursor. Files are
 created 0600 in a 0700 directory, rotate at a size, and keep a bounded
 number of backups. Long-term copies go to the external SSD by pointing
-``LAB_LOG_DIR`` there.
+``LAB_LOG_DIR`` there. ``LAB_LOG_LEVEL`` picks DEBUG, INFO (the default),
+WARNING or ERROR.
 """
 
 from __future__ import annotations
@@ -21,17 +23,37 @@ from pathlib import Path
 
 DEFAULT_MAX_BYTES = 5_000_000
 DEFAULT_BACKUPS = 5
+LEVEL_ENV = "LAB_LOG_LEVEL"
+LEVELS = {"DEBUG": logging.DEBUG, "INFO": logging.INFO,
+          "WARNING": logging.WARNING, "ERROR": logging.ERROR}
+
+
+class LogLevelError(ValueError):
+    """``LAB_LOG_LEVEL`` names something other than the four levels."""
+
+
+def level_from_env() -> int:
+    """The level ``LAB_LOG_LEVEL`` asks for, in any case. Unset means INFO. Any
+    other value is refused, not guessed at, so a typo cannot silence the log."""
+    value = os.environ.get(LEVEL_ENV)
+    if value is None:
+        return logging.INFO
+    if value.upper() not in LEVELS:
+        raise LogLevelError(
+            f"{LEVEL_ENV} must be DEBUG, INFO, WARNING or ERROR, not {value!r}")
+    return LEVELS[value.upper()]
 
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        msg = record.getMessage()
-        if record.exc_info and record.exc_info[0] is not None:
-            msg += f" | {record.exc_info[0].__name__}: {record.exc_info[1]}"
-        return json.dumps({
+        entry = {
             "ts": datetime.fromtimestamp(record.created, UTC).isoformat(timespec="milliseconds"),
-            "level": record.levelname, "logger": record.name, "msg": msg,
-        }, ensure_ascii=True)
+            "level": record.levelname, "logger": record.name, "msg": record.getMessage(),
+        }
+        if record.exc_info and record.exc_info[0] is not None:
+            entry["msg"] += f" | {record.exc_info[0].__name__}: {record.exc_info[1]}"
+            entry["exc"] = self.formatException(record.exc_info)
+        return json.dumps(entry, ensure_ascii=True)
 
 
 class PrivateRotatingFileHandler(RotatingFileHandler):

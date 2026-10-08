@@ -156,6 +156,36 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
   then `sudo rm -rf /opt/homelab /opt/homelab-python`.
 - Rehearsal note: the scratch rehearsal ran `uv sync` as the operator too.
 
+**Log rotation for the launchd logs (#349).** The rule file is `ops/newsyslog/homelab.conf`.
+It rotates the `.log` and `.err` files of the scheduled jobs in `/var/log/homelab` (Step 2):
+backup, heartbeat, self-test, status check, tick, watchdog and the weekly eval. Each is
+rotated at 10 MB, and five copies are kept, mode 600 and owned by `lab`. The copies are not
+compressed, so a job that is running when its file rotates loses nothing: it finishes in the
+renamed copy. Install it as root, then dry-run newsyslog, which changes nothing:
+
+```sh
+sudo install -d -o root -g wheel -m 755 /etc/newsyslog.d
+sudo install -o root -g wheel -m 644 /opt/homelab/ops/newsyslog/homelab.conf /etc/newsyslog.d/homelab.conf
+sudo newsyslog -nvv
+```
+
+- Check: the dry run lists those files with the 10240 KB limit. If it lists none of them,
+  this macOS may not read `/etc/newsyslog.d`. Stop there, and do not move the rules into
+  `/etc/newsyslog.conf` until you have checked how this macOS reads them. `man 5
+  newsyslog.conf` on the Mac says what the `N` flag does there. The rules were
+  written from the FreeBSD manual that macOS's newsyslog comes from.
+- Status: not yet run on the Mac mini.
+- Not rotated: `chat`, `keepawake` and `supervisor` run with KeepAlive and hold their log
+  files open. After a rotation they would keep writing to the renamed copy until they
+  restart, so rotating them would not bound their files. Their files stay small instead: chat and
+  keep-awake write almost nothing, the supervisor's full log is its own rotating JSON file,
+  and its stderr (`supervisor.err`) gets only warnings and errors. If one of these files
+  ever grows too large, move it aside and restart that service, for example
+  `sudo mv /var/log/homelab/supervisor.err /var/log/homelab/supervisor.err.old` then
+  `sudo launchctl kickstart -k system/com.homelab.supervisor`.
+- After a code update that changes `ops/newsyslog/homelab.conf`, run the `sudo install`
+  command for the rule file again.
+
 ## Step 4. Settings the service files need (sudo)
 
 The committed plists leave four things to the operator: the operator key and
