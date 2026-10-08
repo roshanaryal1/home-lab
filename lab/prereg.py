@@ -936,7 +936,7 @@ def _print_m2(report: M2Report) -> None:
 def _record_provenance(path: Path) -> dict[str, Any]:
     """Refuse a sealed record before anything runs: its file must not exist, its folder must,
     and the lab commit must be known. Returns the provenance the record carries."""
-    if path.exists():
+    if path.exists() or path.is_symlink():
         raise PreregError(f"{path} exists, and a sealed record is never overwritten")
     if not path.parent.is_dir():
         raise PreregError(f"the folder {path.parent} for the record does not exist")
@@ -1030,5 +1030,6 @@ def main(argv: list[str]) -> int:
         except OSError as exc:
             print(f"prereg: {exc}", file=sys.stderr)
             return 2
-        print(f"wrote {args.record}")
+        # With --json, stdout stays one JSON document.
+        print(f"wrote {args.record}", file=sys.stderr if args.json else sys.stdout)
     return code

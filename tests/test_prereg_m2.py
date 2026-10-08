@@ -343,3 +343,23 @@ def test_a_sealed_record_is_refused_before_the_run_when_the_file_exists(
     assert kept.read_text(encoding="utf-8") == "keep\n"
     assert cli_main([*base, "--record", str(tmp_path / "missing" / "m2.json")]) == 2
     assert "does not exist" in capsys.readouterr().err
+    dangling = tmp_path / "dangling.json"
+    dangling.symlink_to(tmp_path / "nowhere.json")
+    assert cli_main([*base, "--record", str(dangling)]) == 2
+    assert "never overwritten" in capsys.readouterr().err
+
+
+def test_json_output_with_a_record_stays_one_json_document(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(evals, "collect_provenance",
+                        lambda: {"lab_commit": "a" * 40, "tree_dirty": False})
+    cases, doc = frozen(tmp_path, rows("m2-sig-01"))
+    record_path = tmp_path / "m2-run.json"
+    argv = ["prereg", "m2", "--cases", str(cases), "--doc", str(doc), "--json",
+            "--record", str(record_path)]
+    assert cli_main(argv) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["failures"] == 0
+    assert captured.err == f"wrote {record_path}\n"
+    assert json.loads(record_path.read_text(encoding="utf-8"))["output"] == captured.out
