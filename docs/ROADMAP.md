@@ -8,8 +8,10 @@ are guesses and have not been measured.
 The status lines below were checked against the code, the merged pull
 requests and the issues on 2026-10-08. On that date an options memo on #189
 ([comment](https://github.com/roshanaryal1/home-lab/issues/189#issuecomment-6042898903))
-recommends shipping (b) as v0.1 with no new features; the owner has not
-answered it yet.
+recommends shipping (b) as v0.1 with no new features. On 2026-10-08 the
+owner chose that: ship v0.1, then add features month by month through the
+broker. The features are in [FEATURE-PLAN.md](FEATURE-PLAN.md), and the
+months to v1.0 and a public launch are in [PLAN-7-MONTHS.md](PLAN-7-MONTHS.md).
 
 ## Where we start
 
@@ -196,7 +198,8 @@ cases) on 2026-10-01, and M5 (30 cases, on the real container) on
 ## What this does not try to do
 
 - Match the features or the community of OpenClaw or Hermes Agent
-  (`docs/COMPARISON.md`).
+  (`docs/COMPARISON.md`). The features it does take, through the broker, are in
+  `docs/FEATURE-PLAN.md`.
 - Multi-user or multi-tenant use (#41).
 - A skill marketplace.
 - Real credentials before the three preconditions in the README hold.
@@ -219,4 +222,6 @@ cases) on 2026-10-01, and M5 (30 cases, on the real container) on
    web fetch with summary.
 4. Who reviews security independently, and when? Not answered.
 5. Which option in the 2026-10-08 memo on #189: ship (b) as v0.1, wrap
-   Hermes Agent, or hold the product and finish the research? Not answered.
+   Hermes Agent, or hold the product and finish the research? Answered on
+   2026-10-08: ship (b) as v0.1, then add features month by month through
+   the broker.
