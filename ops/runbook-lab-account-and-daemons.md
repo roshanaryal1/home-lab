@@ -152,7 +152,7 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
   prints 3.53.1 or later; and `sudo -u lab /usr/bin/touch /opt/homelab/x`
   is refused.
 - Undo: first unload anything step 5 started
-  (`for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbeat; do sudo launchctl bootout system/com.homelab.$s; done`),
+  (`for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbeat weekly-eval; do sudo launchctl bootout system/com.homelab.$s; done`),
   then `sudo rm -rf /opt/homelab /opt/homelab-python`.
 - Rehearsal note: the scratch rehearsal ran `uv sync` as the operator too.
 
@@ -419,7 +419,13 @@ installs it as in this section: it shows in the `diff --stat` as a new file.
 Its four `PASTE_` values are `ProgramArguments` entries 10, 12, 14 and 16
 (counted from 0): the served model's name, revision, tokenizer revision and
 weight size in MB. Fill them in, then check that `plutil -p` shows no
-`PASTE_`, before it is bootstrapped.
+`PASTE_`, before it is bootstrapped. Each request it sends waits for the heavy
+slot that the supervisor and `lab tick` share, the `lab.db.model.lock` file
+beside the database, so the eval never runs a request beside theirs.
+To remove the job, for a rollback to a commit without it or to stop P3's runs:
+`sudo launchctl bootout system/com.homelab.weekly-eval`, then
+`sudo rm /Library/LaunchDaemons/com.homelab.weekly-eval.plist`. Its records in
+`/var/homelab/evals/runs` stay.
 
 The installed service definitions in `/Library/LaunchDaemons` are copies. A code
 update does not change them, so first look at what the update touches, then

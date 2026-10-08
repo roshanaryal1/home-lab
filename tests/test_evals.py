@@ -343,3 +343,72 @@ def test_cli_eval_run_takes_a_task_file_and_a_grammar(endpoint, tmp_path, capsys
     (path,) = out.glob("run-*.json")
     record = load_record(path)
     assert record.config.tasks_path == str(tasks) and record.config.response_format
+
+
+# ------------------------------------------------ the shared heavy slot (#321, #211)
+
+
+def _hold(lock: Path) -> int:
+    import fcntl
+    import os
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def test_with_a_db_every_request_waits_for_the_slot_the_lab_shares(
+        endpoint, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    from lab.loop import model_slot_path
+    db = tmp_path / "lab.db"
+    monkeypatch.setattr(evals, "EVAL_SLOT_WAIT_SECONDS", 0.2)
+    controller = evals.slot_controller(db)
+    assert controller.slot_lock == model_slot_path(db)
+    fd = _hold(model_slot_path(db))
+    try:
+        busy = run_suite(make_config(endpoint, SPEC), controller=controller)
+    finally:
+        os.close(fd)
+    assert busy.summary["passed"] == 0
+    assert all("in use by another process" in (r.error or "") for r in busy.results)
+    free = run_suite(make_config(endpoint, SPEC), controller=evals.slot_controller(db))
+    assert free.summary["passed"] == len(TASKS)
+
+
+def test_a_record_made_with_a_light_spec_still_takes_the_slot_and_stays_sealed_as_it_was(
+        endpoint, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+    from dataclasses import replace
+
+    from lab.loop import model_slot_path
+    db = tmp_path / "lab.db"
+    monkeypatch.setattr(evals, "EVAL_SLOT_WAIT_SECONDS", 0.2)
+    config = make_config(endpoint, replace(SPEC, heavy=False))
+    fd = _hold(model_slot_path(db))
+    try:
+        busy = run_suite(config, controller=evals.slot_controller(db))
+    finally:
+        os.close(fd)
+    assert all("in use by another process" in (r.error or "") for r in busy.results)
+    assert busy.config == config and busy.config.model["heavy"] is False
+
+
+def test_cli_eval_with_a_db_takes_the_slot(endpoint, tmp_path: Path,
+                                           monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    import os
+
+    from lab.loop import model_slot_path
+    db = tmp_path / "lab.db"
+    out = tmp_path / "runs"
+    monkeypatch.setattr(evals, "EVAL_SLOT_WAIT_SECONDS", 0.2)
+    fd = _hold(model_slot_path(db))
+    try:
+        assert evals.main(["run", "--endpoint", endpoint, "--model", "stub-model",
+                           "--revision", "a" * 40, "--tokenizer-revision", "b" * 64,
+                           "--weights-mb", "1000", "--out", str(out), "--db", str(db)]) == 0
+    finally:
+        os.close(fd)
+    assert f"passed 0/{len(TASKS)}" in capsys.readouterr().out
+    (record,) = out.glob("run-*.json")
+    assert "in use by another process" in record.read_text(encoding="utf-8")

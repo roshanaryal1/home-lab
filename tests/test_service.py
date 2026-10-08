@@ -94,7 +94,8 @@ def test_weekly_eval_runs_as_lab_once_a_week_on_sunday() -> None:
     assert data["UserName"] == "lab"
     # launchd: Weekday 0 is Sunday. 04:23 is clear of backup (02:47) and self-test (03:17).
     assert data["StartCalendarInterval"] == {"Weekday": 0, "Hour": 4, "Minute": 23}
-    assert "KeepAlive" not in data and "StartInterval" not in data
+    # Not at boot either: a run is a weekly measurement, and a reboot is not a week.
+    assert "KeepAlive" not in data and "StartInterval" not in data and "RunAtLoad" not in data
 
 
 def test_the_weekly_eval_arguments_parse_with_the_real_eval_run_parser(
