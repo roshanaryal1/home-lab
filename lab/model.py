@@ -101,6 +101,13 @@ class ModelSpec:
             raise ValueError("model limits must be positive and output must fit the context")
 
 
+def kv_cache_mb(spec: ModelSpec, tokens: int) -> int:
+    """Whole MB of KV cache for ``tokens`` tokens, rounded down (MB is 10**6 bytes).
+    Admission charges one MB more than this as its margin. The memory budget check
+    predicts with this figure alone."""
+    return spec.kv_bytes_per_token * tokens // 1_000_000
+
+
 def estimate_tokens(text: str) -> int:
     """A deliberately high estimate: one token per 3 UTF-8 bytes, rounded up.
     Real tokenizers average 3.5 to 4.5 bytes per token on prose."""
@@ -166,7 +173,7 @@ class AdmissionController:
                 f"prompt of about {prompt_tokens} tokens plus {max_tokens} output exceeds "
                 f"the {spec.context_tokens} token context")
         seconds = min(timeout_seconds or self.max_seconds, self.max_seconds)
-        cache_mb = spec.kv_bytes_per_token * (prompt_tokens + max_tokens) // 1_000_000 + 1
+        cache_mb = kv_cache_mb(spec, prompt_tokens + max_tokens) + 1
         with self._lock:
             resident_after = (sum(mb for n, mb in self._resident.items() if n != spec.name)
                               + spec.weights_mb + cache_mb)
