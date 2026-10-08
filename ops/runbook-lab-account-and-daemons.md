@@ -154,9 +154,39 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
   prints 3.53.1 or later; and `sudo -u lab /usr/bin/touch /opt/homelab/x`
   is refused.
 - Undo: first unload anything step 5 started
-  (`for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbeat; do sudo launchctl bootout system/com.homelab.$s; done`),
+  (`for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbeat weekly-eval; do sudo launchctl bootout system/com.homelab.$s; done`),
   then `sudo rm -rf /opt/homelab /opt/homelab-python`.
 - Rehearsal note: the scratch rehearsal ran `uv sync` as the operator too.
+
+**Log rotation for the launchd logs (#349).** The rule file is `ops/newsyslog/homelab.conf`.
+It rotates the `.log` and `.err` files of the scheduled jobs in `/var/log/homelab` (Step 2):
+backup, heartbeat, self-test, status check, tick, watchdog and the weekly eval. Each is
+rotated at 10 MB, and five copies are kept, mode 600 and owned by `lab`. The copies are not
+compressed, so a job that is running when its file rotates loses nothing: it finishes in the
+renamed copy. Install it as root, then dry-run newsyslog, which changes nothing:
+
+```sh
+sudo install -d -o root -g wheel -m 755 /etc/newsyslog.d
+sudo install -o root -g wheel -m 644 /opt/homelab/ops/newsyslog/homelab.conf /etc/newsyslog.d/homelab.conf
+sudo newsyslog -nvv
+```
+
+- Check: the dry run lists those files with the 10240 KB limit. If it lists none of them,
+  this macOS may not read `/etc/newsyslog.d`. Stop there, and do not move the rules into
+  `/etc/newsyslog.conf` until you have checked how this macOS reads them. `man 5
+  newsyslog.conf` on the Mac says what the `N` flag does there. The rules were
+  written from the FreeBSD manual that macOS's newsyslog comes from.
+- Status: not yet run on the Mac mini.
+- Not rotated: `chat`, `keepawake` and `supervisor` run with KeepAlive and hold their log
+  files open. After a rotation they would keep writing to the renamed copy until they
+  restart, so rotating them would not bound their files. Their files stay small instead: chat and
+  keep-awake write almost nothing, the supervisor's full log is its own rotating JSON file,
+  and its stderr (`supervisor.err`) gets only warnings and errors. If one of these files
+  ever grows too large, move it aside and restart that service, for example
+  `sudo mv /var/log/homelab/supervisor.err /var/log/homelab/supervisor.err.old` then
+  `sudo launchctl kickstart -k system/com.homelab.supervisor`.
+- After a code update that changes `ops/newsyslog/homelab.conf`, run the `sudo install`
+  command for the rule file again.
 
 ## Step 4. Settings the service files need (sudo)
 
@@ -416,6 +446,21 @@ line, `backup.err` must be empty, and the folder must hold a new
 Do this when a merged change has to reach the Mac mini (#204). It has not been
 tried yet: the first run is the owner's, and its result belongs in this section.
 
+The weekly eval job (`com.homelab.weekly-eval`, #321) is new, so the owner
+installs it as in this section: it shows in the `diff --stat` as a new file.
+Its four `PASTE_` values are `ProgramArguments` entries 10, 12, 14 and 16
+(counted from 0): the served model's name, revision, tokenizer revision and
+weight size in MB. Fill them in, then check that `plutil -p` shows no
+`PASTE_`, before it is bootstrapped. Each request it sends waits for the heavy
+slot that the supervisor and `lab tick` share, the `lab.db.model.lock` file
+beside the database, so the eval never runs a request beside theirs. If the
+slot stays busy for 600 seconds, that week's run stops with nothing recorded, and
+`/var/log/homelab/weekly-eval.err` says so. Run it again by hand when the model is
+free, so P3 still gets its six weekly records. To remove the job, for a rollback to a commit without it or to stop P3's runs:
+`sudo launchctl bootout system/com.homelab.weekly-eval`, then
+`sudo rm /Library/LaunchDaemons/com.homelab.weekly-eval.plist`. Its records in
+`/var/homelab/evals/runs` stay.
+
 The installed service definitions in `/Library/LaunchDaemons` are copies. A code
 update does not change them, so first look at what the update touches, then
 decide whether they need reinstalling.
@@ -436,6 +481,24 @@ echo "deployed now: $OLD, updating to: $COMMIT"
 
 Read both lines before going on: `deployed now` must be a 40 character hash and
 `updating to` must not still say `PASTE_`.
+
+**Back up before anything changes.** A migration can be undone only from a backup,
+because once the new code has upgraded the database, the old code refuses to open it.
+The new code also writes a second copy first, `/var/homelab/lab.db.pre-vN.bak` beside
+the database (`N` is the version it upgrades from), and deletes the older ones.
+Take the backup now, while the old code is still in place. `BACKUP_VOLUME` must be set
+in this window and the volume attached, as at the top of this runbook:
+
+```sh
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db backup --keep 14 --to "$BACKUP_VOLUME/home-lab-backups/before-update"
+sudo ls -l "$BACKUP_VOLUME/home-lab-backups/before-update"
+```
+
+The first line must print `wrote` and then `restore check ok`, and the listing must
+show a new `lab-*.manifest.json`. If it does not, stop here: the update waits until a
+backup has restored. A failure with `unable to open database file` means the terminal
+app cannot reach the volume (see the Full Disk Access note in the backup folder section
+above).
 
 The deployment is owned by root so the lab account cannot change what it runs.
 As in step 3, ownership passes to you for the update and returns to root after,

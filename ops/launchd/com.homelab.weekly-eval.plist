@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.homelab.weekly-eval</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/homelab/.venv/bin/python</string>
+		<string>-m</string>
+		<string>lab.cli</string>
+		<string>--db</string>
+		<string>/var/homelab/lab.db</string>
+		<string>eval</string>
+		<string>run</string>
+		<string>--endpoint</string>
+		<string>http://127.0.0.1:8080/v1</string>
+		<string>--model</string>
+		<string>PASTE_MODEL_NAME</string>
+		<string>--revision</string>
+		<string>PASTE_MODEL_REVISION</string>
+		<string>--tokenizer-revision</string>
+		<string>PASTE_TOKENIZER_REVISION</string>
+		<string>--weights-mb</string>
+		<string>PASTE_WEIGHTS_MB</string>
+		<string>--tasks</string>
+		<string>/opt/homelab/evals/tasks.jsonl</string>
+		<string>--out</string>
+		<string>/var/homelab/evals/runs</string>
+		<string>--db</string>
+		<string>/var/homelab/lab.db</string>
+	</array>
+	<key>StandardErrorPath</key>
+	<string>/var/log/homelab/weekly-eval.err</string>
+	<key>StandardOutPath</key>
+	<string>/var/log/homelab/weekly-eval.log</string>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>4</integer>
+		<key>Minute</key>
+		<integer>23</integer>
+		<key>Weekday</key>
+		<integer>0</integer>
+	</dict>
+	<key>UserName</key>
+	<string>lab</string>
+	<key>WorkingDirectory</key>
+	<string>/opt/homelab</string>
+</dict>
+</plist>

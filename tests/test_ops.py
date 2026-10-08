@@ -160,6 +160,40 @@ def test_log_files_are_private(tmp_path: Path) -> None:
     logsetup.teardown(handler)
 
 
+def test_a_logged_exception_keeps_its_traceback(tmp_path: Path) -> None:
+    handler = logsetup.configure(tmp_path / "logs", name="t5")
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        logging.getLogger("lab.test5").exception("task failed")
+    handler.flush()
+    (record,) = _read(tmp_path / "logs" / "t5.log")
+    assert record["msg"] == "task failed | ValueError: boom"
+    assert "Traceback" in record["exc"] and "ValueError: boom" in record["exc"]
+    logsetup.teardown(handler)
+
+
+@pytest.mark.parametrize(("value", "level"), [
+    ("DEBUG", logging.DEBUG), ("info", logging.INFO), ("Warning", logging.WARNING),
+    ("ERROR", logging.ERROR)])
+def test_a_valid_log_level_is_read_in_any_case(
+        monkeypatch: pytest.MonkeyPatch, value: str, level: int) -> None:
+    monkeypatch.setenv("LAB_LOG_LEVEL", value)
+    assert logsetup.level_from_env() == level
+
+
+def test_the_log_level_is_info_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LAB_LOG_LEVEL", raising=False)
+    assert logsetup.level_from_env() == logging.INFO
+
+
+@pytest.mark.parametrize("value", ["verbose", "", "INFO ", "10"])
+def test_an_unknown_log_level_is_refused(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("LAB_LOG_LEVEL", value)
+    with pytest.raises(logsetup.LogLevelError, match="LAB_LOG_LEVEL must be DEBUG"):
+        logsetup.level_from_env()
+
+
 # ------------------------------------------- review findings on #142
 
 
