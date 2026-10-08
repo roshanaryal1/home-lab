@@ -13,8 +13,9 @@ be redone. The detail lives in the documents it links; this page only points.
   that branch, and the same check from launchd with a throwaway daemon (added 2026-10-09).
 - #312 must also be up to date with `main` before it merges. It was brought up to date on
   2026-10-09 with a merge commit, and every later merge to `main` puts it behind again. Merge
-  `main` into it (a merge commit, never a rebase or force-push) and wait for green checks. This
-  changes what the two checks run only if `main` changed `ops/mac-session.sh`.
+  `main` into it (a merge commit, never a rebase or force-push) and wait for green checks. If
+  that merge changed `ops/mac-session.sh`, run both checks again on the updated branch before
+  merging: a pass from before the merge does not cover the new script.
 - Merged on 2026-10-08 (NZDT): #300 H1 run record, #301 H1 result, #303 `lab shadow
   --system-file`, #304 H1b run, #305 drills (interrupted task, restore from a backup), #306
   approvals bound to the intent the operator sees, #307 backup launcher that holds Full Disk
