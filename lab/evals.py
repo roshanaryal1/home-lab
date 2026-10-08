@@ -32,7 +32,7 @@ import statistics
 import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from importlib import metadata
 from pathlib import Path
@@ -40,17 +40,22 @@ from typing import Any
 
 from lab.model import (
     Adapter,
+    AdmissionController,
     BoundedModel,
     MalformedToolCall,
     ModelError,
     ModelSpec,
     OpenAICompatibleAdapter,
+    SlotBusy,
     parse_tool_call,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TASKS = ROOT / "evals" / "tasks.jsonl"
 RECORD_VERSION = 1
+# How long one eval request waits for the heavy slot that the supervisor and
+# lab tick share (#211). An eval is not urgent, so it waits longer than they do.
+EVAL_SLOT_WAIT_SECONDS = 600.0
 
 
 class EvalError(RuntimeError):
@@ -215,13 +220,21 @@ def summarise(results: list[TaskResult], tasks: list[EvalTask] | None = None) ->
 
 
 def run_suite(config: RunConfig, adapter: Adapter | None = None, *,
-              rerun_of: str | None = None) -> RunRecord:
+              rerun_of: str | None = None,
+              controller: AdmissionController | None = None) -> RunRecord:
+    """Run every task once. Given ``controller`` (``slot_controller``), each request
+    takes the heavy slot the lab's other model users share, so they never overlap."""
     tasks, sha = load_tasks(Path(config.tasks_path))
     if sha != config.tasks_sha256:
         raise EvalError("the task file has changed since this configuration was made")
     spec = ModelSpec(**config.model)
+    if controller is not None:
+        # Only a heavy spec takes the slot, and a record may hold heavy=False. The
+        # slot belongs to the machine, not to the measured configuration, so the
+        # sealed config.model stays as it was.
+        spec = replace(spec, heavy=True)
     model = BoundedModel(spec, adapter or OpenAICompatibleAdapter(
-        config.endpoint, response_format=config.response_format))
+        config.endpoint, response_format=config.response_format), controller)
     started = datetime.now(UTC).isoformat(timespec="seconds")
     results: list[TaskResult] = []
     for task in tasks:
@@ -230,6 +243,13 @@ def run_suite(config: RunConfig, adapter: Adapter | None = None, *,
             reply = model.generate([{"role": "user", "content": task.prompt}],
                                    max_tokens=config.max_tokens, seed=config.seed,
                                    timeout_seconds=config.timeout_seconds)
+        except SlotBusy as exc:
+            # A busy slot says nothing about the model. Counting it as a failed task
+            # would put a wrong score in the record, so the run stops unrecorded.
+            raise EvalError(
+                f"stopped at task {task.id}: {exc} for {model.controller.slot_wait_seconds:g} "
+                f"seconds, so nothing was recorded; run it again when the model is free"
+            ) from exc
         except ModelError as exc:
             results.append(TaskResult(task.id, False, "", 0, 0, time.monotonic() - begin,
                                       f"{type(exc).__name__}: {exc}"))
@@ -274,8 +294,17 @@ def load_record(path: Path) -> RunRecord:
     return record
 
 
+def slot_controller(db: Path) -> AdmissionController:
+    """An admission controller whose heavy slot is the lock file beside ``db``, the
+    one the supervisor and ``lab tick`` take (#211)."""
+    from lab.loop import model_slot_path
+    return AdmissionController(slot_lock=model_slot_path(db),
+                               slot_wait_seconds=EVAL_SLOT_WAIT_SECONDS)
+
+
 def rerun(path: Path, adapter: Adapter | None = None, *,
-          allow_different_commit: bool = False) -> tuple[RunRecord, dict[str, Any]]:
+          allow_different_commit: bool = False,
+          controller: AdmissionController | None = None) -> tuple[RunRecord, dict[str, Any]]:
     """Repeat a run from its record alone, then compare."""
     original = load_record(path)
     now = collect_provenance()
@@ -283,7 +312,8 @@ def rerun(path: Path, adapter: Adapter | None = None, *,
         raise EvalError(
             f"the record was made at commit {original.provenance['lab_commit']}, this tree is "
             f"at {now['lab_commit']}; check that commit out, or pass allow_different_commit")
-    repeated = run_suite(original.config, adapter, rerun_of=original.record_sha256)
+    repeated = run_suite(original.config, adapter, rerun_of=original.record_sha256,
+                         controller=controller)
     return repeated, compare(original, repeated)
 
 
@@ -342,14 +372,16 @@ def main(argv: list[str]) -> int:
     run.add_argument("--grammar", action="store_true",
                      help="send lab.grammar.response_format() with every request")
     run.add_argument("--out", type=Path, default=Path("evals/runs"))
-    run.add_argument("--db", type=Path, default=None,
-                     help="also record the run as a measurement event in this lab database")
+    db_help = ("also record the run as a measurement event in this lab database, and take "
+               "the model's heavy slot that this lab's supervisor and tick share")
+    run.add_argument("--db", type=Path, default=None, help=db_help)
     again = sub.add_parser("rerun")
     again.add_argument("record", type=Path)
     again.add_argument("--out", type=Path, default=Path("evals/runs"))
-    again.add_argument("--db", type=Path, default=None)
+    again.add_argument("--db", type=Path, default=None, help=db_help)
     again.add_argument("--allow-different-commit", action="store_true")
     args = parser.parse_args(argv)
+    controller = None if args.db is None else slot_controller(args.db)
     try:
         if args.cmd == "run":
             spec = ModelSpec(args.model, args.revision, args.tokenizer_revision,
@@ -361,10 +393,12 @@ def main(argv: list[str]) -> int:
                 # whatever the broker holds today.
                 fmt = grammar.response_format(frozenset(toolcorpus.CORPUS_TOOLS))
             record = run_suite(make_config(args.endpoint, spec, seed=args.seed,
-                                           tasks_path=args.tasks, response_format=fmt))
+                                           tasks_path=args.tasks, response_format=fmt),
+                               controller=controller)
         else:
             record, comparison = rerun(args.record,
-                                       allow_different_commit=args.allow_different_commit)
+                                       allow_different_commit=args.allow_different_commit,
+                                       controller=controller)
             print(json.dumps(comparison, indent=2))
         print(render(record))
         saved = save(record, args.out)
