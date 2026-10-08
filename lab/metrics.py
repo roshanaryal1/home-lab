@@ -231,5 +231,4 @@ def render(m: Metrics) -> str:
     lines.append("")
     lines.append(f"needs a person: {m.pending_approvals} approval(s), "
                  f"{m.unresolved_operations} unresolved operation(s)")
-    lines.append("model: load time, peak memory and swap arrive with the adapter (5.1)")
     return "\n".join(lines)
