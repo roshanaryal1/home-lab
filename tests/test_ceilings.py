@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from lab import worker
 from lab.supervisor import Supervisor, SupervisorConfig
 
 
@@ -46,6 +47,25 @@ async def test_a_task_over_its_memory_ceiling_is_killed_and_failed_for_good(
     assert event["resource"] == "memory" and event["limit_mb"] == 64
     assert event["observed_mb"] > 64
     assert sup.queue.get(task_id).attempts <= 1
+    sup.close()
+
+
+@pytest.mark.asyncio
+async def test_a_reading_just_over_the_ceiling_is_reported_over_it(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """#316: a reading of 64.3 MB against 64 MB was recorded as 64, the limit itself,
+    so the event and the error said the worker used no more than it was allowed."""
+    monkeypatch.setattr(worker, "group_rss_mb", lambda _pgid: 64.3)
+    sup = _sup(tmp_path, task_max_rss_mb=64, ceiling_poll_seconds=0.05)
+    sup.register_reviewed("hog", "lab.handlers.demo:hold_memory")
+    task_id = sup.queue.add_task("hog", agent_kind="hog", payload={"mb": 1, "seconds": 30},
+                                 idempotent=True)
+    await asyncio.wait_for(sup.run(max_tasks=1), timeout=20)
+    task = sup.queue.get(task_id)
+    assert task.state == "failed"
+    assert "memory ceiling of 64 MB exceeded (observed 65 MB)" in (task.last_error or "")
+    (event,) = _events(sup, task_id, "resource_ceiling_exceeded")
+    assert event == {"resource": "memory", "limit_mb": 64, "observed_mb": 65}
     sup.close()
 
 
