@@ -7,8 +7,9 @@ be redone. The detail lives in the documents it links; this page only points.
 ## Where things stand
 
 - Open pull requests: **#312** (keep-awake as the `lab` account,
-  [#235](https://github.com/roshanaryal1/home-lab/issues/235)) and **#319** (a memory reading over
-  the ceiling is reported over it, [#316](https://github.com/roshanaryal1/home-lab/issues/316)).
+  [#235](https://github.com/roshanaryal1/home-lab/issues/235)) and **#319** (when a worker is killed
+  at its memory ceiling, the reading it records is rounded up, so it never shows as the limit
+  itself, [#316](https://github.com/roshanaryal1/home-lab/issues/316)).
   Do **not** merge #312 until both checks in step 1 of its runbook section "Moving keep-awake to
   the lab account" have passed on the Mac mini: `./ops/mac-session.sh --only caffeinate` from
   that branch, and the same check from launchd with a throwaway daemon (added 2026-10-09).
@@ -22,7 +23,9 @@ be redone. The detail lives in the documents it links; this page only points.
   Access, #308 H1c not run, #309 watchdog checks it is signalling the supervisor, #310 install
   guide fixes, #311 roadmap and Mac-work status, #313 backup file handling checks, #314 this page.
   Of these, #303, #305, #306, #307, #309 and #313 change code the Mac mini runs.
-- Nothing merged since 2026-10-07 is deployed on the Mac mini yet. Deploying is the owner's step.
+- Nothing merged since 2026-10-07 is deployed on the Mac mini yet. Not verified from a session:
+  the deployed commit is visible only on the mini, where the first block of "Updating the
+  deployed code" prints it (`deployed now`). Deploying is the owner's step.
 
 ## Research results (do not redo)
 
