@@ -217,7 +217,22 @@ from code executed by the non-admin `lab` account.
 
 ## 7. First run
 
-With the services running, check health:
+With the services running, check health. Start with the doctor: it runs seven
+read-only checks (database, operator key, model server, disk, backup age, last
+selftest and audit chain), prints one `ok` or `FAIL` line for each, and exits 1
+if any of them fails.
+
+```sh
+uv run python -m lab.cli doctor
+```
+
+On the deployed machine, add `--db /var/homelab/lab.db` before `doctor`, as the
+commands below do. Doctor reads the `LAB_` settings from its own environment, so
+give it the same ones the services have (`LAB_MODEL_URL`, `LAB_MODEL_NAME`,
+`LAB_BACKUP_DIR` and `LAB_OPERATOR_PUBKEY`), or the model and backup checks
+report `not configured`.
+
+Then run the existing checks as the lab account:
 
 ```sh
 sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli \

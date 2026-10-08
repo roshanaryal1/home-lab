@@ -34,6 +34,7 @@ Usage:
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
+    python3 -m lab.cli doctor
     python3 -m lab.cli backup [--to DIR] [--artifacts DIR] [--keep N] [--alert-config FILE]
     python3 -m lab.cli heartbeat --url-file FILE
     python3 -m lab.cli restore-check MANIFEST --into DIR
@@ -75,6 +76,7 @@ from lab import (
     backup,
     control,
     deadman,
+    doctor,
     drills,
     emitter,
     keepawake,
@@ -657,6 +659,7 @@ def build_parser() -> argparse.ArgumentParser:
     stc.add_argument("--report-ok", action="store_true",
                      help="with --alert-config, also send one short alert when every check "
                      "passes, so a result arrives every morning")
+    sub.add_parser("doctor", help="read-only health check: exit 1 if any check fails")
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
@@ -1022,6 +1025,15 @@ def cmd_selftest(args: argparse.Namespace) -> int:
             # failure alert needs, and the config's rate limit still applies.
             _send_alert(args, "selftest_ok", f"selftest ok: {len(report.checks)} checks")
     return 0 if report.ok else 1
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens, so it never creates or migrates
+    the database. Exit 0 when every check passes, 1 when any fails."""
+    checks = doctor.run(args.db, os.environ)
+    for check in checks:
+        print(_escape(check.line()))
+    return 0 if all(check.ok for check in checks) else 1
 
 
 def _backup_destination(args: argparse.Namespace) -> Path:
@@ -1869,6 +1881,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_tick(args)
     if args.command == "selftest":
         return cmd_selftest(args)
+    if args.command == "doctor":
+        return cmd_doctor(args)
     if args.command == "keepawake":
         return cmd_keepawake(args)
     if args.command == "shadow":
