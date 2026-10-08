@@ -96,7 +96,7 @@ Rules: never add a drill fault. For a security weakness, write one neutral line 
 - The speed in `docs/decisions/0001-heavy-model.md`, about 67 tokens per second against an estimate of about 100. This was an estimate that was off, not a failure.
 - Commit 454517c (#313) and commit 03ec265 (#306). Both are hardening changes, and the record does not show a real occurrence. Security items, neutral line only: backup path and state file checks (#313), and approval display and signing (#306).
 - Commit cf72e33 (#309). A watchdog signal change. The record does not show a real occurrence.
-- Commit 16a1c24 (#319 and #316). A memory reading rounding change. The record does not say how it was found.
+- Commit 16a1c24 (#319 and #316). A memory reading rounding change. #316 records that it was found in a test run in a cloud container, not on the machine or in real use.
 - Commit d2866ba (#180 and #292). Task ceilings set from measured peaks. No failure is recorded.
 - Commit ab51f53 (#188 and #310). An install guide read-through by its author. The record does not say it was on a new Mac, and the fresh-user test (#188) has not been run.
 - `SECURITY.md`, Fixed items 1 to 6 (#7, #8, #9, #10, #17 and #61). The record does not show real use.
