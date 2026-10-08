@@ -439,6 +439,22 @@ def test_a_missing_pytest_is_named_in_the_detail(db: Path, tmp_path: Path,
     assert not check.ok and "No module named pytest" in check.detail
 
 
+def test_stderr_wins_over_stdout_noise_when_pytest_gives_no_summary(
+        db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess as sp
+    tests = tmp_path / "t"
+    tests.mkdir()
+
+    def noisy(args: list[str], **k: object) -> sp.CompletedProcess[str]:
+        return sp.CompletedProcess(args, 4, stdout="some plugin banner\n",
+                                   stderr="ERROR: file or directory not found: t\n")
+
+    monkeypatch.setattr(sp, "run", noisy)
+    report = selftest.run(db, tests_dir=tests, run_safety_tests=True)
+    check = next(c for c in report.checks if c.name == "safety_tests")
+    assert not check.ok and "file or directory not found" in check.detail
+
+
 def test_a_relative_tests_dir_is_resolved_once(db: Path, tmp_path: Path,
                                                monkeypatch: pytest.MonkeyPatch) -> None:
     tests = tmp_path / "suite"
