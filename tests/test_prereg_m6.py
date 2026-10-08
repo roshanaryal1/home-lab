@@ -9,12 +9,15 @@ that the runner would notice if the store stopped holding.
 from __future__ import annotations
 
 import json
+import platform
 import shutil
+import sqlite3
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from lab import prereg
+from lab import evals, prereg
 from lab.cli import main as cli_main
 from lab.skillstore import SkillStore
 
@@ -165,3 +168,71 @@ def test_cli_prereg_exits_1_on_a_failure(tmp_path: Path, monkeypatch: pytest.Mon
     cases, doc = frozen(tmp_path, [r for r in rows if r["id"] == "m6-unsigned-promote"])
     assert cli_main(["prereg", "m6", "--cases", str(cases), "--doc", str(doc)]) == 1
     assert "FAIL" in capsys.readouterr().out
+
+
+RECORD_FIELDS = {"claim", "arguments", "output", "exit_code", "failures", "lab_commit",
+                 "tree_dirty", "cases_path", "cases_sha256", "started_utc", "ended_utc",
+                 "platform", "python", "sqlite"}
+
+
+def test_a_sealed_record_has_every_field_and_the_case_hash(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    commit = "b" * 40
+    monkeypatch.setattr(evals, "collect_provenance",
+                        lambda: {"lab_commit": commit, "tree_dirty": True})
+    rows = [json.loads(line) for line in prereg.M6_CASES.read_text().splitlines() if line]
+    cases, doc = frozen(tmp_path, [r for r in rows if r["id"] in
+                                   ("m6-self-promote", "m6-nested-skill")])
+    record_path = tmp_path / "m6-run.json"
+    argv = ["m6", "--cases", str(cases), "--doc", str(doc), "--record", str(record_path)]
+    assert cli_main(["prereg", *argv]) == 0
+    out = capsys.readouterr().out
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert set(record) == RECORD_FIELDS
+    assert record["claim"] == "M6"
+    assert record["arguments"] == argv
+    assert record["output"] + f"wrote {record_path}\n" == out
+    assert record["exit_code"] == 0 and record["failures"] == 0
+    assert record["lab_commit"] == commit and record["tree_dirty"] is True
+    assert record["cases_path"] == str(cases)
+    assert record["cases_sha256"] == prereg.sha256_file(cases)
+    started = datetime.fromisoformat(record["started_utc"])
+    ended = datetime.fromisoformat(record["ended_utc"])
+    assert started.utcoffset() == ended.utcoffset() == timedelta(0)
+    assert started <= ended
+    assert record["platform"] == platform.platform()
+    assert record["python"] == platform.python_version()
+    assert record["sqlite"] == sqlite3.sqlite_version
+
+
+def test_a_sealed_record_is_refused_before_the_run_when_the_file_exists(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    def must_not_run(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the run started before the record path was checked")
+    monkeypatch.setattr(prereg, "run_m6", must_not_run)
+    monkeypatch.setattr(evals, "collect_provenance",
+                        lambda: {"lab_commit": "b" * 40, "tree_dirty": False})
+    cases, doc = frozen(tmp_path, [{"id": "x", "input": {"activation_path": "submit"},
+                                    "expected": "candidate_not_active"}])
+    kept = tmp_path / "m6-run.json"
+    kept.write_text("keep\n", encoding="utf-8")
+    base = ["prereg", "m6", "--cases", str(cases), "--doc", str(doc)]
+    assert cli_main([*base, "--record", str(kept)]) == 2
+    assert "never overwritten" in capsys.readouterr().err
+    assert kept.read_text(encoding="utf-8") == "keep\n"
+
+
+def test_a_sealed_record_is_refused_without_a_lab_commit(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(evals, "collect_provenance",
+                        lambda: {"lab_commit": None, "tree_dirty": False})
+    cases, doc = frozen(tmp_path, [{"id": "x", "input": {"activation_path": "submit"},
+                                    "expected": "candidate_not_active"}])
+    record_path = tmp_path / "m6-run.json"
+    assert cli_main(["prereg", "m6", "--cases", str(cases), "--doc", str(doc),
+                     "--record", str(record_path)]) == 2
+    assert "no lab commit" in capsys.readouterr().err
+    assert not record_path.exists()

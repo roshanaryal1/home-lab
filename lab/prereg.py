@@ -20,28 +20,38 @@ only echo a line. Nothing here runs a bundle's script.
 A case fails if its skill became active without a valid operator-signed
 promotion, if any version was activated without one, or, for the
 tampered-install case, if tampered content was installed.
+
+``--record PATH`` on m2 or m6 also writes a sealed JSON run record: the
+command, the full output, the lab commit, the case file and its SHA-256, the
+UTC times and the machine. The path must not exist. The run is refused before
+it starts if it does, and no existing file is ever replaced.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import hashlib
+import io
 import json
 import os
+import platform
 import re
 import shlex
+import sqlite3
 import stat
 import sys
 import tempfile
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from lab import chat
+from lab import chat, evals
 from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
 from lab.broker import ToolSession
@@ -51,6 +61,7 @@ from lab.egress import EgressGateway, Response
 from lab.model import BoundedModel, MalformedToolCall, MockAdapter, ModelSpec, parse_tool_call
 from lab.policy import PolicyEngine
 from lab.queue import Task, TaskQueue
+from lab.sealed import write_new
 from lab.skillstore import SkillStore, SkillStoreError
 from lab.supervisor import Supervisor, SupervisorConfig
 from lab.untrusted import validate_evidence
@@ -922,6 +933,43 @@ def _print_m2(report: M2Report) -> None:
           f"directives, sending {report.broker_calls} tool call(s) to the broker")
 
 
+def _record_provenance(path: Path) -> dict[str, Any]:
+    """Refuse a sealed record before anything runs: its file must not exist, its folder must,
+    and the lab commit must be known. Returns the provenance the record carries."""
+    if path.exists() or path.is_symlink():
+        raise PreregError(f"{path} exists, and a sealed record is never overwritten")
+    if not path.parent.is_dir():
+        raise PreregError(f"the folder {path.parent} for the record does not exist")
+    provenance = evals.collect_provenance()
+    if provenance["lab_commit"] is None:
+        raise PreregError("no lab commit (git rev-parse HEAD failed), so no sealed record")
+    return provenance
+
+
+def _as_recorded(path: Path) -> str:
+    """A path inside the repo is recorded relative to it, so the record reads the same on
+    any clone."""
+    try:
+        return str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def sealed_record(claim: str, argv: list[str], output: str, code: int,
+                  report: M2Report | M6Report, cases: Path, provenance: dict[str, Any],
+                  started: str, ended: str) -> dict[str, Any]:
+    """What a run leaves behind: the command, the full output, the lab commit and whether the
+    tree was dirty, the case file and its SHA-256, the UTC times, and the machine."""
+    return {
+        "claim": claim.upper(), "arguments": argv, "output": output, "exit_code": code,
+        "failures": report.failures, "lab_commit": provenance["lab_commit"],
+        "tree_dirty": provenance["tree_dirty"], "cases_path": _as_recorded(cases),
+        "cases_sha256": report.cases_sha256, "started_utc": started, "ended_utc": ended,
+        "platform": platform.platform(), "python": platform.python_version(),
+        "sqlite": sqlite3.sqlite_version,
+    }
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="lab prereg", description="Run a pre-registered "
                                      "safety claim against its frozen case file.")
@@ -932,6 +980,9 @@ def main(argv: list[str]) -> int:
         command.add_argument("--cases", type=Path, default=default)
         command.add_argument("--doc", type=Path, default=DOC)
         command.add_argument("--json", action="store_true")
+        command.add_argument("--record", type=Path, default=None,
+                             help="also write a sealed run record (JSON) here; the file "
+                                  "must not exist")
     m5 = sub.add_parser("m5", help="run Claim M5 against its frozen case file, in the real "
                                    "Apple container (needs --image, pinned by digest)")
     m5.add_argument("--image", required=True)
@@ -947,17 +998,38 @@ def main(argv: list[str]) -> int:
             return 2
         print(prereg_m5.as_json(report5)) if args.json else prereg_m5.print_report(report5)
         return 1 if report5.failures else 0
+    started = datetime.now(UTC).isoformat(timespec="seconds")
     report: M2Report | M6Report
+    provenance: dict[str, Any] | None = None
     try:
+        if args.record is not None:
+            provenance = _record_provenance(args.record)
         report = (run_m2 if args.claim == "m2" else run_m6)(args.cases, args.doc)
     except PreregError as exc:
         print(f"prereg: {exc}", file=sys.stderr)
         return 2
-    if args.json:
-        print(json.dumps({"cases_sha256": report.cases_sha256, "failures": report.failures,
-                          "results": [asdict(r) for r in report.results]}, indent=2))
-    elif isinstance(report, M2Report):
-        _print_m2(report)
-    else:
-        _print_m6(report)
-    return 1 if report.failures else 0
+    ended = datetime.now(UTC).isoformat(timespec="seconds")
+    # The output goes to a buffer as well as the terminal, so the record keeps what was shown.
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        if args.json:
+            print(json.dumps({"cases_sha256": report.cases_sha256, "failures": report.failures,
+                              "results": [asdict(r) for r in report.results]}, indent=2))
+        elif isinstance(report, M2Report):
+            _print_m2(report)
+        else:
+            _print_m6(report)
+    output = buffer.getvalue()
+    sys.stdout.write(output)
+    code = 1 if report.failures else 0
+    if args.record is not None and provenance is not None:
+        record = sealed_record(args.claim, list(argv), output, code, report, args.cases,
+                               provenance, started, ended)
+        try:
+            write_new(args.record, json.dumps(record, indent=2) + "\n")
+        except OSError as exc:
+            print(f"prereg: {exc}", file=sys.stderr)
+            return 2
+        # With --json, stdout stays one JSON document.
+        print(f"wrote {args.record}", file=sys.stderr if args.json else sys.stdout)
+    return code

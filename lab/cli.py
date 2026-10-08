@@ -29,7 +29,7 @@ Usage:
     python3 -m lab.cli skills import <dir> --tier TIER --by NAME [--source TEXT]
     python3 -m lab.cli memory proposals|show-proposal|accept|reject
     python3 -m lab.cli skillstore submit|promote|known-good|rollback|history|install ...
-    python3 -m lab.cli prereg m2|m6 [--json]
+    python3 -m lab.cli prereg m2|m6 [--json] [--record PATH]
     python3 -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
@@ -100,6 +100,7 @@ from lab.ledger import Ledger, LedgerError
 from lab.memory import Memory, MemoryRefused
 from lab.policy import ApprovalChanged, PolicyEngine, intent_hash, task_intent
 from lab.queue import Task, TaskQueue
+from lab.sealed import write_new
 from lab.skillstore import SkillStore, SkillStoreError
 from lab.vault import Vault
 
@@ -1692,19 +1693,6 @@ def _shadow_model(args: argparse.Namespace) -> _SeededModel:
     return _SeededModel(bounded, args.seed)
 
 
-def _write_new(path: Path, text: str) -> None:
-    """Write ``path`` whole or not at all, and never over an existing file: the text goes to a
-    temporary file beside it, which is then linked into place (a link fails if the name
-    exists)."""
-    fd, staged = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        os.link(staged, path)
-    finally:
-        os.unlink(staged)
-
-
 def cmd_shadow(args: argparse.Namespace) -> int:
     import hashlib
 
@@ -1768,7 +1756,7 @@ def cmd_shadow(args: argparse.Namespace) -> int:
             "valid": not errors, "report": asdict(report),
             "verdict": asdict(verdict) if verdict is not None and not errors else None}
         try:
-            _write_new(args.record, json.dumps(record, indent=2) + "\n")
+            write_new(args.record, json.dumps(record, indent=2) + "\n")
         except OSError as exc:
             print(f"shadow: {exc}", file=sys.stderr)
             return 1
