@@ -64,10 +64,12 @@ still choose is marked **owner to set**.
 | Tasks passed, errors | Eval summary `passed` and `errors` (`lab/evals.py`, lines 207 and 208). | A per-task comparison needs the `results` list. |
 | Context length | `lab eval run --context-tokens` defaults to 8192 (`lab/evals.py`, line 336). Bench hard-codes 8192 (`lab/bench.py`, line 205). | The value is used only for admission (`lab/model.py`, `AdmissionController.admit`, lines 164 to 167). It is not sent to the server (payload, lines 266 to 274). The server's own context setting is not in the repo (**UNVERIFIED**). |
 
-**Admission budget.** Both harnesses build `BoundedModel` with the default controller
-(`lab/evals.py`, line 223, `lab/bench.py`, line 207, `lab/model.py`, `BoundedModel.__init__`,
-line 311). The default budget is 20,500 MB (`lab/model.py`, line 58), and
-`ops/mac-mini-setup.md` section 13 says it stays 20,500 as policy.
+**Admission budget.** Both harnesses build `BoundedModel` with the default budget
+(`lab/evals.py`, line 236, `lab/bench.py`, line 207, `lab/model.py`, `BoundedModel.__init__`,
+line 312). With `--db`, `lab eval` also takes the heavy slot the supervisor shares
+(`slot_controller`, line 297, since #335). The default budget is 20,500 MB
+(`lab/model.py`, line 58), and `ops/mac-mini-setup.md` section 13 says it stays 20,500 as
+policy.
 
 A request is admitted only while the weights plus `kv_bytes_per_token` times the
 token count, divided by 1,000,000, plus 1, stays within the budget (`lab/model.py`,
@@ -177,8 +179,17 @@ needs a long-prompt set:
   an estimate that errs high (`lab/model.py`, `estimate_tokens`, line 104), so the two counts differ.
 
 **Metrics.** Peak footprint at each length, with a fresh server per length as the ADR
-did, plus the sampler. p95 latency and tokens per second per length, from the eval
-summary. Tasks passed per length.
+did, plus the sampler. p95 latency and tokens per second only for the lengths both arms
+accept, from the eval summary, so the paired numbers compare like with like. Tasks passed
+per length.
+
+Any length one arm does not accept is reported apart, as a capacity probe, not in the
+paired numbers. For each such request the record says where it stopped: refused by the
+lab's admission check before the server saw it, refused by the server at its context
+limit, or failed in the server (for example `Insufficient Memory`). A request counts as
+reaching the 32K context limit only when the server's own context is set to 32,768 for
+that arm. Today admission alone refuses anything over its budget (section 2) before any
+server limit is reached.
 
 **Decision rule (written now).** This is mainly a capacity question, so feasibility comes first:
 
@@ -191,8 +202,13 @@ summary. Tasks passed per length.
 If condition 1 or 2 fails, 64K is not adopted, whatever the speed numbers say.
 
 32K replaces the current working context of about 16K only if the owner first makes a
-dated change to the admission budget (section 2), and the 32K arm then meets conditions
-1 to 3 at its longest length.
+dated change to the admission budget (section 2), and then the 32K arm, on its own:
+
+- completes every request up to its longest accepted length with no Metal error and no
+  swap growth,
+- keeps its peak footprint at that length below 24.96 GiB by the owner's margin, and
+- passes every prompt that the current 16K working context passes, measured the same way
+  on the same server start.
 
 **Expected result, stated before the run.** The ADR's arithmetic puts 64K above the
 ceiling, so the likely result is that 64K is not adopted. That is a prediction from the
