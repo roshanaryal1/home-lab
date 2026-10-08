@@ -101,7 +101,8 @@ latency, tokens per second, footprint or tasks passed?
 - **ModelSpec, both arms.** Context 8,192 and max output 1,024, with 200,000 bytes per
   token, the values in the H2 record (`config.model`). Weights are per build: 17,180 MB
   for MLX (ADR 0001, "Measured on the M6") and 18,600 MB for the GGUF (`config.model.weights_mb`,
-  record `4344a2ae`). The same context in both arms keeps admission equal.
+  record `4344a2ae`). The configured context is the same in both arms, but the admission
+  headroom is not: admission counts the weights too, and the GGUF's are 1,420 MB larger.
 
 **Note on the comparison.** The arms differ in quantisation as well as runtime (Q4_K_M
 against 4-bit DWQ). A win here is a win for this pair of builds, and it cannot be given
@@ -273,9 +274,9 @@ weights inside it (section 7), tasks passed, and answer identity. For answer ide
 **Decision rule (written now).** Speculative decoding is adopted only if all four hold:
 
 1. Answers are identical on all 24 tasks between arm A run 1 and arm B run 1
-   (`identical_answers`, `lab/evals.py`, lines 290 to 301). If any answer changes, the
-   owner reviews each changed answer and writes the review down before any adoption.
-   Nothing is adopted automatically.
+   (`identical_answers`, `lab/evals.py`, lines 290 to 301). Any changed answer blocks
+   adoption. The owner reviews each changed answer and writes down why it changed, but
+   that review cannot waive this condition. Nothing is adopted automatically.
 2. No task lost (section 1, item 6).
 3. Median tokens per second on the generation-heavy set is at least 10 percent better,
    or median p95 latency is at least 10 percent better.
