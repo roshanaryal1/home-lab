@@ -156,6 +156,26 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
   then `sudo rm -rf /opt/homelab /opt/homelab-python`.
 - Rehearsal note: the scratch rehearsal ran `uv sync` as the operator too.
 
+**Log rotation for the launchd logs (#349).** The rule file is `ops/newsyslog/homelab.conf`.
+It rotates the `*.log` and `*.err` files in `/var/log/homelab` (Step 2) at 10 MB and keeps
+five compressed copies. Install it as root, then dry-run newsyslog, which changes nothing:
+
+```sh
+sudo install -d -o root -g wheel -m 755 /etc/newsyslog.d
+sudo install -o root -g wheel -m 644 /opt/homelab/ops/newsyslog/homelab.conf /etc/newsyslog.d/homelab.conf
+sudo newsyslog -nvv
+```
+
+- Check: the dry run lists the files in `/var/log/homelab` with the 10240 KB limit. If it
+  lists none of them, this macOS may not read `/etc/newsyslog.d`. Stop there, and do not
+  move the rules into `/etc/newsyslog.conf` until you have checked how this macOS reads them.
+- Status: not yet run on the Mac mini.
+- Caveat: rotation renames the log file. `chat`, `keepawake` and `supervisor` run with
+  KeepAlive and hold their log files open, so after a rotation they keep writing to the
+  renamed copy until they restart. Their service files are not changed here.
+- After a code update that changes `ops/newsyslog/homelab.conf`, run the `sudo install`
+  command for the rule file again.
+
 ## Step 4. Settings the service files need (sudo)
 
 The committed plists leave four things to the operator: the operator key and

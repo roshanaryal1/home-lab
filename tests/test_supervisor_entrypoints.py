@@ -110,3 +110,15 @@ def test_tick_refuses_the_unsigned_ways_in_on_a_deployed_machine(
         pass
     assert cli_main(["--db", str(db), "tick", *flags]) == 1
     assert "unsigned mode is refused" in capsys.readouterr().err
+
+
+def test_an_unknown_log_level_stops_the_daemon_at_start(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("LAB_LOG_LEVEL", "verbose")
+    monkeypatch.delenv("LAB_LOG_DIR", raising=False)
+    db = tmp_path / "lab.db"
+    assert supervisor.main(["--db", str(db)]) == 2
+    assert capsys.readouterr().err.splitlines() == [
+        "supervisor: LAB_LOG_LEVEL must be DEBUG, INFO, WARNING or ERROR, not 'verbose'"]
+    assert not db.exists()

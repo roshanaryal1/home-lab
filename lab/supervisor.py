@@ -761,13 +761,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-unsigned", action="store_true",
                         help="start without an operator key (dummy data only)")
     args = parser.parse_args(argv)
+    from lab import logsetup
+    try:
+        level = logsetup.level_from_env()
+    except logsetup.LogLevelError as exc:
+        print(f"supervisor: {exc}", file=sys.stderr)
+        return 2
     log_dir = args.log_dir or os.environ.get("LAB_LOG_DIR")
     if log_dir:
-        from lab import logsetup
-        logsetup.configure(log_dir, name="supervisor")
+        logsetup.configure(log_dir, name="supervisor", level=level)
         logging.getLogger("lab").addHandler(logging.StreamHandler())
     else:
-        logging.basicConfig(level=logging.INFO,
+        logging.basicConfig(level=level,
                             format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
     async def run() -> None:
