@@ -452,14 +452,18 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
 ```
 
 - **The `diff --stat` line.** Empty output means the service definitions did not
-  change. Any file listed means the installed copy of that definition is stale:
-  reinstall it (`sudo install -o root -g wheel -m 644 /opt/homelab/ops/launchd/<file>
+  change. Any file listed, except the keep-awake definition (next point), means the
+  installed copy of that definition is stale: reinstall it (`sudo install -o root -g wheel -m 644 /opt/homelab/ops/launchd/<file>
   /Library/LaunchDaemons/<file>`), redo that file's settings from step 4, then
   `sudo launchctl bootout system/com.homelab.<name>` and `bootstrap` it again.
   A file that is new (listed but not yet in `/Library/LaunchDaemons`) is
   installed the same way, given its settings from step 4, and bootstrapped.
   Do not re-run `setup-plan --apply` for this: it tries to create the `lab`
   account again.
+- **If `ops/launchd/com.homelab.keepawake.plist` is listed,** do not reinstall it from
+  this list. Its change moves keep-awake to the `lab` account, which waits on the two
+  checks in "Moving keep-awake to the lab account" below. That section's step 3
+  reinstalls it, after both checks have passed. Until then the root definition stays.
 - **If `ops/backup-launcher/lab-backup.c` is listed,** the installed launcher is
   stale. Rebuild and install it as in step 4, take its old entry out of Full Disk
   Access and add it again, then run the backup once as in step 7. The first update
