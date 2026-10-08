@@ -6,14 +6,16 @@ be redone. The detail lives in the documents it links; this page only points.
 
 ## Where things stand
 
-- `main` has everything merged. Open pull requests: **#312 only** (keep-awake as the `lab`
-  account, [#235](https://github.com/roshanaryal1/home-lab/issues/235)). Do **not** merge it until
-  the owner has run `./ops/mac-session.sh --only caffeinate` from that branch and it passed; the
-  steps are in its runbook section "Moving keep-awake to the lab account".
+- Open pull requests: **#312** (keep-awake as the `lab` account,
+  [#235](https://github.com/roshanaryal1/home-lab/issues/235)) and **#319** (a memory reading over
+  the ceiling is reported over it, [#316](https://github.com/roshanaryal1/home-lab/issues/316)).
+  Do **not** merge #312 until both checks in step 1 of its runbook section "Moving keep-awake to
+  the lab account" have passed on the Mac mini: `./ops/mac-session.sh --only caffeinate` from
+  that branch, and the same check from launchd with a throwaway daemon (added 2026-10-09).
 - #312 must also be up to date with `main` before it merges. It was brought up to date on
   2026-10-09 with a merge commit, and every later merge to `main` puts it behind again. Merge
   `main` into it (a merge commit, never a rebase or force-push) and wait for green checks. This
-  changes what the caffeinate check runs only if `main` changed `ops/mac-session.sh`.
+  changes what the two checks run only if `main` changed `ops/mac-session.sh`.
 - Merged on 2026-10-08 (NZDT): #300 H1 run record, #301 H1 result, #303 `lab shadow
   --system-file`, #304 H1b run, #305 drills (interrupted task, restore from a backup), #306
   approvals bound to the intent the operator sees, #307 backup launcher that holds Full Disk
@@ -45,7 +47,7 @@ In this order:
 3. Move the backup's Full Disk Access to its launcher: runbook section "Moving the backup's Full
    Disk Access to its launcher" ([#287](https://github.com/roshanaryal1/home-lab/issues/287)). It ends
    by turning Terminal's Full Disk Access off.
-4. The #312 check above, then merge and follow its runbook section.
+4. The two #312 checks above, then merge and follow its runbook section.
 5. Replace the outside heartbeat check. The heartbeat job and its outside check were set up on
    2026-10-07 and the job pinged it, but the check's URL was exposed once, so make a new check and
    rerun the heartbeat URL step. The Telegram alert hook is installed and a test alert reached the
@@ -65,13 +67,15 @@ Decisions:
   the issue).
 - [#83](https://github.com/roshanaryal1/home-lab/issues/83): when to publish the first release; steps
   are on the issue and in [RELEASE-NOTES-DRAFT.md](RELEASE-NOTES-DRAFT.md).
+- [#318](https://github.com/roshanaryal1/home-lab/issues/318): a point in the owner's private notes;
+  record the outcome on the issue in general terms.
 - The owner keeps private security review notes on the Mac mini, outside this repository. Ask the
   owner before acting on anything security-related that is not in an issue.
 
 ## What a new session can do without the owner
 
 Little: most open work needs the Mac mini with sudo, or a decision. Safe without the owner:
-answer review comments on #312, keep docs in step with merged work, and prepare (not publish) work
+answer review comments on #312 and #319, keep docs in step with merged work, and prepare (not publish) work
 for the decisions above once the owner has chosen. Never deploy, use sudo, publish a release or
 send alerts without being asked.
 
