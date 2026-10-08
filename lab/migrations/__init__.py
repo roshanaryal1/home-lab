@@ -8,9 +8,16 @@ applied in order, each in one transaction, with the number recorded in
 ``PRAGMA user_version`` in the same transaction. A migration either
 happened completely or not at all, and the file itself says which.
 
+Before a database file below the latest version is upgraded, ``migrate``
+copies the file beside itself as ``<name>.pre-vN.bak`` with SQLite's online
+backup API, and deletes the older copies of that file. A database from before
+versioning (version 0 with tables) gets one too. A fresh database, empty at
+version 0, and ``:memory:`` get none.
+
 Rules for a migration file:
 
-* Never edit one that has shipped. Add the next number.
+* Never edit one that has shipped. Add the next number, and add its line to
+  ``SHA256SUMS`` (``tests/test_migration_checksums.py`` fails until you do).
 * No PRAGMAs and no BEGIN/COMMIT; the runner owns both.
 * Rebuilding a table (SQLite cannot add a CHECK to an existing one) is
   fine: the runner turns foreign keys off around each migration and
@@ -19,8 +26,11 @@ Rules for a migration file:
 
 from __future__ import annotations
 
+import contextlib
+import os
 import re
 import sqlite3
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -151,12 +161,123 @@ def _apply(conn: sqlite3.Connection, migration: Migration) -> bool:
     return True
 
 
+def online_copy(source: sqlite3.Connection, dest: Path) -> None:
+    """Copy ``source`` into the file ``dest`` with SQLite's online backup API.
+
+    The copy is left in rollback-journal mode, so it is one self-contained
+    file even when the source is in WAL mode. ``lab.backup`` uses it too.
+    """
+    target = sqlite3.connect(dest)
+    try:
+        source.backup(target)
+        target.execute("PRAGMA journal_mode = DELETE")
+    finally:
+        target.close()
+
+
+def _database_file(conn: sqlite3.Connection) -> Path | None:
+    """The file behind the main database, or None for ``:memory:``."""
+    for row in conn.execute("PRAGMA database_list"):
+        if row[1] == "main":
+            return Path(row[2]) if row[2] else None
+    return None
+
+
+def _check_snapshot(path: Path, version: int) -> None:
+    """A snapshot is kept only if it is intact and at the version its name gives."""
+    check = sqlite3.connect(path)
+    try:
+        integrity = check.execute("PRAGMA integrity_check").fetchone()[0]
+        copied = current_version(check)
+    finally:
+        check.close()
+    if integrity != "ok" or copied != version:
+        raise MigrationError(
+            f"the snapshot of version {version} is not usable ({integrity}, "
+            f"version {copied}), so no migration was run"
+        )
+
+
+def _prune_snapshots(db: Path, version: int) -> None:
+    """Delete the ``<name>.pre-vN.bak`` files beside ``db`` with N below ``version``,
+    regular files only.
+
+    Only older copies go. A process that copied version 5 and was slow to get
+    here must not delete the version 6 copy that another process made after
+    upgrading the file further.
+    """
+    pattern = re.compile(re.escape(db.name) + r"\.pre-v(\d+)\.bak")
+    with os.scandir(db.parent) as entries:
+        for entry in entries:
+            match = pattern.fullmatch(entry.name)
+            if (match and int(match.group(1)) < version
+                    and entry.is_file(follow_symlinks=False)):
+                # Another process opening the same file may have pruned it first.
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(entry.path)
+
+
+def _has_tables(conn: sqlite3.Connection) -> bool:
+    """True when the database holds a table of its own, so version 0 is not a fresh file."""
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+        "AND name NOT LIKE 'sqlite!_%' ESCAPE '!' LIMIT 1").fetchone() is not None
+
+
+def _needs_snapshot(conn: sqlite3.Connection, version: int, latest: int) -> bool:
+    """An upgrade of a file with data in it: any version below the latest, except
+    a version 0 file with no tables, which is a fresh one."""
+    return version < latest and (version > 0 or _has_tables(conn))
+
+
+def _snapshot_before_upgrade(conn: sqlite3.Connection, latest: int) -> None:
+    """Copy the database beside itself as ``<name>.pre-vN.bak``, before it is upgraded.
+
+    Only a file ``_needs_snapshot`` accepts is copied. The version is read
+    inside the read transaction the copy is taken in, so
+    the copy is exactly the version its name gives, even when another
+    process upgrades the file first. A read transaction does not block
+    writers in WAL mode.
+    """
+    db = _database_file(conn)
+    if db is None:
+        return
+    conn.execute("BEGIN")
+    try:
+        version = current_version(conn)
+        if not _needs_snapshot(conn, version, latest):
+            return
+        final = db.with_name(f"{db.name}.pre-v{version}.bak")
+        fd, name = tempfile.mkstemp(dir=db.parent, prefix=f".{final.name}.",
+                                    suffix=".partial")
+        os.close(fd)
+        partial = Path(name)
+        try:
+            online_copy(conn, partial)
+            _check_snapshot(partial, version)
+            with open(partial, "rb") as fh:
+                os.fsync(fh.fileno())
+            os.replace(partial, final)
+            dir_fd = os.open(db.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except BaseException:
+            partial.unlink(missing_ok=True)
+            raise
+    finally:
+        conn.execute("ROLLBACK")
+    _prune_snapshots(db, version)
+
+
 def migrate(conn: sqlite3.Connection, directory: Path = MIGRATIONS_DIR) -> int:
     """Bring ``conn``'s database to the latest version; return that version.
 
     The connection must be in autocommit mode (``isolation_level=None``).
     Raises ``SchemaTooNew`` rather than run against a schema this build
-    does not understand.
+    does not understand. Before the first upgrade of a file database, a
+    snapshot is written beside it. If that fails, nothing is migrated.
     """
     migrations = discover(directory)
     latest = migrations[-1].version if migrations else 0
@@ -165,6 +286,14 @@ def migrate(conn: sqlite3.Connection, directory: Path = MIGRATIONS_DIR) -> int:
         raise SchemaTooNew(
             f"database is at schema version {version}, this build knows up to {latest}"
         )
+    if _needs_snapshot(conn, version, latest):
+        try:
+            _snapshot_before_upgrade(conn, latest)
+        except (OSError, sqlite3.Error) as exc:
+            raise MigrationError(
+                f"could not snapshot the database before upgrading it, so nothing "
+                f"was migrated: {exc}"
+            ) from exc
     for migration in migrations[version:]:
         # Off for the whole migration, so a table rebuild is not blocked by
         # the tables that reference it. Checked again before the commit.

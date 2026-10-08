@@ -127,8 +127,12 @@ out-feature them. The position is narrower: **the personal agent whose
 safety boundary is on by default and measured in public.** New daily-use
 features (chat, tools, memory) are to be added only through the existing
 broker, so each inherits the lab account, signed approvals and the audit
-log. The cited comparison is [docs/COMPARISON.md](docs/COMPARISON.md); the
-roadmap is decided in [#189](https://github.com/roshanaryal1/home-lab/issues/189).
+log. The cited comparison is [docs/COMPARISON.md](docs/COMPARISON.md). On
+[#189](https://github.com/roshanaryal1/home-lab/issues/189) the owner chose to ship
+v0.1 first, then add features month by month; which features, and what home-lab
+will not copy, is in [docs/FEATURE-PLAN.md](docs/FEATURE-PLAN.md).
+The months to v1.0 and a public launch, and what v1.0 must pass, are in
+[docs/PLAN-7-MONTHS.md](docs/PLAN-7-MONTHS.md).
 The install guide for your own Mac is [docs/INSTALL.md](docs/INSTALL.md); it has not
 yet been tested end to end on a fresh Mac ([#188](https://github.com/roshanaryal1/home-lab/issues/188)).
 
@@ -221,6 +225,7 @@ step ([#87](https://github.com/roshanaryal1/home-lab/issues/87)).
 
 ```sh
 uv run python -m lab.cli status [--json] [--alert-config F]   # queue, worker health, counters; exit 2 if unhealthy
+uv run python -m lab.cli doctor                   # read-only check: database, operator key, model, disk, backup, selftest, audit chain; exit 1 if any fails
 uv run python -m lab.cli approvals                # what is waiting for a decision
 uv run python -m lab.cli show <id>                # read the exact call before deciding
 uv run python -m lab.cli approve <id> --by you --key operator.key --expect-hash <prefix>
@@ -256,6 +261,7 @@ uv run python -m lab.cli route <task> [--want paper]   # post, blog, paper or no
 uv run python -m lab.cli shadow --cases evals/shadow_cases.jsonl   # measure the rubric on labeled cases; a model candidate is compared in shadow, never applied
 uv run python -m lab.cli dashboard [--port 8765]   # read-only status page on loopback; no controls, GET only, everything escaped
 uv run python -m lab.cli ledger show <task>       # claims, their evidence and status; review, verify
+uv run python -m lab.cli memory-budget [TOKENS ...] [--measurements FILE]   # predicted resident memory of the heavy model at each context length (default 8192 16384 37000). With a measurement record, the error against it (#321)
 uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record; --db notes it as a measurement
 uv run python -m lab.cli eval rerun <record>      # repeat a run from its record alone, then compare
 uv run python -m lab.cli bench run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # cold start, first token, decode speed, server memory

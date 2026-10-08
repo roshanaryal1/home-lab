@@ -38,7 +38,7 @@ import signal
 import subprocess
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 SUPERVISOR_LABEL = "com.homelab.supervisor"
 WATCHDOG_LABEL = "com.homelab.watchdog"
@@ -60,6 +60,9 @@ BACKUP_LAUNCHER = "/opt/homelab-backup/lab-backup"
 DEADMAN_LABEL = "com.homelab.heartbeat"
 DEADMAN_INTERVAL_SECONDS = 300
 CHAT_LABEL = "com.homelab.chat"
+WEEKLY_EVAL_LABEL = "com.homelab.weekly-eval"
+# The model server the lab runs on (the runbook's LAB_MODEL_URL).
+WEEKLY_EVAL_ENDPOINT = "http://127.0.0.1:8080/v1"
 
 
 def heartbeat_path(db: str | Path) -> Path:
@@ -334,3 +337,32 @@ def chat_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
     """
     return _plist(CHAT_LABEL, [python, "-m", "lab.cli", "--db", db, "chat"], workdir,
                   UserName=user, RunAtLoad=True, KeepAlive=True, ThrottleInterval=30)
+
+
+def weekly_eval_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
+    """``lab eval run`` once a week, Sunday at 04:23, as the lab user (#321, P3).
+
+    P3 needs six weekly runs. The four ``PASTE_`` values are the served model's
+    name, its revision, its tokenizer revision and its weight size in MB. The
+    operator fills them into the installed copy, as the runbook says. Only the
+    weight size is checked by the command (it must be an integer), so the job
+    refuses to start while that placeholder is there. Nothing checks the other
+    three, so the ``PASTE_`` check the runbook asks for is what catches them. The task
+    file is the one in the deployed tree.
+
+    The record goes to ``evals/runs`` beside the database. The working directory
+    is root-owned and the lab account cannot write there, so ``--out`` names the
+    same folder in the lab's own directory. The run is also noted in the database.
+    """
+    state = PurePosixPath(db).parent
+    args = [python, "-m", "lab.cli", "--db", db, "eval", "run",
+            "--endpoint", WEEKLY_EVAL_ENDPOINT,
+            "--model", "PASTE_MODEL_NAME",
+            "--revision", "PASTE_MODEL_REVISION",
+            "--tokenizer-revision", "PASTE_TOKENIZER_REVISION",
+            "--weights-mb", "PASTE_WEIGHTS_MB",
+            "--tasks", str(PurePosixPath(workdir) / "evals" / "tasks.jsonl"),
+            "--out", str(state / "evals" / "runs"),
+            "--db", db]
+    return _plist(WEEKLY_EVAL_LABEL, args, workdir, UserName=user,
+                  StartCalendarInterval={"Weekday": 0, "Hour": 4, "Minute": 23})
