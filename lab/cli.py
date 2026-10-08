@@ -63,6 +63,7 @@ import time
 import unicodedata
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
@@ -403,10 +404,20 @@ def cmd_measure_ceilings(args: argparse.Namespace) -> int:
     return 1 if report.problems else 0
 
 
+def _version() -> str:
+    # build_parser runs for every command, so a checkout that was never
+    # installed must still run the other commands. Its --version says unknown.
+    try:
+        return version("home-lab")
+    except PackageNotFoundError:
+        return "unknown"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lab", description="Operate the home lab."
     )
+    parser.add_argument("--version", action="version", version=f"lab {_version()}")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB,
                         help=f"database path (default: {DEFAULT_DB})")
     sub = parser.add_subparsers(dest="command", required=True)
