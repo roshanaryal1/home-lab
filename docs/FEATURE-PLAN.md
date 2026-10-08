@@ -3,7 +3,7 @@
 Written 2026-10-09 (NZDT) for #326, after the owner's decision on #189: ship v0.1, then add
 features month by month. The sources for what OpenClaw and Hermes Agent do are in
 [COMPARISON.md](COMPARISON.md). Month 1 is October 2026 and month 7 is April 2027, the months of
-the seven-month plan to a production release.
+the [seven-month plan](PLAN-7-MONTHS.md) to a production release.
 
 ## The rule every feature follows
 
