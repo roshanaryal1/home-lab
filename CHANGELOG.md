@@ -9,6 +9,11 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- A read-only `/today` page on the status page, and `/today.json` with the same
+  data. It lists the local day's tasks created, finished, waiting for approval and
+  refused by policy, the approvals decided, the schedules fired and the egress and
+  policy denial counts. Task titles are escaped. No payloads or results are shown
+  ([#390](https://github.com/roshanaryal1/home-lab/issues/390)).
 - `lab status` flags a task that writes no event for 30 minutes while its lease
   keeps renewing. The task is listed in the text output, the `--json` output and
   the status page, and the status check alerts with its id. The task is only
