@@ -52,3 +52,10 @@ def test_the_wheel_has_every_migration(wheel_names: set[str]) -> None:
     assert expected, "no migrations found under lab/migrations"
     missing = sorted(expected - wheel_names)
     assert not missing, f"missing from the wheel: {missing}"
+
+
+def test_the_wheel_has_the_injection_suite_cases(wheel_names: set[str]) -> None:
+    expected = _relative(list((ROOT / "lab" / "injection_cases").glob("*.jsonl")))
+    assert expected, "no case files found under lab/injection_cases"
+    missing = sorted(expected - wheel_names)
+    assert not missing, f"missing from the wheel: {missing}"
