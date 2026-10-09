@@ -6,8 +6,9 @@ definitions or the configuration, and cannot read the operator's private key. Th
 command checks those permissions on an install. Each check gives one finding,
 ``ok``, ``FAIL`` or ``skip``, and the offending paths of a FAIL.
 
-It is read-only. It uses ``os.lstat`` and ``os.scandir`` only. It never follows a
-symlink, never reads a file's contents and never changes a mode or an owner. Every
+It is read-only. It uses ``os.lstat``, ``os.scandir`` and, for a link in the deployed
+code, ``os.path.realpath`` to see where the link leads. It never reads a file's contents
+and never changes a mode or an owner. Every
 path and every expected owner is a parameter with the Mac mini's value as the
 default, so the tests run on temporary folders.
 """
@@ -35,6 +36,9 @@ DATA_DIR = Path(accountplan.DATA_DIR)
 DATABASE_NAME = "lab.db"
 SERVICE_PLIST = "com.homelab.*.plist"
 OPERATOR_KEY = Path(".lab-operator", "operator.key")
+# Configuration the lab account itself must own: the alert loader refuses a file that is
+# not owned by the account running the lab (runbook section 19 installs it lab-owned, 600).
+LAB_OWNED_CONFIG = frozenset({"alert.json"})
 GROUP_OR_OTHER_WRITE = 0o022
 ANY_GROUP_OR_OTHER = 0o077
 
@@ -77,14 +81,20 @@ def _result(name: str, bad: Iterable[str]) -> Finding:
     return Finding(name, status, paths)
 
 
+def _inside(target: Path, roots: Iterable[Path]) -> bool:
+    return any(target == r or r in target.parents for r in roots)
+
+
 def check_deploy(root: Path, root_uid: int, *more_roots: Path) -> Finding:
     """Every entry under ``root`` and under each of ``more_roots``, the roots included, is
-    owned by ``root_uid`` and has no group or other write bit. Symlinks are listed by their
-    folder, never judged, never followed. A root that is missing or is itself a symlink
-    fails. The venv's symlinks point into the interpreter root, which is why that root is
-    walked too."""
+    owned by ``root_uid`` and has no group or other write bit. A root that is missing or is
+    itself a symlink fails. A symlink below a root is not walked: it passes when it leads
+    to an entry inside one of the roots, which is checked in its own place, and fails when
+    it leads outside them or nowhere. The venv's symlinks point into the interpreter root,
+    which is why that root is walked too."""
     bad: set[str] = set()
     pending: list[Path] = []
+    roots = [Path(os.path.realpath(top)) for top in (root, *more_roots)]
     for top in (root, *more_roots):
         if _is_dir(_lstat(top)):
             pending.append(top)
@@ -97,6 +107,12 @@ def check_deploy(root: Path, root_uid: int, *more_roots: Path) -> Finding:
             bad.add(str(path))
             continue
         if stat.S_ISLNK(st.st_mode):
+            try:
+                target = Path(os.path.realpath(path, strict=True))
+            except OSError:                 # leads nowhere, or round in a loop
+                target = None
+            if target is None or not _inside(target, roots):
+                bad.add(str(path))
             continue
         unsafe = st.st_uid != root_uid or (st.st_mode & GROUP_OR_OTHER_WRITE) != 0
         if stat.S_ISDIR(st.st_mode):
@@ -131,10 +147,11 @@ def check_services(launch_daemons: Path, root_uid: int) -> Finding:
     return _result("services", bad)
 
 
-def check_config(config_dir: Path, root_uid: int) -> Finding:
+def check_config(config_dir: Path, root_uid: int, lab_uid: int | None = None) -> Finding:
     """``config_dir`` and each entry directly in it are owned by ``root_uid`` with no group or
-    other write bit. An entry that is a symlink fails, because its target would be read
-    unchecked."""
+    other write bit. The entries in LAB_OWNED_CONFIG may instead be owned by ``lab_uid``, the
+    lab account, when closed to any group or other. An entry that is a symlink fails,
+    because its target would be read unchecked."""
     if not _is_dir(_lstat(config_dir)):
         return Finding("config", "FAIL", [str(config_dir)])
     bad: set[str] = set()
@@ -146,8 +163,13 @@ def check_config(config_dir: Path, root_uid: int) -> Finding:
     except OSError:
         bad.add(str(config_dir))
         children = []
-    bad.update(str(child) for child in children
-               if not _trusted(child, root_uid, GROUP_OR_OTHER_WRITE))
+    for child in children:
+        if _trusted(child, root_uid, GROUP_OR_OTHER_WRITE):
+            continue
+        if (child.name in LAB_OWNED_CONFIG and lab_uid is not None
+                and _trusted(child, lab_uid, ANY_GROUP_OR_OTHER)):
+            continue
+        bad.add(str(child))
     return _result("config", bad)
 
 
@@ -235,10 +257,12 @@ def run(env: Mapping[str, str], *, home: Path | None = None, deploy_root: Path =
     ``home`` defaults to this account's home folder and ``euid`` to this process's effective
     uid. ``root_uid`` is the owner the root-owned paths must have.
     """
+    data_st = _lstat(data_dir)
+    lab_uid = data_st.st_uid if _is_dir(data_st) and data_st is not None else None
     return [
         check_deploy(deploy_root, root_uid, python_root),
         check_services(launch_daemons, root_uid),
-        check_config(config_dir, root_uid),
+        check_config(config_dir, root_uid, lab_uid),
         check_data(data_dir),
         check_public_key(env, root_uid),
         check_private_key(Path.home() if home is None else home,

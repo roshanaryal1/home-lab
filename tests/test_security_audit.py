@@ -165,13 +165,37 @@ def test_deploy_fails_on_a_missing_root(tmp_path: Path) -> None:
     assert sa.check_deploy(missing, ME) == sa.Finding("deploy", "FAIL", [str(missing)])
 
 
-def test_deploy_does_not_follow_a_symlink_out_of_the_tree(layout: Layout, tmp_path: Path) -> None:
+def test_deploy_names_a_symlink_that_leads_out_of_the_tree(layout: Layout, tmp_path: Path) -> None:
     outside = _dir(tmp_path / "outside", 0o777)
     shared = _file(outside / "shared.txt", 0o666)            # group and other writable
     _file(outside / "loose.txt", 0o666)
     os.symlink(shared, layout.deploy / "shared-link")
     os.symlink(outside, layout.deploy / "folder-link")
-    assert sa.check_deploy(layout.deploy, ME) == sa.Finding("deploy", "ok", [])
+    assert sa.check_deploy(layout.deploy, ME) == sa.Finding(
+        "deploy", "FAIL", sorted([str(layout.deploy / "shared-link"),
+                                  str(layout.deploy / "folder-link")]))
+
+
+def test_deploy_names_a_symlink_that_leads_nowhere(layout: Layout, tmp_path: Path) -> None:
+    os.symlink(tmp_path / "gone", layout.deploy / "dangling")
+    assert sa.check_deploy(layout.deploy, ME) == sa.Finding(
+        "deploy", "FAIL", [str(layout.deploy / "dangling")])
+
+
+def test_deploy_passes_a_symlink_that_stays_inside_a_checked_root(layout: Layout) -> None:
+    os.symlink("__init__.py", layout.deploy / "lab" / "alias.py")
+    os.symlink(layout.python / "bin" / "python3.13", layout.deploy / "python")
+    assert sa.check_deploy(layout.deploy, ME, layout.python) == sa.Finding("deploy", "ok", [])
+
+
+def test_deploy_follows_the_link_target_not_the_link(layout: Layout) -> None:
+    # The venv's python points into the interpreter root, so a loose file there is named
+    # in its own place, once.
+    loose = layout.python / "bin" / "python3.13"
+    os.symlink(loose, layout.deploy / "python")
+    os.chmod(loose, 0o777)
+    assert sa.check_deploy(layout.deploy, ME, layout.python) == sa.Finding(
+        "deploy", "FAIL", [str(loose)])
 
 
 def test_deploy_fails_when_the_root_itself_is_a_symlink(layout: Layout, tmp_path: Path) -> None:
@@ -261,6 +285,38 @@ def test_config_names_a_symlink_entry_because_its_target_would_be_read_unchecked
     link = layout.config / "linked.pub"
     os.symlink(outside, link)
     assert sa.check_config(layout.config, ME) == sa.Finding("config", "FAIL", [str(link)])
+
+
+def test_config_accepts_a_lab_owned_alert_file(layout: Layout,
+                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    alert = _file(layout.config / "alert.json", 0o600)
+    _fake_owner(monkeypatch, alert, ME + 7)
+    assert sa.check_config(layout.config, ME, ME + 7) == sa.Finding("config", "ok", [])
+
+
+@pytest.mark.parametrize("mode", [0o640, 0o604, 0o620])
+def test_config_names_a_lab_owned_alert_file_that_a_group_or_others_can_reach(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch, mode: int) -> None:
+    alert = _file(layout.config / "alert.json", mode)
+    _fake_owner(monkeypatch, alert, ME + 7)
+    assert sa.check_config(layout.config, ME, ME + 7) == sa.Finding(
+        "config", "FAIL", [str(alert)])
+
+
+def test_config_names_any_other_lab_owned_entry(layout: Layout,
+                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    other = layout.config / "mcp.json"
+    os.chmod(other, 0o600)
+    _fake_owner(monkeypatch, other, ME + 7)
+    assert sa.check_config(layout.config, ME, ME + 7) == sa.Finding(
+        "config", "FAIL", [str(other)])
+
+
+def test_config_names_a_lab_owned_alert_file_when_the_lab_account_is_unknown(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch) -> None:
+    alert = _file(layout.config / "alert.json", 0o600)
+    _fake_owner(monkeypatch, alert, ME + 7)
+    assert sa.check_config(layout.config, ME) == sa.Finding("config", "FAIL", [str(alert)])
 
 
 # ------------------------------------------------------------ data
