@@ -58,8 +58,9 @@ are refused.
    plan does not read that file, so it prints before the key exists.
 
 8. **Doctor, as a checklist.** It runs `uv run python -m lab.cli doctor`. On a fresh Mac, doctor
-   reports FAIL for a missing database, a missing operator key and a selftest that has not run,
-   then exits 1. The default database path is `~/.local/share/home-lab/lab.db` (`lab/cli.py`).
+   reports FAIL for the missing database and the missing operator key. The checks that read the
+   database, the selftest check among them, also fail, because there is no database to read.
+   Then doctor exits 1. The default database path is `~/.local/share/home-lab/lab.db` (`lab/cli.py`).
    The installer shows each line and continues. It does not treat doctor's exit code as a
    failure.
 
