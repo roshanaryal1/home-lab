@@ -24,8 +24,8 @@ be redone. The detail lives in the documents it links; this page only points.
   merging: a pass from before the merge does not cover the new script. No merge so far has
   changed that script since the checks were written.
 - Merged on 2026-10-08 (NZDT): #300 to #311, #313, #314 (see the git log). Of these, #303, #305,
-  #306, #307, #309 and #313 change code the Mac mini runs.
-- Merged on 2026-10-09 (NZDT), code the Mac mini runs:
+  #306, #307, #309 and #313 change code meant for the Mac mini.
+- Merged on 2026-10-09 (NZDT), changes to code meant for the Mac mini (none deployed yet, see below):
   #319 (a memory reading at the ceiling is reported over it), #320 (constrained decoding for H1c),
   #324 (`lab prereg --record`), #334 (the wheel and the `lab` command, #329, #330), #336 (one-line
   CLI errors, #331), #345 (deploy keeps pytest, #270), #346 (`lab memory-budget`), #351
@@ -80,9 +80,9 @@ In this order:
    by turning Terminal's Full Disk Access off.
 6. The two #312 checks above, then merge and follow its runbook section.
 7. Replace the outside heartbeat check. The heartbeat job and its outside check were set up on
-   2026-10-07 and the job pinged it, but the check's URL was exposed once, so make a new check and
-   rerun the heartbeat URL step. Also turn off browser Apple Events and Accessibility permissions
-   used for the OSF work.
+   2026-10-07 and the job pinged it. Make a new check and rerun the heartbeat URL step; the reason
+   is in the owner's private notes. Also turn off browser Apple Events and Accessibility
+   permissions used for the OSF work.
 8. Run H1c on the Mac mini ([H1C-RUN-PLAN.md](H1C-RUN-PLAN.md)).
 9. Drills: interrupted task with a power pull (`lab drill interrupted`, [#91](https://github.com/roshanaryal1/home-lab/issues/91), [#77](https://github.com/roshanaryal1/home-lab/issues/77)),
    network unplug ([#79](https://github.com/roshanaryal1/home-lab/issues/79)), `/stop` from the chat bot,
