@@ -42,8 +42,9 @@ uv run lab schedule remove morning-digest --by you
 
 `list` shows each live schedule, its rule, kind, tier, when it is next due,
 when it last fired and whether it is signed. Removing needs no key, because
-it only takes work away. A removed schedule keeps its row, so its signed
-spec cannot be put back. To change a schedule, remove it and add a new one.
+it only takes work away. A removed schedule keeps its row, and its nonce
+goes on an append-only list that every firing checks, so its signed spec
+cannot be put back. To change a schedule, remove it and add a new one.
 
 ## When it runs
 
@@ -71,7 +72,9 @@ hand.
   firing checks the signature over the whole spec: name, rule, time zone,
   kind, title, payload, weight, tier, who added it, when, and a random
   nonce. A row nobody signed, or one changed after signing, never creates a
-  task. It is logged as refused.
+  task. It is logged as refused and parked: it never comes due again, and
+  `list` shows `next never (refused)`. Remove it and add it again. One
+  refused schedule never stops the others.
 - The nonce is unique in the table, so a copied or replayed spec is refused
   by the database.
 - A scheduled task carries its tier like any other. An approve-tier step

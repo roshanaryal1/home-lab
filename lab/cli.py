@@ -1553,8 +1553,10 @@ def cmd_schedule(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespac
             print("no schedules")
         for row in rows:
             signed = "signed" if row["signature"] else "UNSIGNED"
+            due = ("never (refused)" if row["next_due_at"] == schedule_mod.PARKED
+                   else row["next_due_at"])
             print(_escape(f"{row['name']}  {row['rule']} ({row['tz']})  {row['agent_kind']}  "
-                          f"tier {row['capability_tier']}  next {row['next_due_at']}  "
+                          f"tier {row['capability_tier']}  next {due}  "
                           f"last {row['last_fired_at'] or 'never'}  {signed}  {row['title']}"))
         return 0
     if args.schedule_command == "remove":

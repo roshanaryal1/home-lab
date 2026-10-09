@@ -15,7 +15,11 @@ task, and an approve-tier task still waits for the owner's signature
   the signature before every firing. A row the agent wrote, or one edited
   after signing, is refused and logged.
 * Each spec carries a random nonce, unique in the table. A removed schedule
-  keeps its row, so a signed spec cannot be inserted again after removal.
+  keeps its row, so a signed spec cannot be inserted again after removal, and
+  its nonce goes on an append-only revocation list that ``fire_due`` checks,
+  so clearing ``removed_at`` does not bring it back.
+* A refused schedule is parked: it never comes due again, and nothing in a
+  refused row is parsed. The owner removes it and adds it again.
 * Rules: ``daily HH:MM``, ``weekly DAY HH:MM`` and ``every N minutes`` with N
   from 15 to 1440. Times are in the schedule's IANA time zone, so a daily
   07:30 stays 07:30 across daylight saving.
@@ -62,6 +66,7 @@ TIERS = ("autonomous", "notify", "approve")
 WEIGHTS = ("light", "heavy")
 OPEN_STATES = ("queued", "leased", "running", "awaiting_approval")
 STAMP = "%Y-%m-%dT%H:%M:%SZ"
+PARKED = "9999-12-31T23:59:59Z"     # the next_due_at of a refused schedule
 
 _DAILY = re.compile(r"daily (\d{2}):(\d{2})")
 _WEEKLY = re.compile(r"weekly (mon|tue|wed|thu|fri|sat|sun) (\d{2}):(\d{2})")
@@ -85,6 +90,7 @@ class Fired:
     """What ``fire_due`` did with one due schedule."""
     name: str
     outcome: str                 # "fired", "refused" or "skipped"
+    # reason: "signature", "removed" or "invalid" when refused, "open" when skipped
     task_id: str | None = None
     reason: str | None = None
 
@@ -227,11 +233,14 @@ def remove(conn: sqlite3.Connection, name: str, *, by: str,
     """Take a schedule out of service. Needs no signature: it only removes authority."""
     when = stamp(now or datetime.now(UTC))
     with _tx(conn):
-        cur = conn.execute(
-            "UPDATE schedules SET removed_at = ?, removed_by = ? "
-            "WHERE name = ? AND removed_at IS NULL", (when, by, name))
-        if cur.rowcount == 0:
+        found = conn.execute("SELECT id, nonce FROM schedules "
+                             "WHERE name = ? AND removed_at IS NULL", (name,)).fetchone()
+        if found is None:
             raise ScheduleError(f"no live schedule named {name!r}")
+        conn.execute("UPDATE schedules SET removed_at = ?, removed_by = ? WHERE id = ?",
+                     (when, by, found[0]))
+        conn.execute("INSERT OR IGNORE INTO schedule_revocations (nonce, revoked_at, revoked_by) "
+                     "VALUES (?, ?, ?)", (found[1], when, by))
         append_event(conn, None, "schedule_removed", detail={"schedule": name, "by": by})
 
 
@@ -263,44 +272,77 @@ def _advance(conn: sqlite3.Connection, row: sqlite3.Row, now: datetime) -> bool:
     return cur.rowcount == 1
 
 
+def _refuse(conn: sqlite3.Connection, row: sqlite3.Row, reason: str, why: str, *,
+            cas: bool = True) -> Fired | None:
+    """Park the schedule so it never comes due again, and log why, without parsing any of
+    it. With ``cas``, only when no other process has moved it since it was read."""
+    sql = "UPDATE schedules SET next_due_at = ? WHERE id = ?"
+    params: tuple[object, ...] = (PARKED, row["id"])
+    if cas:
+        sql += " AND next_due_at = ?"
+        params += (row["next_due_at"],)
+    if conn.execute(sql, params).rowcount != 1:
+        return None
+    append_event(conn, None, "schedule_refused", detail={"schedule": row["name"], "reason": why})
+    return Fired(row["name"], "refused", reason=reason)
+
+
 def fire_due(queue: TaskQueue, now: datetime, public_key: Ed25519PublicKey | None) -> list[Fired]:
-    """Create one task for every schedule that is due at ``now``. See the module notes."""
+    """Create one task for every schedule that is due at ``now``. See the module notes.
+    One schedule that cannot run never stops the others."""
     conn = queue._conn
-    due = _rows(conn, "SELECT * FROM schedules WHERE removed_at IS NULL AND next_due_at <= ? "
-                "ORDER BY next_due_at, id", (stamp(now),))
+    due = _rows(conn, "SELECT s.*, r.nonce IS NOT NULL AS revoked FROM schedules s "
+                "LEFT JOIN schedule_revocations r ON r.nonce = s.nonce "
+                "WHERE s.removed_at IS NULL AND s.next_due_at <= ? "
+                "ORDER BY s.next_due_at, s.id", (stamp(now),))
     results: list[Fired] = []
     for row in due:
-        name = row["name"]
-        if not verified(row, public_key):
-            if _advance(conn, row, now):
-                append_event(conn, None, "schedule_refused", detail={
-                    "schedule": name, "reason": "the operator's signature does not verify"})
-                results.append(Fired(name, "refused", reason="signature"))
-            continue
-        last = row["last_task_id"]
-        if last is not None:
-            marks = ",".join("?" * len(OPEN_STATES))
-            open_task = conn.execute(
-                f"SELECT 1 FROM tasks WHERE id = ? AND state IN ({marks})",  # nosemgrep
-                (last, *OPEN_STATES)).fetchone()
-            if open_task is not None:
-                if _advance(conn, row, now):
-                    append_event(conn, last, "schedule_skipped", detail={
-                        "schedule": name, "reason": "the last task is still open"})
-                    results.append(Fired(name, "skipped", task_id=last, reason="open"))
-                continue
-        if not _advance(conn, row, now):
-            continue
-        spec_sha = content_sha256(json.dumps(_signed_fields(row), sort_keys=True))
-        task_id = queue.add_task(
-            row["title"], json.loads(row["payload"]), agent_kind=row["agent_kind"],
-            weight=row["weight"],
-            capability_tier=row["capability_tier"],
-            origin=Origin(SourceType.OPERATOR, source_id=f"schedule:{name}", sha256=spec_sha,
-                          delegated_by=row["created_by"]))
-        conn.execute("UPDATE schedules SET last_fired_at = ?, last_task_id = ? WHERE id = ?",
-                     (stamp(now), task_id, row["id"]))
-        append_event(conn, task_id, "schedule_fired", detail={
-            "schedule": name, "signed": public_key is not None})
-        results.append(Fired(name, "fired", task_id=task_id))
+        outcome: Fired | None
+        if row["revoked"]:
+            outcome = _refuse(conn, row, "removed", "the schedule was removed")
+        elif not verified(row, public_key):
+            outcome = _refuse(conn, row, "signature", "the operator's signature does not verify")
+        else:
+            try:
+                outcome = _fire(queue, row, now, public_key)
+            except (ScheduleError, ValueError) as exc:
+                # Only an unsigned row can get here: a signed one was checked by add().
+                outcome = _refuse(conn, row, "invalid", f"the schedule cannot run: {exc}",
+                                  cas=False)
+        if outcome is not None:
+            results.append(outcome)
     return results
+
+
+def _fire(queue: TaskQueue, row: sqlite3.Row, now: datetime,
+          public_key: Ed25519PublicKey | None) -> Fired | None:
+    """Fire one verified schedule, or skip its slot while its last task is open. None when
+    another process took this slot first."""
+    conn = queue._conn
+    name = row["name"]
+    last = row["last_task_id"]
+    if last is not None:
+        marks = ",".join("?" * len(OPEN_STATES))
+        open_task = conn.execute(
+            f"SELECT 1 FROM tasks WHERE id = ? AND state IN ({marks})",  # nosemgrep
+            (last, *OPEN_STATES)).fetchone()
+        if open_task is not None:
+            if not _advance(conn, row, now):
+                return None
+            append_event(conn, last, "schedule_skipped", detail={
+                "schedule": name, "reason": "the last task is still open"})
+            return Fired(name, "skipped", task_id=last, reason="open")
+    if not _advance(conn, row, now):
+        return None
+    spec_sha = content_sha256(json.dumps(_signed_fields(row), sort_keys=True))
+    task_id = queue.add_task(
+        row["title"], json.loads(row["payload"]), agent_kind=row["agent_kind"],
+        weight=row["weight"],
+        capability_tier=row["capability_tier"],
+        origin=Origin(SourceType.OPERATOR, source_id=f"schedule:{name}", sha256=spec_sha,
+                      delegated_by=row["created_by"]))
+    conn.execute("UPDATE schedules SET last_fired_at = ?, last_task_id = ? WHERE id = ?",
+                 (stamp(now), task_id, row["id"]))
+    append_event(conn, task_id, "schedule_fired", detail={
+        "schedule": name, "signed": public_key is not None})
+    return Fired(name, "fired", task_id=task_id)

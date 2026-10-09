@@ -3,8 +3,10 @@
 -- A schedule may start work on a calendar rule, but it may never approve
 -- work. Each row is the owner's spec, signed with the operator key over
 -- every field below up to the signature. A removed schedule keeps its row
--- with removed_at set, so its nonce cannot be used again. Only the firing
--- columns (last_fired_at, last_task_id, next_due_at) change after insert.
+-- with removed_at set, so its nonce cannot be used again, and its nonce goes
+-- on the append-only revocation list, so clearing removed_at does not bring
+-- it back. Only the firing columns (last_fired_at, last_task_id,
+-- next_due_at) change after insert.
 
 CREATE TABLE schedules (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,3 +34,21 @@ CREATE TABLE schedules (
 CREATE UNIQUE INDEX idx_schedules_live_name ON schedules (name) WHERE removed_at IS NULL;
 
 CREATE INDEX idx_schedules_due ON schedules (next_due_at) WHERE removed_at IS NULL;
+
+-- The nonce of every removed schedule. fire_due refuses a schedule whose
+-- nonce is here, whatever its removed_at says.
+CREATE TABLE schedule_revocations (
+    nonce       TEXT PRIMARY KEY CHECK (length(nonce) = 32),
+    revoked_at  TEXT NOT NULL,
+    revoked_by  TEXT NOT NULL CHECK (length(revoked_by) >= 1)
+);
+
+CREATE TRIGGER schedule_revocations_no_update BEFORE UPDATE ON schedule_revocations
+BEGIN
+    SELECT RAISE(ABORT, 'schedule_revocations is append-only');
+END;
+
+CREATE TRIGGER schedule_revocations_no_delete BEFORE DELETE ON schedule_revocations
+BEGIN
+    SELECT RAISE(ABORT, 'schedule_revocations is append-only');
+END;

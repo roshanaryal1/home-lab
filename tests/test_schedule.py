@@ -232,6 +232,60 @@ def test_a_removed_schedule_never_fires_and_its_signed_row_cannot_come_back(
 
 
 @pytest.mark.safety
+def test_clearing_removed_at_does_not_bring_a_removed_schedule_back(
+        queue: TaskQueue, keys: tuple[Path, Path]) -> None:
+    private, public = keys
+    _add(queue, private, rule="daily 07:30")
+    schedule.remove(queue._conn, "digest", by="owner", now=T0)
+    queue._conn.execute("UPDATE schedules SET removed_at = NULL, removed_by = NULL")
+    key = operator_keys.load_public(public)
+    fired = schedule.fire_due(queue, T0 + timedelta(hours=8), key)
+    assert [(f.outcome, f.reason) for f in fired] == [("refused", "removed")]
+    assert schedule.fire_due(queue, T0 + timedelta(days=9), key) == []
+    assert _tasks(queue) == []
+
+
+@pytest.mark.parametrize("sql", ["UPDATE schedule_revocations SET revoked_by = 'x'",
+                                 "DELETE FROM schedule_revocations"])
+def test_the_revocation_list_is_append_only(queue: TaskQueue, keys: tuple[Path, Path],
+                                            sql: str) -> None:
+    private, _ = keys
+    _add(queue, private)
+    schedule.remove(queue._conn, "digest", by="owner")
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        queue._conn.execute(sql)
+
+
+@pytest.mark.parametrize("column, value", [("rule", "hourly"), ("tz", "Mars/Olympus")])
+def test_a_tampered_rule_or_zone_is_refused_without_stopping_the_others(
+        queue: TaskQueue, keys: tuple[Path, Path], column: str, value: str) -> None:
+    private, public = keys
+    _add(queue, private, name="broken", rule="daily 07:30")
+    _add(queue, private, name="digest", rule="daily 07:30")
+    queue._conn.execute(f"UPDATE schedules SET {column} = ? WHERE name = 'broken'",  # nosemgrep
+                        (value,))
+    key = operator_keys.load_public(public)
+    fired = schedule.fire_due(queue, T0 + timedelta(hours=8), key)
+    assert sorted((f.name, f.outcome, f.reason) for f in fired) == [
+        ("broken", "refused", "signature"), ("digest", "fired", None)]
+    # The refused one is parked: only digest comes due again (its task is still open).
+    later = schedule.fire_due(queue, T0 + timedelta(days=1, hours=8), key)
+    assert [(f.name, f.outcome) for f in later] == [("digest", "skipped")]
+
+
+def test_an_unsigned_schedule_that_cannot_run_is_refused_without_stopping_the_others(
+        queue: TaskQueue) -> None:
+    _add(queue, None, name="broken", rule="daily 07:30")
+    _add(queue, None, name="digest", rule="daily 07:30")
+    queue._conn.execute("UPDATE schedules SET rule = 'hourly' WHERE name = 'broken'")
+    fired = schedule.fire_due(queue, T0 + timedelta(hours=8), None)
+    assert sorted((f.name, f.outcome, f.reason) for f in fired) == [
+        ("broken", "refused", "invalid"), ("digest", "fired", None)]
+    row = queue._conn.execute("SELECT next_due_at FROM schedules WHERE name = 'broken'").fetchone()
+    assert row[0] == schedule.PARKED
+
+
+@pytest.mark.safety
 def test_a_scheduled_approve_tier_task_still_waits_for_the_owner(
         queue: TaskQueue, keys: tuple[Path, Path]) -> None:
     private, public = keys
@@ -311,6 +365,10 @@ def test_the_cli_adds_lists_and_removes_a_signed_schedule(
     listed = capsys.readouterr().out
     assert "digest" in listed and "git.read" in listed and "signed" in listed
     assert "UNSIGNED" not in listed
+    with TaskQueue(db) as q:
+        q._conn.execute("UPDATE schedules SET next_due_at = ?", (schedule.PARKED,))
+    assert main(["--db", str(db), "schedule", "list"]) == 0
+    assert "next never (refused)" in capsys.readouterr().out
     assert main(["--db", str(db), "schedule", "remove", "digest", "--by", "owner"]) == 0
     assert main(["--db", str(db), "schedule", "list"]) == 0
     assert "no schedules" in capsys.readouterr().out
