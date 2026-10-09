@@ -248,8 +248,8 @@ uv run python -m lab.cli resolve <op> --happened|--not-happened --by you   # rec
 uv run python -m lab.cli audit verify             # walk the hash-chained event log
 uv run python -m lab.cli audit checkpoint --key K --out DIR    # signed head, kept outside the lab
 uv run python -m lab.cli artifacts verify         # re-hash every stored output
-uv run python -m lab.cli backup --to DIR [--keep N] [--alert-config F]   # online snapshot; with --keep, restore-check it, then keep the newest N
-uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything
+uv run python -m lab.cli backup --to DIR [--keep N] [--alert-config F]   # online snapshot of the database and every blob it refers to (task artifacts, evidence snapshots, skill files, #358); with --keep, restore-check it, then keep the newest N
+uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything, every blob re-hashed
 uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
 uv run python -m lab.cli skillstore submit|promote|known-good|rollback|history|install   # versioned skills, operator-promoted, one-step rollback
 uv run python -m lab.cli prereg m2|m6 [--json]   # run pre-registered Claim M2 or M6 on its frozen cases, refused if the case file changed

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -14,7 +15,10 @@ from lab.artifacts import ArtifactStore
 from lab.audit import append_event
 from lab.broker import Workspace
 from lab.cli import main
+from lab.ledger import Ledger
+from lab.migrations import discover, migrate
 from lab.queue import TaskQueue
+from lab.skillstore import SkillStore
 
 
 @pytest.fixture()
@@ -201,6 +205,103 @@ def test_a_database_reached_through_a_linked_folder_is_still_backed_up(
     folder.symlink_to(db.parent, target_is_directory=True)
     manifest = backup.backup(folder / db.name, tmp_path / "bk", store.root)
     assert backup.restore_check(manifest, tmp_path / "restored").ok
+
+
+# ------------------------------------------------- evidence and skill files
+
+
+def _skill(root: Path) -> Path:
+    directory = root / "summarise"
+    (directory / "refs").mkdir(parents=True)
+    (directory / "SKILL.md").write_text(
+        "---\nname: summarise\ndescription: Summarises documents\n---\nSummarise a document.\n")
+    (directory / "refs" / "style.txt").write_bytes(b"Plain sentences, no bullet lists.")
+    return directory
+
+
+@pytest.fixture()
+def with_evidence(tmp_path: Path, live):
+    """The live database plus one evidence snapshot and one two-file skill version."""
+    q, db, store = live
+    ledger = Ledger(q._conn, store)
+    ledger.open_research_task("r1", "What is the throughput?", "protocol-v1")
+    ledger.add_snapshot("r1", "https://a.example", "web", b"41 tokens per second, measured.")
+    SkillStore(q._conn, store).submit(_skill(tmp_path / "w"), "notify", "learner")
+    return q, db, store
+
+
+def _blob_of(kind: str, q: TaskQueue) -> str:
+    """The digest of the snapshot, or of one file of the skill, from the live database."""
+    if kind == "snapshot":
+        return str(q._conn.execute("SELECT sha256 FROM evidence_snapshots").fetchone()[0])
+    manifest = json.loads(q._conn.execute("SELECT manifest FROM skill_versions").fetchone()[0])
+    return str(manifest["refs/style.txt"][0])
+
+
+def test_snapshot_and_skill_blobs_are_backed_up_and_the_restore_verifies_them(
+        tmp_path: Path, with_evidence) -> None:
+    _q, db, store = with_evidence
+    manifest = backup.backup(db, tmp_path / "bk", store.root)
+    data = json.loads(manifest.read_text())
+    assert data["artifact_blobs"] == 2 and data["blobs"] == 5
+    assert data["artifact_blobs_copied"] == 5
+    copied = [p for p in (manifest.parent / "artifacts").rglob("*") if p.is_file()]
+    assert len(copied) == 5
+    report = backup.restore_check(manifest, tmp_path / "restored")
+    assert report.ok, report.problems
+
+
+@pytest.mark.parametrize("kind", ["snapshot", "skill"])
+def test_a_missing_snapshot_or_skill_blob_fails_the_backup_naming_it(
+        tmp_path: Path, with_evidence, kind: str) -> None:
+    q, db, store = with_evidence
+    sha = _blob_of(kind, q)
+    victim = store.blob_path(sha)
+    os.chmod(victim, 0o600)
+    victim.unlink()
+    with pytest.raises(backup.BackupError, match=sha[:12]):
+        backup.backup(db, tmp_path / "bk", store.root)
+    assert not list((tmp_path / "bk").glob("*.db")), "no half backup left behind"
+
+
+@pytest.mark.safety
+@pytest.mark.parametrize("kind", ["snapshot", "skill"])
+def test_an_altered_snapshot_or_skill_blob_fails_the_restore(
+        tmp_path: Path, with_evidence, kind: str) -> None:
+    q, db, store = with_evidence
+    sha = _blob_of(kind, q)
+    manifest = backup.backup(db, tmp_path / "bk", store.root)
+    assert backup.restore_check(manifest, tmp_path / "before").ok
+    blob = manifest.parent / "artifacts" / sha[:2] / sha
+    assert blob.exists(), "the backup holds the blob the restore will verify"
+    os.chmod(blob, 0o600)
+    blob.write_bytes(b"replaced")
+    report = backup.restore_check(manifest, tmp_path / "restored")
+    assert not report.ok and any(sha[:12] in p for p in report.problems)
+
+
+def test_a_backup_of_a_version_5_database_still_works(tmp_path: Path) -> None:
+    """Before evidence snapshots and skill versions existed, only artifacts are referenced."""
+    shipped = tmp_path / "migrations_to_5"
+    shipped.mkdir()
+    for found in discover():
+        if found.version <= 5:
+            shutil.copy(found.path, shipped / found.path.name)
+    db = tmp_path / "old" / "lab.db"
+    db.parent.mkdir()
+    conn = sqlite3.connect(db, isolation_level=None)
+    conn.execute("PRAGMA journal_mode = WAL")
+    assert migrate(conn, shipped) == 5
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "a.txt").write_bytes(b"alpha")
+    ArtifactStore(db.parent / "artifacts", conn).ingest_workspace(Workspace(ws), "t1", 1)
+    conn.close()
+    manifest = backup.backup(db, tmp_path / "bk", db.parent / "artifacts")
+    data = json.loads(manifest.read_text())
+    assert data["schema_version"] == 5 and data["artifact_blobs"] == 1 and data["blobs"] == 1
+    report = backup.restore_check(manifest, tmp_path / "restored")
+    assert report.ok, report.problems
 
 
 # ------------------------------------------------------------------ CLI

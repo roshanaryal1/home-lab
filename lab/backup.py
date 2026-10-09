@@ -10,16 +10,17 @@ does not just copy: into a fresh directory it recovers the snapshot,
 then checks the snapshot against the manifest written at backup time
 (file hash, schema version, audit chain head, artifact count), runs
 SQLite's integrity check, re-walks the audit hash chain, and re-hashes
-every artifact blob. Any of those failing is a failed restore.
+every blob the database refers to: task artifacts, evidence snapshots and
+skill version files. Any of those failing is a failed restore.
 
-Artifacts are content-addressed and immutable, so a backup copies only
+Blobs are content-addressed and immutable, so a backup copies only
 blobs the destination does not already hold: repeated backups to one
 directory are incremental.
 
 ``rotate`` keeps a scheduled backup folder from filling the disk. It
 deletes only what it can prove is its own: a manifest with the exact
 name ``backup`` writes, that parses and names its own database file, that
-database, and artifact blobs that only the deleted backups referenced.
+database, and blobs that only the deleted backups referenced.
 Anything else in the folder is left alone, and no symlink is followed,
 not even one that has a backup's name.
 """
@@ -40,7 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from lab import audit
-from lab.artifacts import ArtifactStore
+from lab.artifacts import ArtifactError, ArtifactStore
 from lab.migrations import latest_version, online_copy
 
 MANIFEST_VERSION = 1
@@ -86,6 +87,29 @@ def _check_database_path(db_path: Path) -> None:
         raise BackupError(f"{db_path} is not a regular file")
 
 
+def _referenced_blobs(conn: sqlite3.Connection, version: int) -> list[str]:
+    """Every blob digest the database refers to, sorted and without repeats.
+
+    Task artifacts (schema 4 and later), evidence snapshots (7 and later)
+    and skill version files (11 and later), whose ``manifest`` column maps
+    each path to ``[sha256, mode]``. A table is read only at a version
+    that has it, so an older database is handled the same way.
+    """
+    selects = []
+    if version >= 4:
+        selects.append("SELECT sha256 AS digest FROM artifacts")
+    if version >= 7:
+        selects.append("SELECT sha256 AS digest FROM evidence_snapshots")
+    if version >= 11:
+        selects.append("SELECT json_extract(m.value, '$[0]') AS digest "
+                       "FROM skill_versions, json_each(skill_versions.manifest) AS m")
+    if not selects:
+        return []
+    rows = conn.execute(f"SELECT digest FROM ({' UNION '.join(selects)}) "
+                        "WHERE digest IS NOT NULL ORDER BY digest").fetchall()
+    return [str(row[0]) for row in rows]
+
+
 def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
            now: datetime | None = None) -> Path:
     """Snapshot ``db_path`` and its artifacts into ``dest``; return the manifest path."""
@@ -119,6 +143,7 @@ def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
         chain = audit.verify_chain(check)
         artifact_rows = check.execute(
             "SELECT DISTINCT sha256 FROM artifacts").fetchall() if version >= 4 else []
+        blob_digests = _referenced_blobs(check, version)
     except BaseException:
         tmp_db.unlink(missing_ok=True)
         raise
@@ -126,10 +151,10 @@ def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
         check.close()
 
     copied = 0
-    if artifacts_dir is not None and artifact_rows:
+    if artifacts_dir is not None and blob_digests:
         store_src = ArtifactStore(artifacts_dir, sqlite3.connect(":memory:"))
         store_dst = ArtifactStore(dest / "artifacts", sqlite3.connect(":memory:"))
-        for (sha,) in artifact_rows:
+        for sha in blob_digests:
             src = store_src.blob_path(sha)
             dst = store_dst.blob_path(sha)
             if dst.exists():
@@ -161,6 +186,7 @@ def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
         "audit_chain_ok": chain.ok,
         "artifact_blobs": len(artifact_rows),
         "artifact_blobs_copied": copied,
+        "blobs": len(blob_digests),
     }
     manifest_path = dest / f"{name}.manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -187,6 +213,22 @@ class RestoreReport:
 # Every field restore_check reads; a manifest without one is unreadable, not a crash.
 _MANIFEST_FIELDS = ("database", "database_sha256", "database_bytes", "schema_version",
                     "audit_head", "audit_events")
+
+
+def _check_restored_blob(store: ArtifactStore, sha: str, report: RestoreReport) -> None:
+    """Re-hash one blob the restored database refers to. Missing or altered is a failure."""
+    try:
+        path = store.blob_path(sha)
+    except ArtifactError:
+        report.fail(f"blob {sha[:12]} is not a sha256 digest")
+        return
+    try:
+        actual = _sha256_file(path)
+    except FileNotFoundError:
+        report.fail(f"blob {sha[:12]} is missing from the restored store")
+        return
+    if actual != sha:
+        report.fail(f"blob {sha[:12]} does not match its name")
 
 
 def restore_check(manifest_path: Path, into: Path) -> RestoreReport:
@@ -252,8 +294,15 @@ def restore_check(manifest_path: Path, into: Path) -> RestoreReport:
             store = ArtifactStore(store_dst, conn)
             report.artifacts_checked = int(conn.execute(
                 "SELECT COUNT(DISTINCT sha256) FROM artifacts").fetchone()[0])
+            flagged: set[str] = set()
             for problem in store.verify_all():
                 report.fail(f"artifact {problem.sha256[:12]} ({problem.path}): {problem.problem}")
+                flagged.add(problem.sha256)
+            # Evidence snapshots and skill files too. A digest already reported above is not
+            # reported twice.
+            for sha in _referenced_blobs(conn, version):
+                if sha not in flagged:
+                    _check_restored_blob(store, sha, report)
     except sqlite3.DatabaseError as exc:
         # Damaged enough that SQLite cannot run its own checks: a failed
         # restore to report, not an exception to crash the drill with.
@@ -340,14 +389,17 @@ def _own_backups(dir_fd: int, report: RotateReport) -> list[_Own]:
 
 
 def _blobs_of(dest: Path, item: _Own) -> set[str]:
-    """The artifact digests a backup's database refers to. Raises on any doubt."""
+    """The blob digests a backup's database refers to. Raises on any doubt.
+
+    This must name the same blobs ``backup`` copies. Otherwise rotation could
+    delete a blob that a kept backup still needs.
+    """
     if item.database is None:
         return set()
     conn = sqlite3.connect(f"file:{dest / item.database}?mode=ro", uri=True)
     try:
-        if int(conn.execute("PRAGMA user_version").fetchone()[0]) < 4:
-            return set()
-        return {str(sha) for (sha,) in conn.execute("SELECT DISTINCT sha256 FROM artifacts")}
+        version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        return set(_referenced_blobs(conn, version))
     finally:
         conn.close()
 
