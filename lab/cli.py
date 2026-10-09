@@ -35,6 +35,7 @@ Usage:
     python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
     python3 -m lab.cli doctor
+    python3 -m lab.cli security-audit [--details]
     python3 -m lab.cli backup [--to DIR] [--artifacts DIR] [--keep N] [--alert-config FILE]
     python3 -m lab.cli heartbeat --url-file FILE
     python3 -m lab.cli restore-check MANIFEST --into DIR
@@ -87,6 +88,7 @@ from lab import (
     metrics,
     publish,
     rubric,
+    security_audit,
     selftest,
     service,
     skills,
@@ -97,6 +99,7 @@ from lab import memory as memory_mod
 from lab import migrations as migrations_mod
 from lab import model as model_mod
 from lab import operator as operator_keys
+from lab import schedule as schedule_mod
 from lab.artifacts import ArtifactStore
 from lab.connectors import ConnectorError, load_connectors
 from lab.egress import EgressGateway
@@ -723,6 +726,11 @@ def build_parser() -> argparse.ArgumentParser:
     inj.add_argument("--weights-mb", type=int, default=1)
     inj.add_argument("--max-steps", type=int, default=6,
                      help="model turns per case, at least 1")
+    sec = sub.add_parser("security-audit", help="read-only check of the lab's boundary: file "
+                         "owners and modes, the operator key, the loopback model URL. Exit 1 if "
+                         "any check fails")
+    sec.add_argument("--details", action="store_true",
+                     help="under each FAIL, print the offending paths (never printed without it)")
     mg = sub.add_parser("migrate", help="--check: run this build's migrations on a private "
                         "copy of the database and check it; the database is only read")
     mg.add_argument("--check", action="store_true", required=True,
@@ -758,6 +766,31 @@ def build_parser() -> argparse.ArgumentParser:
     wd.add_argument("--max-age", type=float, default=service.DEFAULT_MAX_AGE,
                     help="seconds without a heartbeat before the supervisor counts as hung")
     wd.add_argument("--dry-run", action="store_true")
+
+    sch = sub.add_parser("schedule", help="owner-signed schedules: a schedule may start work, "
+                         "never approve it (#361)")
+    sch_sub = sch.add_subparsers(dest="schedule_command", required=True)
+    s_add = sch_sub.add_parser("add", help="add a schedule signed with the operator key")
+    s_add.add_argument("name")
+    when = s_add.add_mutually_exclusive_group(required=True)
+    when.add_argument("--daily", metavar="HH:MM")
+    when.add_argument("--weekly", nargs=2, metavar=("DAY", "HH:MM"))
+    when.add_argument("--every-minutes", type=int, metavar="N")
+    s_add.add_argument("--tz", default="UTC", help="IANA time zone, such as Pacific/Auckland")
+    s_add.add_argument("--kind", required=True,
+                       help="the task kind the schedule starts, such as git.read or web.summary")
+    s_add.add_argument("--title", required=True)
+    s_add.add_argument("--payload", default="{}", help="the task's payload as JSON")
+    s_add.add_argument("--tier", default="autonomous", choices=list(schedule_mod.TIERS),
+                       help="the task's capability tier; approve still waits for a signature")
+    s_add.add_argument("--weight", default="light", choices=list(schedule_mod.WEIGHTS))
+    s_add.add_argument("--key", default=None,
+                       help="operator private key that signs the schedule (or LAB_OPERATOR_KEY)")
+    s_add.add_argument("--by", required=True, help="an audit label")
+    sch_sub.add_parser("list", help="the live schedules and when each is next due")
+    s_rm = sch_sub.add_parser("remove", help="take a schedule out of service; needs no key")
+    s_rm.add_argument("name")
+    s_rm.add_argument("--by", required=True, help="an audit label")
 
     ctl = sub.add_parser("control", help="pause, resume, drain or stop the whole lab")
     ctl.add_argument("action", choices=["show", "pause", "resume", "drain", "stop"])
@@ -1154,6 +1187,18 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     for check in checks:
         print(_escape(check.line()))
     return 0 if all(check.ok for check in checks) else 1
+
+
+def cmd_security_audit(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens. Exit 1 when any check fails. A path
+    is printed only with --details, under the FAIL line it belongs to."""
+    findings = security_audit.run(os.environ)
+    for finding in findings:
+        print(f"{finding.name}: {finding.status}")
+        if args.details and finding.status == "FAIL":
+            for path in finding.paths:
+                print(_escape(f"  {path}"))
+    return 1 if any(finding.status == "FAIL" for finding in findings) else 0
 
 
 def cmd_migrate(args: argparse.Namespace) -> int:
@@ -1576,6 +1621,62 @@ def cmd_publish(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace
     return 0 if result.outcome == "confirmed" else 2
 
 
+def cmd_schedule(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    """Add, list or remove owner-signed schedules (#361). Adding needs the operator's
+    private key: a schedule nobody signed never fires where a supervisor has the public key."""
+    conn = queue._conn
+    if args.schedule_command == "list":
+        rows = schedule_mod.live(conn)
+        if not rows:
+            print("no schedules")
+        for row in rows:
+            signed = "signed" if row["signature"] else "UNSIGNED"
+            due = ("never (refused)" if row["next_due_at"] == schedule_mod.PARKED
+                   else row["next_due_at"])
+            print(_escape(f"{row['name']}  {row['rule']} ({row['tz']})  {row['agent_kind']}  "
+                          f"tier {row['capability_tier']}  next {due}  "
+                          f"last {row['last_fired_at'] or 'never'}  {signed}  {row['title']}"))
+        return 0
+    if args.schedule_command == "remove":
+        try:
+            schedule_mod.remove(conn, args.name, by=args.by)
+        except schedule_mod.ScheduleError as exc:
+            print(f"schedule: {_escape(str(exc))}", file=sys.stderr)
+            return 1
+        print(_escape(f"removed {args.name}"))
+        return 0
+    key_path = args.key or os.environ.get("LAB_OPERATOR_KEY")
+    if not key_path:
+        print("schedule: pass --key (or set LAB_OPERATOR_KEY): a schedule must be signed by "
+              "the operator", file=sys.stderr)
+        return 1
+    try:
+        signer = operator_keys.load_private(Path(key_path))
+        payload = json.loads(args.payload)
+        if not isinstance(payload, dict):
+            raise schedule_mod.ScheduleError("--payload must be a JSON object")
+        if args.daily:
+            rule = f"daily {args.daily}"
+        elif args.weekly:
+            rule = f"weekly {args.weekly[0]} {args.weekly[1]}"
+        else:
+            rule = f"every {args.every_minutes} minutes"
+        schedule_mod.add(conn, args.name, rule, kind=args.kind, title=args.title,
+                         payload=payload, tz=args.tz,
+                         weight=args.weight, tier=args.tier, by=args.by, signer=signer)
+    except (schedule_mod.ScheduleError, operator_keys.OperatorKeyError,
+            json.JSONDecodeError) as exc:
+        print(f"schedule: {_escape(str(exc))}", file=sys.stderr)
+        return 1
+    added = next((r for r in schedule_mod.live(conn) if r["name"] == args.name), None)
+    if added is None:
+        print(_escape(f"added {args.name}"))
+        return 0
+    print(_escape(f"added {args.name}: {added['rule']} ({added['tz']}), "
+                  f"next due {added['next_due_at']}"))
+    return 0
+
+
 def cmd_memory(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     memory = Memory(queue._conn)
     ledger = Ledger(queue._conn, ArtifactStore(args.store or args.db.parent / "artifacts",
@@ -1980,6 +2081,7 @@ COMMANDS = {
     "skillstore": cmd_skillstore,
     "publish": cmd_publish,
     "memory": cmd_memory,
+    "schedule": cmd_schedule,
     "route": cmd_route,
     "ledger": cmd_ledger,
     "artifacts": cmd_artifacts,
@@ -2023,6 +2125,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         return cmd_doctor(args)
     if args.command == "injection-suite":
         return cmd_injection_suite(args)
+    if args.command == "security-audit":
+        return cmd_security_audit(args)
     if args.command == "migrate":
         return cmd_migrate(args)
     if args.command == "keepawake":
