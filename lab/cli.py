@@ -718,11 +718,6 @@ def build_parser() -> argparse.ArgumentParser:
                         "with the values filled in; read-only, runs no sudo")
     up.add_argument("--plan", metavar="COMMIT", required=True,
                     help="the full 40 character commit to update to")
-    up.add_argument("--deploy", type=Path, default=update_plan.DEFAULT_DEPLOY,
-                    help="the deployed checkout (default: /opt/homelab)")
-    up.add_argument("--launch-daemons", type=Path, default=update_plan.DEFAULT_LAUNCH_DAEMONS,
-                    help="where the service definitions are installed "
-                    "(default: /Library/LaunchDaemons)")
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
@@ -1134,7 +1129,11 @@ def cmd_update(args: argparse.Namespace) -> int:
         print("update: COMMIT must be a full 40 character commit hash", file=sys.stderr)
         return 1
     try:
-        old, present, writers = update_plan.gather(commit, args.deploy, args.launch_daemons)
+        # The runbook's commands name /opt/homelab and /Library/LaunchDaemons, so the plan
+        # reads those same places and no other, or it could describe one checkout and act
+        # on another.
+        old, present, writers = update_plan.gather(commit, update_plan.DEFAULT_DEPLOY,
+                                                   update_plan.DEFAULT_LAUNCH_DAEMONS)
         text = update_plan.render(commit, old, present, writers)
     except update_plan.UpdateError as exc:
         print(f"update: {_escape(exc)}", file=sys.stderr)

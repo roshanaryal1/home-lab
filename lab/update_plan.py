@@ -94,6 +94,22 @@ _LAYOUT: tuple[tuple[str, str], ...] = (
 )
 _CHUNK_COUNT = sum(1 for kind, _ in _LAYOUT if kind == _CHUNK)
 
+# What each command chunk must contain, in order, so a block moved to another step
+# of the runbook is refused rather than printed under the wrong heading.
+_CHUNK_MARKS: tuple[tuple[str, ...], ...] = (
+    (_COMMIT_LINE, _OLD_LINE),
+    ("backup --keep 14",),
+    (_WRITERS_PREFIX, "launchctl bootout", "STILL LOADED"),
+    ('chown -R "$USER"', "checkout", "chown -R root:wheel"),
+    ("migrate --check",),
+    ("launchctl bootstrap", "NOT LOADED", "rev-parse HEAD"),
+    ("keepawake", "launchctl bootout"),
+    ("keepawake", "STILL LOADED"),
+    ('N="PASTE_N"',),
+    ("keepawake", "launchctl bootstrap"),
+)
+assert len(_CHUNK_MARKS) == _CHUNK_COUNT
+
 
 class UpdateError(Exception):
     """Something the plan cannot be made from. The message is one line."""
@@ -134,11 +150,17 @@ def _owner(path: Path) -> int | None:
         return None
 
 
+def _git_env() -> dict[str, str]:
+    """This environment without GIT_ variables. GIT_DIR or GIT_WORK_TREE in the
+    operator's shell would point git at another repository than ``deploy``."""
+    return {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+
+
 def _git(run: Runner, deploy: Path, *args: str) -> subprocess.CompletedProcess[str]:
     trust = f"safe.directory={os.path.realpath(deploy)}"
     try:
         return run(["git", "-C", str(deploy), "-c", trust, *args], capture_output=True,
-                   text=True, check=False, timeout=GIT_TIMEOUT_SECONDS)
+                   text=True, check=False, timeout=GIT_TIMEOUT_SECONDS, env=_git_env())
     except (OSError, subprocess.SubprocessError) as exc:
         raise UpdateError(f"cannot run git in {deploy}") from exc
 
@@ -150,6 +172,11 @@ def plan(commit: str, old: str, present: bool, writers: list[str]) -> list[PlanL
     if len(chunks) != _CHUNK_COUNT:
         raise UpdateError(f"the runbook section has {len(chunks)} command blocks, the plan "
                           f"expects {_CHUNK_COUNT}. Update lab/update_plan.py to match.")
+    for number, (chunk, marks) in enumerate(zip(chunks, _CHUNK_MARKS, strict=True), 1):
+        text = "\n".join(chunk)
+        if not all(mark in text for mark in marks):
+            raise UpdateError(f"command block {number} of the runbook section is not the step "
+                              "the plan expects there. Update lab/update_plan.py to match.")
     lines = [
         PlanLine("Update plan for this install. It runs no sudo and writes no file."),
         PlanLine(f"Deployed now: {old}"),
@@ -189,7 +216,7 @@ def _fill(line: str, commit: str, old: str, writers: list[str]) -> str:
 def _read_section() -> list[str]:
     try:
         text = RUNBOOK.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise UpdateError(f"cannot read the runbook at {RUNBOOK}") from exc
     lines = text.splitlines()
     if SECTION_HEADING not in lines:

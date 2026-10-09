@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -49,9 +50,19 @@ def launch_daemons(tmp_path: Path) -> Path:
     return folder
 
 
+@pytest.fixture(autouse=True)
+def _restore_paths() -> Iterator[None]:
+    paths = (update_plan.DEFAULT_DEPLOY, update_plan.DEFAULT_LAUNCH_DAEMONS)
+    yield
+    update_plan.DEFAULT_DEPLOY, update_plan.DEFAULT_LAUNCH_DAEMONS = paths
+
+
 def _update(deploy: Path, launch_daemons: Path, commit: str) -> list[str]:
-    return ["update", "--plan", commit, "--deploy", str(deploy),
-            "--launch-daemons", str(launch_daemons)]
+    """The command line, with the two places the command reads pointed at test folders.
+    The command has no option for them: the runbook's commands name the real ones."""
+    update_plan.DEFAULT_DEPLOY = deploy
+    update_plan.DEFAULT_LAUNCH_DAEMONS = launch_daemons
+    return ["update", "--plan", commit]
 
 
 def test_the_plan_fills_in_both_hashes_and_the_installed_writers(
@@ -183,6 +194,46 @@ def test_git_reads_a_root_style_checkout_another_account_owns(
     monkeypatch.setattr(update_plan, "_owner", lambda path: 0)
     assert update_plan.gather(head, deploy, launch_daemons) == (head, True, ["supervisor",
                                                                             "tick"])
+
+
+def test_git_ignores_a_git_dir_in_the_callers_environment(
+        deploy: Path, launch_daemons: Path, tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    other = tmp_path / "other"
+    other.mkdir()
+    _git(other, "init", "-q")
+    _git(other, "-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-q",
+         "--allow-empty", "-m", "other")
+    head = _git(deploy, "rev-parse", "HEAD")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(other))
+    assert update_plan.gather(head, deploy, launch_daemons)[0] == head
+
+
+def test_a_runbook_block_moved_to_another_step_is_refused(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    section = update_plan._read_section()
+    chunks = update_plan._command_chunks(section)
+    swapped = [chunks[1], chunks[0], *chunks[2:]]
+    monkeypatch.setattr(update_plan, "_command_chunks", lambda lines: swapped)
+    with pytest.raises(update_plan.UpdateError, match="command block 1"):
+        update_plan.render(COMMIT, OLD, True, ["supervisor"])
+
+
+def test_a_runbook_that_is_not_utf8_is_one_line(tmp_path: Path,
+                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    bad = tmp_path / "runbook.md"
+    bad.write_bytes(b"\xff\xfe not text")
+    monkeypatch.setattr(update_plan, "RUNBOOK", bad)
+    with pytest.raises(update_plan.UpdateError, match="cannot read the runbook"):
+        update_plan.render(COMMIT, OLD, True, ["supervisor"])
+
+
+def test_the_command_has_no_option_to_read_another_checkout(
+        capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        main(["update", "--plan", COMMIT, "--deploy", "/tmp/elsewhere"])
+    assert "unrecognized arguments" in capsys.readouterr().err
 
 
 def test_a_git_call_that_times_out_is_an_update_error(tmp_path: Path,
