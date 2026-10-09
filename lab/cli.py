@@ -1104,8 +1104,8 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     try:
         result = migrations_mod.check_on_copy(args.db)
     except (migrations_mod.MigrationError, sqlite3.Error, OSError) as exc:
-        print(f"migrate --check failed: {_escape(str(exc))}. {db} was not changed.",
-              file=sys.stderr)
+        unchanged = f" {db} was not changed." if args.db.exists() else ""
+        print(f"migrate --check failed: {_escape(str(exc))}.{unchanged}", file=sys.stderr)
         return 1
     if result.start == result.end:
         print(f"migrate --check: {db} is at schema version {result.end}, the latest this "
