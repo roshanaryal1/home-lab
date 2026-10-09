@@ -509,11 +509,11 @@ above).
 `lab tick` open the database, and with the new code in place either would migrate
 it before the check further down can try the migrations on a copy: `lab tick`
 starts every five minutes, and launchd restarts the supervisor with whatever code
-is in place whenever it exits. So stop both before the checkout. If you installed
-the chat daemon (`com.homelab.chat`), it opens the database too: stop it the same
-way, and start it again where the supervisor starts. The self-test (03:17) and the
-Sunday eval (04:23) also open it, so do not update while they may be running.
-Keep-awake, the status check, the heartbeat and the watchdog only read it.
+is in place whenever it exits. The self-test (03:17), the Sunday eval (04:23) and
+the chat daemon open it too. So stop every one of them that is installed before
+the checkout, and start them again only after the check. `WRITERS` names them, and
+the loops below skip a job whose definition is not installed. Keep-awake, the
+status check, the heartbeat and the watchdog only read the database.
 
 Stopping the supervisor interrupts the work it is running (startup recovery
 requeues idempotent tasks and holds the rest for review), so look at `status`
@@ -522,8 +522,12 @@ stays quiet while the supervisor is stopped.
 
 ```sh
 sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db status | head -3
-for s in supervisor tick; do sudo launchctl bootout system/com.homelab.$s; done
+WRITERS=(supervisor tick selftest weekly-eval chat)
+for s in "${WRITERS[@]}"; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootout system/com.homelab.$s; fi; done
 ```
+
+`WRITERS` is used again below, so keep this Terminal window. In a new window, set
+it again with the same line.
 
 The deployment is owned by root so the lab account cannot change what it runs.
 As in step 3, ownership passes to you for the update and returns to root after,
@@ -558,8 +562,8 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
   which is correct and is not to be silenced with `safe.directory`.
 
 **Try the migrations on a copy before anything starts (#356).** The new code is
-in place, but with the supervisor and `lab tick` stopped nothing has opened the
-database with it yet. Starting them below would migrate it, so check first:
+in place, but with the jobs in `WRITERS` stopped nothing has opened the database
+with it yet. Starting them below would migrate it, so check first:
 
 ```sh
 sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db migrate --check
@@ -579,11 +583,10 @@ copies of the database.
 - A `.lab.db.check-` folder left in `/var/homelab` by an interrupted check holds
   only a copy and can be deleted.
 
-Then start the supervisor and `lab tick` on the new code, restart keep-awake, and
-check:
+Then start the jobs in `WRITERS` on the new code, restart keep-awake, and check:
 
 ```sh
-for s in supervisor tick; do sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.$s.plist; done
+for s in "${WRITERS[@]}"; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.$s.plist; fi; done
 sudo launchctl kickstart -k system/com.homelab.keepawake
 sleep 10
 sudo git -C /opt/homelab rev-parse HEAD
@@ -608,15 +611,14 @@ never opened by the new code. Run the ownership block above again with `COMMIT`
 set to the `OLD` hash you wrote down, then start the services as in the block
 above. They run the old code on the database as it was.
 
-**Roll back after the new code ran.** Once the supervisor or `lab tick` has run on
-the new code, a database the check said would go from version `N` to a newer one
+**Roll back after the new code ran.** Once any job in `WRITERS` has run on the new
+code, a database the check said would go from version `N` to a newer one
 has been upgraded, and the old code refuses it. Before it upgraded, the new code
 copied it beside itself as `/var/homelab/lab.db.pre-vN.bak`. Put that copy back,
 then the old code:
 
 1. Stop everything that opens the database, keep-awake included:
-   `for s in supervisor tick keepawake; do sudo launchctl bootout system/com.homelab.$s; done`
-   (and the chat daemon, if you installed it).
+   `for s in "${WRITERS[@]}" keepawake; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootout system/com.homelab.$s; fi; done`
 2. Move the upgraded database aside and put the copy in its place. Set `N` first.
    Nothing is deleted: the upgraded files go into a dated folder beside them.
 
@@ -629,7 +631,7 @@ then the old code:
    The last line must list `lab.db` owned by `lab` with `-rw-------`.
 3. Run the ownership block above with `COMMIT` set to `OLD`.
 4. Start the services, keep-awake included:
-   `for s in supervisor tick keepawake; do sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.$s.plist; done`,
+   `for s in "${WRITERS[@]}" keepawake; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.$s.plist; fi; done`,
    then run the checks above. `rev-parse` must print `OLD`.
 
 Whatever the new code wrote after the upgrade is not in the restored database. It
