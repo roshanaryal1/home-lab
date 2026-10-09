@@ -24,8 +24,12 @@ Why: every check below tests the deployed build, not the repository.
 cd "$HOME/home-lab" && git checkout main && git pull --ff-only origin main
 ```
 
-Then deploy as in `ops/mac-mini-setup.md` section 8 and reload the daemons
-(section 16). `lab.cli status` must say `IDLE` before you go on.
+Then deploy as in "Updating the deployed code" in
+`ops/runbook-lab-account-and-daemons.md`. It takes a backup before anything changes,
+keeps the test tools the nightly self-test needs (`uv sync --locked --extra dev`, #270),
+and reloads the two daemons that stay running. `lab.cli status` must say `IDLE` before you
+go on. Then run `lab.cli --db /var/homelab/lab.db doctor` as `lab` with the service's
+`LAB_` values: every line must say `ok` (#347).
 
 ## 1. One sitting with the session script
 
@@ -91,6 +95,13 @@ keyboard so no secret travels through the repository.
   the backup once under launchd and check it passes: runbook, "Moving the backup's
   Full Disk Access to its launcher". That section also turns Terminal's own Full
   Disk Access off again; it was still on on 2026-10-08.
+- **Log rotation for the scheduled jobs (#349).** Install
+  `ops/newsyslog/homelab.conf` and dry-run it, as the runbook's "Log rotation for the
+  launchd logs" says. Stop if the dry run does not list the files.
+- **The weekly eval job (#321).** Install `com.homelab.weekly-eval`, fill its four
+  `PASTE_` values (the served model's name, revision, tokenizer revision and weight size)
+  and check them with `plutil -p`, as "Updating the deployed code" says. It runs on
+  Sundays at 04:23. P3 needs six of its records, at least six days apart.
 - **MCP servers (#256), if you want any.** For each server, run
   `lab mcp snapshot <server> --allow <tools> --key <operator key> --by <you>`
   and add the signed entry to `/etc/homelab/mcp.json`. Nothing runs from an
@@ -161,7 +172,10 @@ model server or network).
 | #180 | Per-task memory and CPU ceilings | As `lab`, `uv run python -m lab.cli measure-ceilings`. Done 2026-10-07 on the Mac mini (Apple M6, 32 GB, read with `system_profiler`; the report records only Darwin arm64): peaks 36.3 MB and 0.054 s, and the owner set 256 MB and 30 s (setup section 22), not the tool's 2x suggestion of 73 MB and 1 s. Run it again when a handler does heavy work, and change the limits only by the owner's decision. |
 | #84 | Typed decision model in shadow (H1) | Done 2026-10-07 on the Mac mini, and H1 is not supported: candidate accuracy 0.100 against the rubric's 0.833 on the 30 final cases, with 5 false promotions (`docs/PREREGISTRATION.md`, Results, "H1: not supported"; record `evals/h1_review/h1-run.json`, PR #300; result PR #301). #84 is closed. |
 | #302 | H1b: the H1 candidate given the five route definitions | Done 2026-10-08 on the Mac mini, exploratory and outside the registered results: accuracy 0.433, coverage 1.00, 8 false promotions. H1's verdict is unchanged (`docs/PREREGISTRATION-AMENDMENT-2-REGISTRATION.md`, "H1b, exploratory"; record `evals/h1_review/h1b-run.json`, PR #304). #302 is closed. |
-| #179 | Constrained decoding for routing labels (H1c) | Not run. Checked 2026-10-08: the server the candidate runs on, `mlx_lm.server` 0.31.3, ignores `response_format`, so H1c would only repeat H1b ([#179 comment](https://github.com/roshanaryal1/home-lab/issues/179#issuecomment-6042730490); the docs note is open PR #308). Waits for the owner to choose a server that enforces a schema. |
+| #179 | Constrained decoding for routing labels (H1c) | Not run yet. The served `mlx_lm.server` 0.31.3 ignores `response_format` (checked 2026-10-08). On 2026-10-09 the owner chose option 2, our own constrained decoding on the same MLX weights, built in PR #320. The run follows `docs/H1C-RUN-PLAN.md` and is reported beside H1, never instead of it. |
+| #321 | P3: six weekly eval records | The weekly eval job above. Each Sunday run writes a sealed record to `/var/homelab/evals/runs`. A run that cannot get the model slot for 600 seconds stops with nothing recorded; run it again by hand. |
+| #321 | P3: memory budget against measured footprint | Measure the server's peak footprint at 8,192, 16,384 and 37,000 tokens of context, write the readings as a record, and compare them with `lab.cli memory-budget --measurements <record>`. |
+| #321 | P3: four A/B comparisons | `docs/P3-AB-DESIGN-DRAFT.md` (draft). Nothing runs until the owner approves the design and sets the margins it leaves open. |
 | H1 to H4 | Pre-registered model runs | Setup sections 12 to 14 and 21. |
 
 ## 5. A fresh install on another Mac (#188)
