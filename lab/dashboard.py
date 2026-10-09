@@ -12,6 +12,8 @@ forms, no script and no state of its own.
   from a web page in the operator's own browser.
 * The database is opened read-only per request; nothing is written.
 * Every stored string is HTML-escaped before it reaches the page.
+* ``/metrics`` serves the same numbers in the Prometheus text format. It holds
+  fixed names, fixed labels and counts only, never a task id or title.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from lab import control, metrics
 DEFAULT_PORT = 8765
 LOOPBACK_NAMES = {"localhost"}
 CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+PROMETHEUS_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
 
 class DashboardError(ValueError):
@@ -98,6 +101,11 @@ def render_json(db: Path) -> str:
     return json.dumps({**m.as_dict(), "control_mode": state.mode}, sort_keys=True)
 
 
+def render_metrics(db: Path) -> str:
+    m, _ = _read(db)
+    return metrics.render_prometheus(m)
+
+
 def _host_allowed(header: str | None) -> bool:
     if not header:
         return False
@@ -143,6 +151,8 @@ def make_server(db: Path, *, host: str = "127.0.0.1",
                     self._send(200, render_page(db), "text/html; charset=utf-8")
                 elif path == "/status.json":
                     self._send(200, render_json(db), "application/json")
+                elif path == "/metrics":
+                    self._send(200, render_metrics(db), PROMETHEUS_TYPE)
                 else:
                     self._send(404, "not found\n")
             except (sqlite3.DatabaseError, control.ControlError):

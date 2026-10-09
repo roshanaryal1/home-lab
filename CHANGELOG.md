@@ -9,6 +9,9 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- `GET /metrics` on the read-only status page: the queue, health, leases and
+  counters in Prometheus text format, on loopback only, with fixed names and no
+  task ids or titles ([#380](https://github.com/roshanaryal1/home-lab/issues/380))
 - `lab security-audit`: one read-only check of the lab's own boundary (file owners
   and modes, the operator key, the loopback model URL), with `--details` to list
   the offending paths ([#362](https://github.com/roshanaryal1/home-lab/issues/362)).
