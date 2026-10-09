@@ -181,6 +181,19 @@ def test_a_missing_database_is_refused_and_not_created(tmp_path: Path, out: Path
     assert not missing.exists() and list(out.iterdir()) == []
 
 
+
+def test_a_path_with_uri_delimiters_is_read_and_nothing_else_is_made(
+        lab_db: Path, tmp_path: Path, out: Path) -> None:
+    odd = tmp_path / "a?b#c%41" / "lab.db"
+    odd.parent.mkdir()
+    lab_db.rename(odd)
+    before = sorted(p.name for p in tmp_path.iterdir())
+    digest = hashlib.sha256(odd.read_bytes()).hexdigest()
+    report = _export(odd, out)
+    assert report.tasks == 3
+    assert sorted(p.name for p in tmp_path.iterdir()) == before, "no other file was made"
+    assert hashlib.sha256(odd.read_bytes()).hexdigest() == digest
+
 # ------------------------------------------------------------------ permissions
 
 

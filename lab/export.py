@@ -84,7 +84,9 @@ def _read(db: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[di
     if not db.exists():
         raise ExportError(f"no database at {db}")
     try:
-        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        # as_uri() percent-encodes the path. A raw ? or # would end the file name
+        # early, and mode=ro would be lost with it.
+        conn = sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro", uri=True)
     except sqlite3.Error as exc:
         raise ExportError(f"cannot open {db}: {exc}") from exc
     conn.row_factory = sqlite3.Row
