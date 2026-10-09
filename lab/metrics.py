@@ -66,6 +66,10 @@ COUNTERS: dict[str, tuple[str, ...]] = {
     "tasks_tainted": ("task_tainted",),
 }
 
+# The states a task's outcome is counted in. A count comes from the state
+# changes in the event log, so a failure that is retried stays counted.
+OUTCOMES = ("succeeded", "failed", "cancelled")
+
 
 def _parse(stamp: str | None) -> datetime | None:
     if not stamp:
@@ -186,6 +190,7 @@ class Metrics:
     health: str
     reasons: list[str] = field(default_factory=list)
     control_mode: str = "running"
+    outcomes: dict[str, int] = field(default_factory=dict)
     stalled: list[Stalled] = field(default_factory=list)
     stalled_minutes: float = DEFAULT_STALLED_MINUTES
     model: None = None       # load time, peak memory, swap: added with the adapter (5.1)
@@ -238,6 +243,9 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
     retries = int(conn.execute(
         "SELECT COUNT(*) FROM events WHERE from_state = 'failed' AND to_state = 'queued' "
         "AND created_at >= ?", (since,)).fetchone()[0])
+    outcomes = {outcome: int(conn.execute(
+        "SELECT COUNT(*) FROM events WHERE to_state = ? AND from_state IS NOT to_state "
+        "AND created_at >= ?", (outcome, since)).fetchone()[0]) for outcome in OUTCOMES}
     recoveries = 0
     for (detail,) in conn.execute(
             "SELECT detail FROM events WHERE kind = 'recovery' AND created_at >= ?", (since,)):
@@ -292,7 +300,8 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
         last_event_age_seconds=silent_for, live_leases=live, counters=counters,
         retries=retries, recoveries=recoveries, unresolved_operations=unresolved,
         pending_approvals=pending, health=health, reasons=reasons,
-        control_mode=control_mode, stalled=stalled, stalled_minutes=stalled_minutes,
+        control_mode=control_mode, outcomes=outcomes, stalled=stalled,
+        stalled_minutes=stalled_minutes,
     )
 
 
@@ -343,3 +352,52 @@ def render(m: Metrics) -> str:
     lines.append(f"needs a person: {m.pending_approvals} approval(s), "
                  f"{m.unresolved_operations} unresolved operation(s)")
     return "\n".join(lines)
+
+
+TASK_STATES = ("queued", "leased", "running", "awaiting_approval", "interrupted",
+               "succeeded", "failed", "cancelled")
+HEALTH_STATES = ("idle", "ok", "attention", "unhealthy")
+
+
+def render_prometheus(m: Metrics) -> str:
+    """The numbers in the Prometheus text format, version 0.0.4.
+
+    Only metric names, fixed label values and numbers are written. No task
+    id, title, path or reason reaches the output. A task state this code does
+    not know is counted under ``state="other"`` and never printed.
+    """
+    out: list[str] = []
+
+    def family(name: str, kind: str, help_text: str, samples: list[str]) -> None:
+        out.append(f"# HELP {name} {help_text}")
+        out.append(f"# TYPE {name} {kind}")
+        out.extend(samples)
+
+    other = sum(n for state, n in m.states.items() if state not in TASK_STATES)
+    tasks = [(state, m.states.get(state, 0)) for state in TASK_STATES] + [("other", other)]
+    family("homelab_tasks", "gauge", "Tasks in each state.",
+           [f'homelab_tasks{{state="{state}"}} {n}' for state, n in tasks])
+    family("homelab_health", "gauge", "1 for the current health state, 0 for the others.",
+           [f'homelab_health{{state="{s}"}} {int(m.health == s)}' for s in HEALTH_STATES])
+    family("homelab_pending_approvals", "gauge", "Approvals waiting for a person.",
+           [f"homelab_pending_approvals {m.pending_approvals}"])
+    family("homelab_unresolved_operations", "gauge",
+           "Operations of unknown outcome that need reconciling.",
+           [f"homelab_unresolved_operations {m.unresolved_operations}"])
+    family("homelab_live_leases", "gauge", "Leases held by a live worker.",
+           [f"homelab_live_leases {m.live_leases}"])
+    age = m.last_success_age_seconds
+    family("homelab_last_success_age_seconds", "gauge",
+           "Seconds since a task last succeeded. No sample until one has.",
+           [] if age is None else [f"homelab_last_success_age_seconds {age:.3f}"])
+    family("homelab_task_outcomes_total", "counter",
+           "Tasks that reached each outcome, counted from the event log. A failure "
+           "that was retried stays counted.",
+           [f'homelab_task_outcomes_total{{outcome="{o}"}} {m.outcomes.get(o, 0)}'
+            for o in OUTCOMES])
+    counters = [*m.counters.items(), ("retries", m.retries), ("recovered_tasks", m.recoveries)]
+    for name, value in counters:
+        family(f"homelab_{name}_total", "counter",
+               f"{name.replace('_', ' ').capitalize()} over all time.",
+               [f"homelab_{name}_total {value}"])
+    return "\n".join(out) + "\n"
