@@ -13,7 +13,9 @@ What is reported:
   task succeeded, when the log last moved;
 * counters: policy denials, retries, lease losses, forced terminations,
   egress denials, rejected approvals, recoveries, worker errors;
-* attention items that need a person.
+* attention items that need a person, including stalled tasks: a task
+  whose lease keeps renewing but which has written no event for a while
+  (``stalled_tasks``, #376).
 
 Model load time, peak memory and swap are not here: they need the model
 adapter (5.1) and the Mac mini, and will be added as more event kinds
@@ -26,8 +28,13 @@ read the same way.
   the log has been silent past the stall threshold (nothing is picking
   work up);
 * ``attention``: nothing is broken but a person is owed something
-  (approvals waiting, an operation of unknown outcome);
+  (approvals waiting, an operation of unknown outcome, a stalled task);
 * ``idle`` / ``ok`` otherwise.
+
+A stalled task is ``attention``, not ``unhealthy``, on purpose. The
+dead-man heartbeat and the nightly self-test both treat ``unhealthy`` as
+"the lab is down". One hung task does not make the lab down, and a
+stalled task should not stop the heartbeat or fail the self-test.
 """
 
 from __future__ import annotations
@@ -39,7 +46,12 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from lab.untrusted import clean
+
 DEFAULT_STALL_SECONDS = 300.0
+# A leased or running task with a renewed lease that writes no event for
+# this long is reported as stalled.
+DEFAULT_STALLED_MINUTES = 30.0
 
 # Counter name -> the event kinds that count towards it. Each kind is
 # written by exactly one code path, so summing does not double count.
@@ -54,6 +66,10 @@ COUNTERS: dict[str, tuple[str, ...]] = {
     "tasks_tainted": ("task_tainted",),
 }
 
+# The states a task's outcome is counted in. A count comes from the state
+# changes in the event log, so a failure that is retried stays counted.
+OUTCOMES = ("succeeded", "failed", "cancelled")
+
 
 def _parse(stamp: str | None) -> datetime | None:
     if not stamp:
@@ -65,6 +81,93 @@ def _parse(stamp: str | None) -> datetime | None:
         except ValueError:
             continue
     return None
+
+
+@dataclass(frozen=True)
+class Stalled:
+    """A leased or running task that has written no event for a while (#376)."""
+
+    task_id: str
+    agent_kind: str | None
+    state: str
+    minutes_since_event: float
+
+
+def _taken_expiry(conn: sqlite3.Connection, task_id: str, lease_id: str) -> str | None:
+    """The ``expires_at`` written when lease ``lease_id`` was taken.
+
+    The ``leased`` event of the claim records it in its detail JSON. None
+    if that event cannot be found or read.
+    """
+    rows = conn.execute(
+        "SELECT detail FROM events WHERE task_id = ? AND kind = 'leased' ORDER BY id",
+        (task_id,)).fetchall()
+    for (detail,) in rows:
+        with contextlib.suppress(ValueError, TypeError):
+            data = json.loads(detail or "{}")
+            if isinstance(data, dict) and data.get("lease_id") == lease_id:
+                expires = data.get("expires_at")
+                return expires if isinstance(expires, str) else None
+    return None
+
+
+def stalled_tasks(conn: sqlite3.Connection, now: datetime, *,
+                  quiet_minutes: float = DEFAULT_STALLED_MINUTES) -> list[Stalled]:
+    """Tasks whose lease was renewed but which have written no event for a while.
+
+    Read-only. Every statement is a SELECT. Nothing is cancelled, killed or
+    requeued: the check flags a task for a person, and decides nothing.
+
+    A task is stalled when all of these hold.
+
+    * Its state is ``leased`` or ``running`` and it holds a live lease,
+      which means ``leases.released_at`` is NULL and ``expires_at`` is after
+      ``now``. An expired lease is reported by the health check instead.
+    * The lease was renewed after it was taken. ``renew_lease`` moves
+      ``leases.expires_at`` in place and writes no event, and the schema
+      has no ``renewed_at`` column. The expiry the lease was taken with is
+      kept in the task's ``leased`` event (detail JSON, keyed by
+      ``lease_id``). A live lease whose ``expires_at`` now differs from it
+      has been renewed. A lease whose original expiry cannot be read is
+      not reported, because its renewal cannot be shown.
+    * The newest event for the task is at least ``quiet_minutes`` old at
+      ``now``. The boundary is inclusive, so exactly that many minutes is
+      stalled.
+
+    ``now`` must be timezone-aware (UTC). Event times come from
+    ``events.created_at``, which has millisecond precision on rows that
+    ``lab.audit.append_event`` wrote and second precision on older rows.
+    """
+    live = conn.execute(
+        "SELECT t.id, t.agent_kind, t.state, l.id, l.expires_at "
+        "FROM tasks t JOIN leases l ON l.task_id = t.id AND l.released_at IS NULL "
+        "WHERE t.state IN ('leased', 'running') ORDER BY t.id").fetchall()
+    stalled: list[Stalled] = []
+    for task_id, agent_kind, state, lease_id, expires_now in live:
+        expiry = _parse(expires_now)
+        if expiry is None or expiry <= now:
+            # An expired lease is not live: the health check reports it as expired.
+            continue
+        taken = _taken_expiry(conn, task_id, lease_id)
+        if taken is None or taken == expires_now:
+            continue
+        last = conn.execute(
+            "SELECT created_at FROM events WHERE task_id = ? ORDER BY id DESC LIMIT 1",
+            (task_id,)).fetchone()
+        moment = _parse(last[0]) if last else None
+        if moment is None:
+            continue
+        silent = (now - moment).total_seconds() / 60
+        if silent >= quiet_minutes:
+            stalled.append(Stalled(task_id, agent_kind, state, round(silent, 2)))
+    return stalled
+
+
+def stalled_reason(task: Stalled) -> str:
+    """One line naming a stalled task, for the health reasons and the alert."""
+    return (f"task {task.task_id} ({clean(task.agent_kind or '-')}, {task.state}) "
+            f"has written no event for {_dur(task.minutes_since_event * 60)}, "
+            "though its lease was renewed")
 
 
 @dataclass
@@ -87,6 +190,9 @@ class Metrics:
     health: str
     reasons: list[str] = field(default_factory=list)
     control_mode: str = "running"
+    outcomes: dict[str, int] = field(default_factory=dict)
+    stalled: list[Stalled] = field(default_factory=list)
+    stalled_minutes: float = DEFAULT_STALLED_MINUTES
     model: None = None       # load time, peak memory, swap: added with the adapter (5.1)
 
     def as_dict(self) -> dict[str, Any]:
@@ -100,8 +206,10 @@ def _age(now: datetime, stamp: str | None) -> float | None:
 
 def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
             window_hours: float | None = None,
-            stall_seconds: float = DEFAULT_STALL_SECONDS) -> Metrics:
+            stall_seconds: float = DEFAULT_STALL_SECONDS,
+            stalled_minutes: float = DEFAULT_STALLED_MINUTES) -> Metrics:
     now = now or datetime.now(UTC)
+    stalled = stalled_tasks(conn, now, quiet_minutes=stalled_minutes)
     now_text = now.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     since = (now - timedelta(hours=window_hours)).strftime("%Y-%m-%d %H:%M:%S.000") \
         if window_hours else "0000-01-01 00:00:00.000"
@@ -135,6 +243,9 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
     retries = int(conn.execute(
         "SELECT COUNT(*) FROM events WHERE from_state = 'failed' AND to_state = 'queued' "
         "AND created_at >= ?", (since,)).fetchone()[0])
+    outcomes = {outcome: int(conn.execute(
+        "SELECT COUNT(*) FROM events WHERE to_state = ? AND from_state IS NOT to_state "
+        "AND created_at >= ?", (outcome, since)).fetchone()[0]) for outcome in OUTCOMES}
     recoveries = 0
     for (detail,) in conn.execute(
             "SELECT detail FROM events WHERE kind = 'recovery' AND created_at >= ?", (since,)):
@@ -170,6 +281,7 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
         attention.append(f"{pending} approval(s) waiting for a person")
     if unresolved:
         attention.append(f"{unresolved} operation(s) of unknown outcome need reconciling")
+    attention.extend(stalled_reason(task) for task in stalled)
     if reasons:
         health = "unhealthy"
     elif attention:
@@ -188,7 +300,8 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
         last_event_age_seconds=silent_for, live_leases=live, counters=counters,
         retries=retries, recoveries=recoveries, unresolved_operations=unresolved,
         pending_approvals=pending, health=health, reasons=reasons,
-        control_mode=control_mode,
+        control_mode=control_mode, outcomes=outcomes, stalled=stalled,
+        stalled_minutes=stalled_minutes,
     )
 
 
@@ -222,6 +335,13 @@ def render(m: Metrics) -> str:
     lines.append(f"  live leases        {m.live_leases:>6}")
     lines.append(f"  last success ago   {_dur(m.last_success_age_seconds):>6}")
     lines.append(f"  log last moved     {_dur(m.last_event_age_seconds):>6} ago")
+    if m.stalled:
+        lines.append("")
+        lines.append(f"stalled (no event for {m.stalled_minutes:g}m, lease renewed)")
+        for task in m.stalled:
+            lines.append(f"  {task.task_id}  {task.state:<8} "
+                         f"{clean(task.agent_kind or '-'):<12} "
+                         f"quiet {_dur(task.minutes_since_event * 60)}")
     lines.append("")
     lines.append("counters")
     for name, value in m.counters.items():
@@ -232,3 +352,52 @@ def render(m: Metrics) -> str:
     lines.append(f"needs a person: {m.pending_approvals} approval(s), "
                  f"{m.unresolved_operations} unresolved operation(s)")
     return "\n".join(lines)
+
+
+TASK_STATES = ("queued", "leased", "running", "awaiting_approval", "interrupted",
+               "succeeded", "failed", "cancelled")
+HEALTH_STATES = ("idle", "ok", "attention", "unhealthy")
+
+
+def render_prometheus(m: Metrics) -> str:
+    """The numbers in the Prometheus text format, version 0.0.4.
+
+    Only metric names, fixed label values and numbers are written. No task
+    id, title, path or reason reaches the output. A task state this code does
+    not know is counted under ``state="other"`` and never printed.
+    """
+    out: list[str] = []
+
+    def family(name: str, kind: str, help_text: str, samples: list[str]) -> None:
+        out.append(f"# HELP {name} {help_text}")
+        out.append(f"# TYPE {name} {kind}")
+        out.extend(samples)
+
+    other = sum(n for state, n in m.states.items() if state not in TASK_STATES)
+    tasks = [(state, m.states.get(state, 0)) for state in TASK_STATES] + [("other", other)]
+    family("homelab_tasks", "gauge", "Tasks in each state.",
+           [f'homelab_tasks{{state="{state}"}} {n}' for state, n in tasks])
+    family("homelab_health", "gauge", "1 for the current health state, 0 for the others.",
+           [f'homelab_health{{state="{s}"}} {int(m.health == s)}' for s in HEALTH_STATES])
+    family("homelab_pending_approvals", "gauge", "Approvals waiting for a person.",
+           [f"homelab_pending_approvals {m.pending_approvals}"])
+    family("homelab_unresolved_operations", "gauge",
+           "Operations of unknown outcome that need reconciling.",
+           [f"homelab_unresolved_operations {m.unresolved_operations}"])
+    family("homelab_live_leases", "gauge", "Leases held by a live worker.",
+           [f"homelab_live_leases {m.live_leases}"])
+    age = m.last_success_age_seconds
+    family("homelab_last_success_age_seconds", "gauge",
+           "Seconds since a task last succeeded. No sample until one has.",
+           [] if age is None else [f"homelab_last_success_age_seconds {age:.3f}"])
+    family("homelab_task_outcomes_total", "counter",
+           "Tasks that reached each outcome, counted from the event log. A failure "
+           "that was retried stays counted.",
+           [f'homelab_task_outcomes_total{{outcome="{o}"}} {m.outcomes.get(o, 0)}'
+            for o in OUTCOMES])
+    counters = [*m.counters.items(), ("retries", m.retries), ("recovered_tasks", m.recoveries)]
+    for name, value in counters:
+        family(f"homelab_{name}_total", "counter",
+               f"{name.replace('_', ' ').capitalize()} over all time.",
+               [f"homelab_{name}_total {value}"])
+    return "\n".join(out) + "\n"
