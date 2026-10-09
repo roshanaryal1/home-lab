@@ -85,9 +85,14 @@ The model server in INSTALL.md section 8 is not part of the script. It is a down
   Python and the locked packages from their indexes, and `gh attestation verify` calls GitHub's
   API unless it can check a downloaded bundle offline (search summary, to be tested). Open
   question 3 asks whether to name both calls.
-- **It changes nothing outside `$HOME` and the folders the printed steps name.** The printed
-  steps name `/Users/lab`, `/var/homelab`, `/var/log/homelab`, `/etc/homelab`, `/opt/homelab`
-  and `/Library/LaunchDaemons`. Those paths appear only as printed text.
+- **Its own steps change nothing outside `$HOME` and the folders the printed steps name.**
+  The printed steps name `/Users/lab`, `/var/homelab`, `/var/log/homelab`, `/etc/homelab`,
+  `/opt/homelab` and `/Library/LaunchDaemons`. Those paths appear only as printed text. One
+  limit: `uv sync --locked` installs home-lab in editable mode (`uv.lock`), so it runs the
+  setuptools build backend named in `pyproject.toml` as the user. That code runs with the
+  user's permissions, like any Python package build, and this promise does not cover it.
+  uv fetches setuptools from the package index as a build dependency (`setuptools>=68`,
+  not pinned in `uv.lock`).
 - **It edits no shell profile.** uv runs with `UV_NO_MODIFY_PATH=1`. The Hermes Agent script
   does append PATH lines to shell profiles (section 7). This design does not.
 - **It reads, writes and prints no secret.** It does not create the operator key.
