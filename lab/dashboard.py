@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from lab import control, metrics
+from lab.db import connect_readonly
 
 DEFAULT_PORT = 8765
 LOOPBACK_NAMES = {"localhost"}
@@ -43,7 +44,7 @@ def is_loopback(host: str) -> bool:
 
 
 def _read(db: Path) -> tuple[metrics.Metrics, control.ControlState]:
-    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+    conn = connect_readonly(db, timeout=5)
     try:
         return metrics.collect(conn), control.get(conn)
     finally:

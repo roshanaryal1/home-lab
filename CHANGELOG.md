@@ -55,6 +55,8 @@ They are a draft until the owner approves them.
   evidence snapshots and the files of each skill version. Before, it held only
   task artifacts, and its restore check passed without the others
   ([#358](https://github.com/roshanaryal1/home-lab/issues/358)).
+- A read-only database open no longer opens another file when the path has a
+  `?`, `#` or `%` in it ([#386](https://github.com/roshanaryal1/home-lab/issues/386)).
 
 ## [0.1.0] - unreleased
 

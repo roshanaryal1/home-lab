@@ -103,6 +103,7 @@ from lab import operator as operator_keys
 from lab import schedule as schedule_mod
 from lab.artifacts import ArtifactStore
 from lab.connectors import ConnectorError, load_connectors
+from lab.db import connect_readonly
 from lab.egress import EgressGateway
 from lab.journal import OperationJournal
 from lab.ledger import Ledger, LedgerError
@@ -956,7 +957,7 @@ def cmd_keepawake(args: argparse.Namespace) -> int:
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1
-    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    conn = connect_readonly(args.db)
     conn.execute("PRAGMA busy_timeout = 5000")
     holder = keepawake.Holder()
     try:
@@ -1088,7 +1089,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1
-    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    conn = connect_readonly(args.db)
     try:
         report = metrics.collect(conn, window_hours=args.since_hours,
                                  stall_seconds=args.stall_seconds)
@@ -1461,7 +1462,7 @@ def _repo_acquired(args: argparse.Namespace) -> int:
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1
-    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    conn = connect_readonly(args.db)
     conn.row_factory = sqlite3.Row
     try:
         rows = sources.acquisitions(conn, args.task)
@@ -1491,7 +1492,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1
-    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    conn = connect_readonly(args.db)
     try:
         if args.audit_command == "checkpoint":
             path = audit.write_checkpoint(conn, args.key, args.out)
