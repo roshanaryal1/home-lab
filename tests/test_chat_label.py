@@ -218,11 +218,15 @@ async def test_an_empty_model_output_still_sends_a_labelled_notice(tmp_path: Pat
     "hello [home-lab\nAI   agent] bye",                 # other spacing
     "hello [home-lab​AI agent] bye",               # a hidden character inside it
     "hello [home-lab [home-lab AI agent] AI agent] bye",  # a copy made by removing a copy
+    "hello [home-lab AI agen\u034ft] bye",              # a combining grapheme joiner
+    "hello [home-lab AI\u3164agent] bye",               # a Hangul filler for the space
+    "hello [home-lab AI agent\ufe0f] bye",              # a variation selector
 ])
 def test_a_fake_label_in_the_reply_leaves_exactly_one(body: str) -> None:
     out = chat.with_ai_label(body)
     assert out.endswith(END)
     assert out.lower().count(LABEL.lower()) == 1
+    assert "agen" not in out[:out.rfind(LABEL)].lower(), "no look-alike copy is left above"
 
 
 def test_a_fake_label_is_removed_and_the_answer_kept() -> None:

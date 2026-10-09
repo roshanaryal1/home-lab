@@ -104,8 +104,15 @@ _PREFIX = re.compile(r"^[0-9a-f]{4,32}$")
 # do not hide it.
 AI_LABEL = "[home-lab AI agent]"
 LABEL_GAP = "\n\n"
+# Between the letters of a copy: white space, and the Unicode default-ignorable
+# characters that ``clean`` keeps because they are not format characters (the
+# combining grapheme joiner, Hangul fillers, Khmer vowel inherents, Mongolian
+# and other variation selectors). Each draws nothing, so a copy holding them
+# looks like the label.
+_IGNORABLE = ("[\\s\u034f\u115f\u1160\u17b4\u17b5\u180b-\u180f\u3164"
+              "\ufe00-\ufe0f\uffa0\ufff0-\ufff8\U000e0100-\U000e01ef]*")
 _LABEL_COPY = re.compile(
-    r"\s*".join(re.escape(ch) for ch in AI_LABEL if not ch.isspace()), re.IGNORECASE)
+    _IGNORABLE.join(re.escape(ch) for ch in AI_LABEL if not ch.isspace()), re.IGNORECASE)
 
 
 class Action(StrEnum):
