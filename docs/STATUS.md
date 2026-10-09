@@ -13,7 +13,6 @@ be redone. The detail lives in the documents it links; this page only points.
 - Open pull requests: **#312** (keep-awake as the `lab` account,
   [#235](https://github.com/roshanaryal1/home-lab/issues/235)), and #357 (`lab migrate --check`,
   #356), which tries the new code's migrations on a copy before an update restarts anything.
-  Open bug: #358, backups leave out skill-version files and evidence snapshots.
   Do **not** merge #312 until both checks in step 1 of its runbook section "Moving keep-awake to
   the lab account" have passed on the Mac mini: `./ops/mac-session.sh --only caffeinate` from
   that branch, and the same check from launchd with a throwaway daemon.
