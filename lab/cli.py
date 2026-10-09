@@ -1609,8 +1609,12 @@ def cmd_schedule(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespac
             json.JSONDecodeError) as exc:
         print(f"schedule: {_escape(str(exc))}", file=sys.stderr)
         return 1
-    row = next(r for r in schedule_mod.live(conn) if r["name"] == args.name)
-    print(_escape(f"added {args.name}: {row['rule']} ({row['tz']}), next due {row['next_due_at']}"))
+    added = next((r for r in schedule_mod.live(conn) if r["name"] == args.name), None)
+    if added is None:
+        print(_escape(f"added {args.name}"))
+        return 0
+    print(_escape(f"added {args.name}: {added['rule']} ({added['tz']}), "
+                  f"next due {added['next_due_at']}"))
     return 0
 
 

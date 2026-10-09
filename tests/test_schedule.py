@@ -285,6 +285,31 @@ def test_an_unsigned_schedule_that_cannot_run_is_refused_without_stopping_the_ot
     assert row[0] == schedule.PARKED
 
 
+def test_a_crash_mid_firing_leaves_nothing_and_the_next_pass_fires_once(
+        queue: TaskQueue, keys: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+    private, public = keys
+    _add(queue, private, rule="daily 07:30")
+    key = operator_keys.load_public(public)
+    real = schedule.append_event
+
+    def crash(conn: sqlite3.Connection, task_id: str | None, kind: str,
+              **kwargs: object) -> None:
+        if kind == "schedule_fired":
+            raise RuntimeError("power cut")
+        real(conn, task_id, kind, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(schedule, "append_event", crash)
+    with pytest.raises(RuntimeError, match="power cut"):
+        schedule.fire_due(queue, T0 + timedelta(hours=8), key)
+    assert _tasks(queue) == []
+    row = queue._conn.execute("SELECT next_due_at, last_task_id FROM schedules").fetchone()
+    assert (row[0], row[1]) == ("2026-10-01T07:30:00Z", None)
+    monkeypatch.setattr(schedule, "append_event", real)
+    fired = schedule.fire_due(queue, T0 + timedelta(hours=8), key)
+    assert [f.outcome for f in fired] == ["fired"]
+    assert len(_tasks(queue)) == 1
+
+
 @pytest.mark.safety
 def test_a_scheduled_approve_tier_task_still_waits_for_the_owner(
         queue: TaskQueue, keys: tuple[Path, Path]) -> None:

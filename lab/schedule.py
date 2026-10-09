@@ -25,8 +25,9 @@ task, and an approve-tier task still waits for the owner's signature
   07:30 stays 07:30 across daylight saving.
 * Missed slots (the Mac was off) fire once, not once per slot. A slot whose
   previous task is still open is skipped, so work does not pile up.
-* A firing is at most once: the slot is advanced before the task is created,
-  so a crash between the two loses that run rather than doubling it.
+* A firing is one transaction: the slot moves, the task is created and the
+  schedule records it together, so a crash leaves all of it or none, and the
+  next pass fires a slot the crash undid.
 
 Without an operator key (tests, a laptop), schedules fire unsigned, as the
 control switch does, and every firing records ``signed: false``. The
@@ -281,9 +282,11 @@ def _refuse(conn: sqlite3.Connection, row: sqlite3.Row, reason: str, why: str, *
     if cas:
         sql += " AND next_due_at = ?"
         params += (row["next_due_at"],)
-    if conn.execute(sql, params).rowcount != 1:
-        return None
-    append_event(conn, None, "schedule_refused", detail={"schedule": row["name"], "reason": why})
+    with _tx(conn):
+        if conn.execute(sql, params).rowcount != 1:
+            return None
+        append_event(conn, None, "schedule_refused",
+                     detail={"schedule": row["name"], "reason": why})
     return Fired(row["name"], "refused", reason=reason)
 
 
@@ -317,7 +320,13 @@ def fire_due(queue: TaskQueue, now: datetime, public_key: Ed25519PublicKey | Non
 def _fire(queue: TaskQueue, row: sqlite3.Row, now: datetime,
           public_key: Ed25519PublicKey | None) -> Fired | None:
     """Fire one verified schedule, or skip its slot while its last task is open. None when
-    another process took this slot first."""
+    another process took this slot first. All of it is one transaction."""
+    with _tx(queue._conn):
+        return _fire_in_tx(queue, row, now, public_key)
+
+
+def _fire_in_tx(queue: TaskQueue, row: sqlite3.Row, now: datetime,
+                public_key: Ed25519PublicKey | None) -> Fired | None:
     conn = queue._conn
     name = row["name"]
     last = row["last_task_id"]

@@ -57,9 +57,9 @@ starts within about 5 minutes of its time.
   schedule runs once when it comes back, not three times.
 - If the task from the last firing is still queued, running or waiting for
   approval, the slot is skipped and logged, so work does not pile up.
-- A firing happens at most once. The next slot is recorded before the task
-  is created, so a crash between the two loses that run rather than
-  doubling it.
+- A firing is one transaction. The next slot, the task and the record of
+  it are written together, so a crash leaves all of them or none, and the
+  next pass fires a slot the crash undid. A slot never fires twice.
 
 Each firing writes an event: `schedule_fired`, `schedule_skipped` or
 `schedule_refused`. The task it creates has an `operator` origin with the
