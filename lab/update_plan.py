@@ -7,7 +7,12 @@ writers whose service definition is installed.
 
 The command is read-only. It asks git for the deployed HEAD and whether COMMIT is in
 the checkout (no shell, 30 second timeout), and checks which service definitions
-exist. Then it prints the plan. It never runs sudo and never writes a file. The
+exist. The checkout is root's, and git refuses a repository another account owns
+unless told to trust it. So git gets ``safe.directory`` for that one folder on its
+command line, and only after the folder is checked to be owned by root or by the
+account running the command, whose git settings are trusted anyway.
+
+Then it prints the plan. It never runs sudo and never writes a file. The
 update needs sudo for launchctl and for the ownership changes around the checkout,
 and the lab never runs sudo, so the operator copies these lines into a Terminal
 window and runs them there.
@@ -15,6 +20,7 @@ window and runs them there.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from collections.abc import Callable
@@ -68,8 +74,9 @@ _LAYOUT: tuple[tuple[str, str], ...] = (
             "not changed. If it starts with migrate --check failed, roll back as below."),
     (_HEADING, "Start the jobs again on the new code."),
     (_CHUNK, ""),
-    (_NOTE, "rev-parse must print the new commit. status must show health IDLE or OK and "
-            "mode running."),
+    (_NOTE, "rev-parse must print the new commit, ps must show lab and a new pid, the "
+            "bootstrap check prints nothing, status shows health IDLE or OK and mode running, "
+            "and touch is refused with Permission denied."),
     (_HEADING, "Roll back before anything started."),
     (_NOTE, "The database was never opened by the new code, so nothing is restored. Run the "
             "checkout and sync block above with COMMIT set to OLD, then the start again block."),
@@ -106,6 +113,10 @@ def gather(commit: str, deploy: Path, launch_daemons: Path,
            run: Runner = subprocess.run) -> tuple[str, bool, list[str]]:
     """OLD (the deployed HEAD), whether COMMIT is in the deployed checkout, and the
     writers whose service definition is installed, in WRITER_NAMES order."""
+    owner = _owner(deploy)
+    if owner is not None and owner not in (0, os.geteuid()):
+        raise UpdateError(f"{deploy} is owned by another account, not root or you, so its "
+                          "git settings are not trusted")
     head = _git(run, deploy, "rev-parse", "HEAD")
     old = head.stdout.strip()
     if head.returncode != 0 or not old:
@@ -116,10 +127,18 @@ def gather(commit: str, deploy: Path, launch_daemons: Path,
     return old, present.returncode == 0, writers
 
 
-def _git(run: Runner, deploy: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _owner(path: Path) -> int | None:
     try:
-        return run(["git", "-C", str(deploy), *args], capture_output=True, text=True,
-                   check=False, timeout=GIT_TIMEOUT_SECONDS)
+        return os.lstat(path).st_uid
+    except OSError:
+        return None
+
+
+def _git(run: Runner, deploy: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    trust = f"safe.directory={os.path.realpath(deploy)}"
+    try:
+        return run(["git", "-C", str(deploy), "-c", trust, *args], capture_output=True,
+                   text=True, check=False, timeout=GIT_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError) as exc:
         raise UpdateError(f"cannot run git in {deploy}") from exc
 

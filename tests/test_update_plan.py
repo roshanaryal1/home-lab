@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -144,6 +145,44 @@ def test_git_runs_as_a_list_with_a_thirty_second_timeout(tmp_path: Path,
         assert argv[:3] == ["git", "-C", str(tmp_path)]
         assert kwargs["timeout"] == update_plan.GIT_TIMEOUT_SECONDS == 30
         assert kwargs.get("shell", False) is False
+
+
+def test_git_is_told_to_trust_only_the_deploy_folder(tmp_path: Path,
+                                                     launch_daemons: Path) -> None:
+    calls: list[list[str]] = []
+
+    def fake(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stdout=f"{OLD}\n", stderr="")
+
+    update_plan.gather(COMMIT, tmp_path, launch_daemons, run=fake)
+    for argv in calls:
+        assert argv[3:5] == ["-c", f"safe.directory={os.path.realpath(tmp_path)}"]
+
+
+def test_a_checkout_another_account_owns_is_refused_before_git_runs(
+        deploy: Path, launch_daemons: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(update_plan, "_owner", lambda path: os.geteuid() + 4242)
+    assert main(_update(deploy, launch_daemons, COMMIT)) == 1
+    err = capsys.readouterr().err
+    assert err.startswith(f"update: {deploy} is owned by another account")
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="needs root to give the checkout another owner")
+def test_git_reads_a_root_style_checkout_another_account_owns(
+        deploy: Path, launch_daemons: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # On the Mac mini the checkout is root's and the operator runs this. Here the
+    # roles are swapped: the checkout goes to another uid, which plain git refuses.
+    head = _git(deploy, "rev-parse", "HEAD")
+    for folder, dirs, files in os.walk(deploy):
+        for name in (folder, *(os.path.join(folder, n) for n in (*dirs, *files))):
+            os.lchown(name, 65534, 65534)
+    with pytest.raises(subprocess.CalledProcessError):
+        _git(deploy, "rev-parse", "HEAD")
+    monkeypatch.setattr(update_plan, "_owner", lambda path: 0)
+    assert update_plan.gather(head, deploy, launch_daemons) == (head, True, ["supervisor",
+                                                                            "tick"])
 
 
 def test_a_git_call_that_times_out_is_an_update_error(tmp_path: Path,
