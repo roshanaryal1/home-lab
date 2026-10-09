@@ -9,6 +9,11 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- `lab status` flags a task that writes no event for 30 minutes while its lease
+  keeps renewing. The task is listed in the text output, the `--json` output and
+  the status page, and the status check alerts with its id. The task is only
+  flagged, never cancelled or requeued. `--stalled-minutes` sets the limit
+  ([#376](https://github.com/roshanaryal1/home-lab/issues/376)).
 - `lab security-audit`: one read-only check of the lab's own boundary (file owners
   and modes, the operator key, the loopback model URL), with `--details` to list
   the offending paths ([#362](https://github.com/roshanaryal1/home-lab/issues/362)).
