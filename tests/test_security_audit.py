@@ -43,6 +43,7 @@ def _file(path: Path, mode: int = 0o644) -> Path:
 class Layout:
     base: Path
     deploy: Path
+    python: Path
     launch: Path
     config: Path
     data: Path
@@ -57,7 +58,8 @@ class Layout:
         return self.home / ".lab-operator" / "operator.key"
 
     def run_kwargs(self) -> dict[str, Any]:
-        return {"home": self.home, "deploy_root": self.deploy, "launch_daemons": self.launch,
+        return {"home": self.home, "deploy_root": self.deploy, "python_root": self.python,
+                "launch_daemons": self.launch,
                 "config_dir": self.config, "data_dir": self.data, "root_uid": ME,
                 "euid": EUID}
 
@@ -67,12 +69,15 @@ def layout(tmp_path: Path) -> Layout:
     """A tidy install: a deploy tree, two lab plists and one plist that is not ours, a config
     folder, a private data folder and an operator key. Every file is closed to others."""
     base = tmp_path / "install"
-    lay = Layout(base=base, deploy=base / "opt" / "homelab", launch=base / "LaunchDaemons",
+    lay = Layout(base=base, deploy=base / "opt" / "homelab",
+                 python=base / "opt" / "homelab-python", launch=base / "LaunchDaemons",
                  config=base / "etc" / "homelab", data=base / "var" / "homelab",
                  home=base / "home")
     _dir(lay.deploy)
     _dir(lay.deploy / "lab")
     _file(lay.deploy / "lab" / "__init__.py")
+    _dir(lay.python / "bin")
+    _file(lay.python / "bin" / "python3.13", 0o755)
     _dir(lay.launch)
     _file(lay.launch / "com.homelab.supervisor.plist")
     _file(lay.launch / "com.homelab.backup.plist")
@@ -185,6 +190,7 @@ def test_services_passes_when_every_lab_plist_is_root_owned_and_closed(layout: L
 def test_services_fails_when_the_expected_owner_is_another_uid(layout: Layout) -> None:
     finding = sa.check_services(layout.launch, ME + 1)
     assert finding == sa.Finding("services", "FAIL", sorted([
+        str(layout.launch),
         str(layout.launch / "com.homelab.backup.plist"),
         str(layout.launch / "com.homelab.supervisor.plist")]))
 
@@ -205,6 +211,12 @@ def test_services_fails_with_no_path_when_no_lab_plist_is_installed(tmp_path: Pa
     launch = _dir(tmp_path / "LaunchDaemons")
     _file(launch / "com.apple.other.plist")
     assert sa.check_services(launch, ME) == sa.Finding("services", "FAIL", [])
+
+
+def test_services_names_a_folder_that_a_group_can_write(layout: Layout) -> None:
+    os.chmod(layout.launch, 0o775)
+    assert sa.check_services(layout.launch, ME) == sa.Finding(
+        "services", "FAIL", [str(layout.launch)])
 
 
 def test_services_fails_on_a_missing_folder(tmp_path: Path) -> None:
@@ -264,9 +276,27 @@ def test_data_names_the_database_when_its_owner_differs_from_the_folder(
     assert sa.check_data(layout.data) == sa.Finding("data", "FAIL", [str(layout.db)])
 
 
-def test_data_names_a_database_that_a_group_can_read(layout: Layout) -> None:
-    os.chmod(layout.db, 0o640)
+def test_data_names_a_database_that_a_group_can_write(layout: Layout) -> None:
+    os.chmod(layout.db, 0o660)
     assert sa.check_data(layout.data) == sa.Finding("data", "FAIL", [str(layout.db)])
+
+
+def test_data_accepts_sqlites_usual_0644_inside_the_closed_folder(layout: Layout) -> None:
+    os.chmod(layout.db, 0o644)
+    assert sa.check_data(layout.data) == sa.Finding("data", "ok", [])
+
+
+def test_data_is_skipped_when_this_account_cannot_see_into_the_closed_folder(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch) -> None:
+    _deny(monkeypatch, layout.db)
+    assert sa.check_data(layout.data) == sa.Finding("data", "skip", [])
+
+
+def test_data_still_fails_an_open_folder_whose_database_it_cannot_see(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch) -> None:
+    os.chmod(layout.data, 0o711)
+    _deny(monkeypatch, layout.db)
+    assert sa.check_data(layout.data) == sa.Finding("data", "FAIL", [str(layout.data)])
 
 
 def test_data_names_a_folder_that_others_can_enter(layout: Layout) -> None:
@@ -453,3 +483,16 @@ def test_the_command_exits_zero_when_no_check_fails(
     assert capsys.readouterr().out.splitlines() == [
         "deploy: ok", "services: ok", "config: ok", "data: ok", "public_key: ok",
         "private_key: skip", "loopback: ok"]
+
+
+def test_deploy_walks_the_interpreter_root_the_venv_links_to(layout: Layout) -> None:
+    loose = layout.python / "bin" / "python3.13"
+    os.chmod(loose, 0o777)
+    assert sa.check_deploy(layout.deploy, ME, layout.python) == sa.Finding(
+        "deploy", "FAIL", [str(loose)])
+
+
+def test_deploy_fails_a_missing_interpreter_root(layout: Layout, tmp_path: Path) -> None:
+    missing = tmp_path / "no-python"
+    assert sa.check_deploy(layout.deploy, ME, missing) == sa.Finding(
+        "deploy", "FAIL", [str(missing)])

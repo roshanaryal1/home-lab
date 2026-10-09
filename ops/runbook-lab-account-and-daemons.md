@@ -353,6 +353,13 @@ done
   (`sudo tail /var/log/homelab/supervisor.log`), and
   `sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db status`
   reports healthy.
+- Check the boundary with `lab security-audit` (#362), once as `lab` and once as
+  yourself, because each account cannot see the other's files:
+  `sudo -u lab env LAB_OPERATOR_PUBKEY=/etc/homelab/operator.pub /opt/homelab/.venv/bin/python -m lab.cli security-audit`
+  and `LAB_OPERATOR_PUBKEY=/etc/homelab/operator.pub /opt/homelab/.venv/bin/python -m lab.cli security-audit`.
+  Every line must say `ok` or `skip`: `private_key` is skipped in the `lab` run, and
+  `data` in yours. On a `FAIL`, run it again with `--details` to see the paths. It
+  only reads file owners and modes and changes nothing.
 - Undo one service: `sudo launchctl bootout system/com.homelab.<name>`.
 - Closes: 5 "launchd job ... for the supervisor", "watchdog or heartbeat",
   "structured rotating logs", "queue-aware sleep prevention" (after the

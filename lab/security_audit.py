@@ -27,6 +27,8 @@ from lab import accountplan
 from lab.doctor import LOOPBACK_HOSTS
 
 DEPLOY_ROOT = Path("/opt/homelab")
+# The interpreter the deployed venv links to (runbook step 3), owned like the code.
+PYTHON_ROOT = Path("/opt/homelab-python")
 LAUNCH_DAEMONS = Path(accountplan.LAUNCH_DAEMONS)
 CONFIG_DIR = Path(accountplan.CONFIG_DIR)
 DATA_DIR = Path(accountplan.DATA_DIR)
@@ -75,14 +77,19 @@ def _result(name: str, bad: Iterable[str]) -> Finding:
     return Finding(name, status, paths)
 
 
-def check_deploy(root: Path, root_uid: int) -> Finding:
-    """Every entry under ``root``, the root included, is owned by ``root_uid`` and has no
-    group or other write bit. Symlinks are listed by their folder, never judged, never
-    followed. A root that is missing or is itself a symlink fails."""
-    if not _is_dir(_lstat(root)):
-        return Finding("deploy", "FAIL", [str(root)])
+def check_deploy(root: Path, root_uid: int, *more_roots: Path) -> Finding:
+    """Every entry under ``root`` and under each of ``more_roots``, the roots included, is
+    owned by ``root_uid`` and has no group or other write bit. Symlinks are listed by their
+    folder, never judged, never followed. A root that is missing or is itself a symlink
+    fails. The venv's symlinks point into the interpreter root, which is why that root is
+    walked too."""
     bad: set[str] = set()
-    pending = [root]
+    pending: list[Path] = []
+    for top in (root, *more_roots):
+        if _is_dir(_lstat(top)):
+            pending.append(top)
+        else:
+            bad.add(str(top))
     while pending:
         path = pending.pop()
         st = _lstat(path)
@@ -116,8 +123,12 @@ def check_services(launch_daemons: Path, root_uid: int) -> Finding:
         return Finding("services", "FAIL", [str(launch_daemons)])
     if not plists:
         return Finding("services", "FAIL", [])
-    return _result("services", [plist for plist in plists
-                                if not _trusted(Path(plist), root_uid, GROUP_OR_OTHER_WRITE)])
+    # The folder too: whoever can write it can replace a definition in it.
+    bad = [] if _trusted(launch_daemons, root_uid, GROUP_OR_OTHER_WRITE) else [
+        str(launch_daemons)]
+    bad += [plist for plist in plists
+            if not _trusted(Path(plist), root_uid, GROUP_OR_OTHER_WRITE)]
+    return _result("services", bad)
 
 
 def check_config(config_dir: Path, root_uid: int) -> Finding:
@@ -141,23 +152,30 @@ def check_config(config_dir: Path, root_uid: int) -> Finding:
 
 
 def check_data(data_dir: Path) -> Finding:
-    """``data_dir`` and the database in it have the same owner, and neither is open to a group
-    or to others. A missing one fails."""
+    """``data_dir`` gives a group and others no access at all, and the database in it has the
+    folder's owner and no group or other write bit. SQLite creates the file as 0644 under the
+    usual umask, and the closed folder already keeps everyone else out, so read bits on the
+    file are not judged. When this account cannot see into a closed folder (it is not the
+    lab account), the check is skipped. A missing one fails."""
     database = data_dir / DATABASE_NAME
     dir_st = _lstat(data_dir)
-    db_st = _lstat(database)
     bad: set[str] = set()
     if not _is_dir(dir_st):
+        return _result("data", [str(data_dir), str(database)])
+    assert dir_st is not None
+    closed = (dir_st.st_mode & ANY_GROUP_OR_OTHER) == 0
+    if not closed:
         bad.add(str(data_dir))
-    if db_st is None or not stat.S_ISREG(db_st.st_mode):
+    try:
+        db_st = os.lstat(database)
+    except PermissionError:
+        return Finding("data", "skip", []) if closed else _result("data", bad)
+    except OSError:
         bad.add(str(database))
-    if dir_st is not None and db_st is not None:
-        if db_st.st_uid != dir_st.st_uid:
-            bad.add(str(database))
-        if (dir_st.st_mode & ANY_GROUP_OR_OTHER) != 0:
-            bad.add(str(data_dir))
-        if (db_st.st_mode & ANY_GROUP_OR_OTHER) != 0:
-            bad.add(str(database))
+        return _result("data", bad)
+    if (not stat.S_ISREG(db_st.st_mode) or db_st.st_uid != dir_st.st_uid
+            or (db_st.st_mode & GROUP_OR_OTHER_WRITE) != 0):
+        bad.add(str(database))
     return _result("data", bad)
 
 
@@ -209,6 +227,7 @@ def check_loopback(env: Mapping[str, str]) -> Finding:
 
 
 def run(env: Mapping[str, str], *, home: Path | None = None, deploy_root: Path = DEPLOY_ROOT,
+        python_root: Path = PYTHON_ROOT,
         launch_daemons: Path = LAUNCH_DAEMONS, config_dir: Path = CONFIG_DIR,
         data_dir: Path = DATA_DIR, root_uid: int = 0, euid: int | None = None) -> list[Finding]:
     """Every check, in the order they print. Reads ``env`` and the permissions, writes nothing.
@@ -217,7 +236,7 @@ def run(env: Mapping[str, str], *, home: Path | None = None, deploy_root: Path =
     uid. ``root_uid`` is the owner the root-owned paths must have.
     """
     return [
-        check_deploy(deploy_root, root_uid),
+        check_deploy(deploy_root, root_uid, python_root),
         check_services(launch_daemons, root_uid),
         check_config(config_dir, root_uid),
         check_data(data_dir),
