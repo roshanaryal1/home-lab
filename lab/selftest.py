@@ -23,6 +23,7 @@ from pathlib import Path
 
 from lab import backup, metrics
 from lab.audit import verify_chain
+from lab.db import connect_readonly
 from lab.queue import TaskQueue
 
 DEFAULT_TESTS = Path(__file__).resolve().parent.parent / "tests"
@@ -49,7 +50,7 @@ class SelfTestReport:
 
 
 def _readonly(db: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    conn = connect_readonly(db)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -117,8 +118,13 @@ def _check_safety_tests(tests_dir: Path) -> Check:
         return Check("safety_tests", False, f"timed out after {SAFETY_TIMEOUT_SECONDS:g}s")
     except (OSError, ValueError) as exc:
         return _failed("safety_tests", exc)
-    summary = next((ln for ln in reversed(proc.stdout.splitlines())
-                    if re.search(r"\d+ (passed|failed|error)", ln)), proc.stdout[-200:])
+    matched = next((ln for ln in reversed(proc.stdout.splitlines())
+                    if re.search(r"\d+ (passed|failed|error)", ln)), None)
+    summary = matched if matched is not None else proc.stdout[-200:]
+    if matched is None and proc.returncode != 0:
+        # pytest gave no summary (for example "No module named pytest", #270), so the
+        # reason is on stderr. Its last line says why. The stdout tail is the fallback.
+        summary = next((ln for ln in reversed(proc.stderr.splitlines()) if ln.strip()), summary)
     return Check("safety_tests", proc.returncode == 0, summary.strip("= ").strip()[:200])
 
 

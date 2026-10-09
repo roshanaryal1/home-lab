@@ -135,14 +135,16 @@ root-owned so the lab account cannot change what it runs.
 The clone and `uv sync` run as the operator, never as root: `uv sync`
 builds the project with its build backend, and that code must not run with
 root privileges. Root only creates the empty directories and takes
-ownership afterwards.
+ownership afterwards. `--extra dev` installs pytest, which the nightly
+self-test needs to run the safety tests. A plain `uv sync --locked` removes it
+again (#270).
 
 ```sh
 sudo install -d -o "$USER" -g staff -m 755 /opt/homelab /opt/homelab-python
 git clone https://github.com/roshanaryal1/home-lab.git /opt/homelab
 git -C /opt/homelab -c advice.detachedHead=false checkout "$COMMIT"
 cd /opt/homelab && UV_PYTHON_INSTALL_DIR=/opt/homelab-python \
-  UV_PYTHON_PREFERENCE=only-managed "$UV" sync --locked
+  UV_PYTHON_PREFERENCE=only-managed "$UV" sync --locked --extra dev
 sudo chown -R root:wheel /opt/homelab /opt/homelab-python
 sudo chmod -R go-w /opt/homelab /opt/homelab-python
 ```
@@ -152,9 +154,39 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
   prints 3.53.1 or later; and `sudo -u lab /usr/bin/touch /opt/homelab/x`
   is refused.
 - Undo: first unload anything step 5 started
-  (`for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbeat; do sudo launchctl bootout system/com.homelab.$s; done`),
+  (`for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbeat weekly-eval; do sudo launchctl bootout system/com.homelab.$s; done`),
   then `sudo rm -rf /opt/homelab /opt/homelab-python`.
 - Rehearsal note: the scratch rehearsal ran `uv sync` as the operator too.
+
+**Log rotation for the launchd logs (#349).** The rule file is `ops/newsyslog/homelab.conf`.
+It rotates the `.log` and `.err` files of the scheduled jobs in `/var/log/homelab` (Step 2):
+backup, heartbeat, self-test, status check, tick, watchdog and the weekly eval. Each is
+rotated at 10 MB, and five copies are kept, mode 600 and owned by `lab`. The copies are not
+compressed, so a job that is running when its file rotates loses nothing: it finishes in the
+renamed copy. Install it as root, then dry-run newsyslog, which changes nothing:
+
+```sh
+sudo install -d -o root -g wheel -m 755 /etc/newsyslog.d
+sudo install -o root -g wheel -m 644 /opt/homelab/ops/newsyslog/homelab.conf /etc/newsyslog.d/homelab.conf
+sudo newsyslog -nvv
+```
+
+- Check: the dry run lists those files with the 10240 KB limit. If it lists none of them,
+  this macOS may not read `/etc/newsyslog.d`. Stop there, and do not move the rules into
+  `/etc/newsyslog.conf` until you have checked how this macOS reads them. `man 5
+  newsyslog.conf` on the Mac says what the `N` flag does there. The rules were
+  written from the FreeBSD manual that macOS's newsyslog comes from.
+- Status: not yet run on the Mac mini.
+- Not rotated: `chat`, `keepawake` and `supervisor` run with KeepAlive and hold their log
+  files open. After a rotation they would keep writing to the renamed copy until they
+  restart, so rotating them would not bound their files. Their files stay small instead: chat and
+  keep-awake write almost nothing, the supervisor's full log is its own rotating JSON file,
+  and its stderr (`supervisor.err`) gets only warnings and errors. If one of these files
+  ever grows too large, move it aside and restart that service, for example
+  `sudo mv /var/log/homelab/supervisor.err /var/log/homelab/supervisor.err.old` then
+  `sudo launchctl kickstart -k system/com.homelab.supervisor`.
+- After a code update that changes `ops/newsyslog/homelab.conf`, run the `sudo install`
+  command for the rule file again.
 
 ## Step 4. Settings the service files need (sudo)
 
@@ -310,6 +342,11 @@ for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbea
 done
 ```
 
+- Optional, for the P3 study only: the weekly eval job. Install
+  `ops/launchd/com.homelab.weekly-eval.plist` like the others, fill its four `PASTE_`
+  values and check them with `plutil -p` as "Updating the deployed code" says, then
+  `sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.weekly-eval.plist`.
+  It needs the model server, and the lab runs fine without it.
 - Check: the supervisor runs as `lab`
   (`ps -o user= -p $(pgrep -f lab.supervisor)`), its log has no
   "approvals are NOT signature-checked" line
@@ -318,6 +355,16 @@ done
   reports healthy.
 - Keep-awake runs as `lab` too (#235). On a new machine, run step 1 of "Moving
   keep-awake to the lab account" before this step, and its step 4 once a task runs.
+- Check the boundary with `lab security-audit` (#362), once as `lab` and once as
+  yourself, because each account cannot see the other's files:
+  `sudo -u lab env LAB_OPERATOR_PUBKEY=/etc/homelab/operator.pub /opt/homelab/.venv/bin/python -m lab.cli security-audit`
+  and `LAB_OPERATOR_PUBKEY=/etc/homelab/operator.pub /opt/homelab/.venv/bin/python -m lab.cli security-audit`.
+  Every line must say `ok` or `skip`: `private_key` is skipped in the `lab` run, and
+  `data` in yours. On a `FAIL`, run it again with `--details` to see the paths. It
+  only reads file owners and modes and changes nothing. Everything in `/etc/homelab`
+  must be root-owned except `alert.json`, which stays owned by `lab`, mode 600, as
+  section 19 installs it. A link in the deployed code that leads outside
+  `/opt/homelab` and `/opt/homelab-python` fails.
 - Undo one service: `sudo launchctl bootout system/com.homelab.<name>`.
 - Closes: 5 "launchd job ... for the supervisor", "watchdog or heartbeat",
   "structured rotating logs", "queue-aware sleep prevention" (after the
@@ -416,6 +463,23 @@ line, `backup.err` must be empty, and the folder must hold a new
 Do this when a merged change has to reach the Mac mini (#204). It has not been
 tried yet: the first run is the owner's, and its result belongs in this section.
 
+`lab update --plan COMMIT` prints the blocks in this section with the values for this install filled in. It is read-only: it runs no sudo and writes no file.
+
+The weekly eval job (`com.homelab.weekly-eval`, #321) is new, so the owner
+installs it as in this section: it shows in the `diff --stat` as a new file.
+Its four `PASTE_` values are `ProgramArguments` entries 10, 12, 14 and 16
+(counted from 0): the served model's name, revision, tokenizer revision and
+weight size in MB. Fill them in, then check that `plutil -p` shows no
+`PASTE_`, before it is bootstrapped. Each request it sends waits for the heavy
+slot that the supervisor and `lab tick` share, the `lab.db.model.lock` file
+beside the database, so the eval never runs a request beside theirs. If the
+slot stays busy for 600 seconds, that week's run stops with nothing recorded, and
+`/var/log/homelab/weekly-eval.err` says so. Run it again by hand when the model is
+free, so P3 still gets its six weekly records. To remove the job, for a rollback to a commit without it or to stop P3's runs:
+`sudo launchctl bootout system/com.homelab.weekly-eval`, then
+`sudo rm /Library/LaunchDaemons/com.homelab.weekly-eval.plist`. Its records in
+`/var/homelab/evals/runs` stay.
+
 The installed service definitions in `/Library/LaunchDaemons` are copies. A code
 update does not change them, so first look at what the update touches, then
 decide whether they need reinstalling.
@@ -455,6 +519,34 @@ backup has restored. A failure with `unable to open database file` means the ter
 app cannot reach the volume (see the Full Disk Access note in the backup folder section
 above).
 
+**Stop what writes to the database for the update (#356).** The supervisor and
+`lab tick` open the database, and with the new code in place either would migrate
+it before the check further down can try the migrations on a copy: `lab tick`
+starts every five minutes, and launchd restarts the supervisor with whatever code
+is in place whenever it exits. The self-test (03:17), the Sunday eval (04:23) and
+the chat daemon open it too. So stop every one of them that is installed before
+the checkout, and start them again only after the check. `WRITERS` names them, and
+the loops below skip a job whose definition is not installed. Keep-awake, the
+status check, the heartbeat and the watchdog only read the database.
+
+Stopping the supervisor interrupts the work it is running (startup recovery
+requeues idempotent tasks and holds the rest for review), so look at `status`
+first and stop it when the queue is idle. With nothing queued, the status check
+stays quiet while the supervisor is stopped.
+
+```sh
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db status | head -3
+WRITERS=(supervisor tick selftest weekly-eval chat)
+for s in "${WRITERS[@]}"; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootout system/com.homelab.$s; fi; done
+for s in "${WRITERS[@]}"; do if sudo launchctl print system/com.homelab.$s >/dev/null 2>&1; then echo "STILL LOADED: $s"; fi; done
+```
+
+The second loop prints nothing when every job is stopped. If it prints `STILL LOADED`,
+stop here and bootout that job again before the checkout.
+
+`WRITERS` is used again below, so keep this Terminal window. In a new window, set
+it again with the same line.
+
 The deployment is owned by root so the lab account cannot change what it runs.
 As in step 3, ownership passes to you for the update and returns to root after,
 and `git` and `uv sync` run as you, never as root:
@@ -464,7 +556,7 @@ sudo chown -R "$USER" /opt/homelab /opt/homelab-python
 git -C /opt/homelab fetch origin
 git -C /opt/homelab -c advice.detachedHead=false checkout "$COMMIT"
 git -C /opt/homelab diff --stat "$OLD" "$COMMIT" -- ops/launchd lab/service.py ops/backup-launcher
-cd /opt/homelab && UV_PYTHON_INSTALL_DIR=/opt/homelab-python UV_PYTHON_PREFERENCE=only-managed "$UV" sync --locked
+cd /opt/homelab && UV_PYTHON_INSTALL_DIR=/opt/homelab-python UV_PYTHON_PREFERENCE=only-managed "$UV" sync --locked --extra dev
 sudo chown -R root:wheel /opt/homelab /opt/homelab-python
 sudo chmod -R go-w /opt/homelab /opt/homelab-python
 ```
@@ -491,18 +583,39 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
   (`sudo git -C /opt/homelab ...`): as you it stops with "dubious ownership",
   which is correct and is not to be silenced with `safe.directory`.
 
-Then restart the two services that stay running (the others start fresh on
-their timers) and check. Look at `status` first: `kickstart -k` kills the
-supervisor, and work running at that moment is interrupted (startup recovery
-requeues idempotent tasks and holds the rest for review), so do it when the
-queue is idle.
+**Try the migrations on a copy before anything starts (#356).** The new code is
+in place, but with the jobs in `WRITERS` stopped nothing has opened the database
+with it yet. Starting them below would migrate it, so check first:
 
 ```sh
-for s in supervisor keepawake; do sudo launchctl kickstart -k system/com.homelab.$s; done
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db migrate --check
+```
+
+It copies the database into a private folder beside it, runs the new code's
+migrations and SQLite's integrity and foreign key checks on the copy, and deletes
+the copy. The database itself is only read. It needs free space for about two
+copies of the database.
+
+- A line that starts `migrate --check:` and says the database was not changed:
+  go on. Write down the two schema versions it names, if it names two. The first
+  is `N` in "Roll back after the new code ran" below.
+- A line that starts `migrate --check failed`: start nothing on the new code. Roll
+  back as "Roll back before anything started" below says, and put the line on an
+  issue.
+- A `.lab.db.check-` folder left in `/var/homelab` by an interrupted check holds
+  only a copy and can be deleted.
+
+Then start the jobs in `WRITERS` on the new code, restart keep-awake, and check:
+
+```sh
+for s in "${WRITERS[@]}"; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.$s.plist; fi; done
+for s in "${WRITERS[@]}"; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ] && ! sudo launchctl print system/com.homelab.$s >/dev/null 2>&1; then echo "NOT LOADED: $s"; fi; done
+sudo launchctl kickstart -k system/com.homelab.keepawake
 sleep 10
 sudo git -C /opt/homelab rev-parse HEAD
 ps -o user=,pid= -p $(pgrep -f lab.supervisor)
 sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db status | head -3
+sudo launchctl print system/com.homelab.tick | head -3
 sudo -u lab /usr/bin/touch /opt/homelab/x
 ```
 
@@ -510,11 +623,51 @@ sudo -u lab /usr/bin/touch /opt/homelab/x
 - `ps` shows `lab` as the user, and a new pid.
 - `status` shows `health` as `IDLE` or `OK` (`ATTENTION` or `UNHEALTHY` needs
   a look at the reasons it lists) and `mode` as `running`.
+- The loop after the bootstrap prints nothing. A `NOT LOADED` line names a job to
+  bootstrap again.
+- `launchctl print` shows the tick job's details, not an error.
 - `touch` is refused with `Permission denied`.
 
-**Roll back** by running the same block with `COMMIT` set to the `OLD` hash
-printed at the start (write it down). If the supervisor does not start, its
-reason is in `/var/log/homelab/supervisor.err`.
+If the supervisor does not start, its reason is in
+`/var/log/homelab/supervisor.err`.
+
+**Roll back before anything started.** After a failed check, the database was
+never opened by the new code. Run the ownership block above again with `COMMIT`
+set to the `OLD` hash you wrote down, then start the services as in the block
+above. They run the old code on the database as it was.
+
+**Roll back after the new code ran.** Once any job in `WRITERS` has run on the new
+code, a database the check said would go from version `N` to a newer one
+has been upgraded, and the old code refuses it. Before it upgraded, the new code
+copied it beside itself as `/var/homelab/lab.db.pre-vN.bak`. Put that copy back,
+then the old code:
+
+1. Stop everything that opens the database, keep-awake included:
+   `for s in "${WRITERS[@]}" keepawake; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootout system/com.homelab.$s; fi; done`
+   and check that
+   `for s in "${WRITERS[@]}" keepawake; do if sudo launchctl print system/com.homelab.$s >/dev/null 2>&1; then echo "STILL LOADED: $s"; fi; done`
+   prints nothing. Do not go on to step 2 while anything is still loaded.
+2. Move the upgraded database aside and put the copy in its place. Set `N` first.
+   Nothing is deleted: the upgraded files go into a dated folder beside them.
+
+   ```sh
+   N="PASTE_N"
+   STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+   sudo -u lab sh -c "cd /var/homelab && mkdir -m 700 rolled-back-$STAMP && for f in lab.db lab.db-wal lab.db-shm; do if [ -e \$f ]; then mv \$f rolled-back-$STAMP/; fi; done && cp lab.db.pre-v$N.bak lab.db && chmod 600 lab.db && ls -l lab.db"
+   ```
+
+   The last line must list `lab.db` owned by `lab` with `-rw-------`.
+3. Run the ownership block above with `COMMIT` set to `OLD`.
+4. Start the services, keep-awake included:
+   `for s in "${WRITERS[@]}" keepawake; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.$s.plist; fi; done`,
+   then run the checks above. `rev-parse` must print `OLD`.
+
+Whatever the new code wrote after the upgrade is not in the restored database. It
+stays in the dated folder. If the copy is missing or does not open, use the
+backup taken at the start of this section instead:
+`sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli restore-check <its manifest> --into <an empty folder>`
+writes a checked `lab.db` there, which goes in place the same way as the copy in
+step 2.
 
 ## Moving the backup's Full Disk Access to its launcher (#287, once)
 

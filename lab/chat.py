@@ -6,7 +6,8 @@ gate run first, and every tool call goes through the broker, so an approve-tier
 tool such as ``shell.run`` waits for the operator's signed approval. The reply
 comes from the task's result. Nothing here runs a command.
 
-The trust rules, each with a test in ``tests/test_chat.py``:
+The trust rules, each with a test in ``tests/test_chat.py`` (the label rule in
+``tests/test_chat_label.py``):
 
 * **One paired chat.** The chat id is set by the operator outside the lab's
   write reach (the root-owned service definition). A message counts only if
@@ -33,6 +34,9 @@ The trust rules, each with a test in ``tests/test_chat.py``:
 * **Bounded.** Messages over ``MAX_MESSAGE_CHARS`` are refused; each chat may
   send ``RATE_MAX_MESSAGES`` per ``RATE_WINDOW_SECONDS``; replies are cleaned
   plain text, bounded, and go only to the paired chat.
+* **Labelled.** Every message to the person ends with ``AI_LABEL``, which says it
+  comes from the home-lab AI agent (#375). It is added at the one send, after the
+  text is final, so no reply text can remove it.
 * **Through the egress gateway.** The transport reaches only
   ``api.telegram.org`` through ``lab.egress`` (https, port 443, public
   addresses, no redirects). The bot token comes from ``lab.vault`` and never
@@ -94,6 +98,22 @@ LIST_LIMIT = 10
 NOTIFY_STATES = ("awaiting_approval", "succeeded", "failed", "cancelled", "interrupted")
 _PREFIX = re.compile(r"^[0-9a-f]{4,32}$")
 
+# The label on every message to the person (#375): it says the text comes from
+# the home-lab AI agent. A copy of it in the reply text is removed, so the person
+# sees exactly one. The copy is matched letter by letter, so case and spacing
+# do not hide it.
+AI_LABEL = "[home-lab AI agent]"
+LABEL_GAP = "\n\n"
+# Between the letters of a copy: white space, and the Unicode default-ignorable
+# characters that ``clean`` keeps because they are not format characters (the
+# combining grapheme joiner, Hangul fillers, Khmer vowel inherents, Mongolian
+# and other variation selectors). Each draws nothing, so a copy holding them
+# looks like the label.
+_IGNORABLE = ("[\\s\u034f\u115f\u1160\u17b4\u17b5\u180b-\u180f\u3164"
+              "\ufe00-\ufe0f\uffa0\ufff0-\ufff8\U000e0100-\U000e01ef]*")
+_LABEL_COPY = re.compile(
+    _IGNORABLE.join(re.escape(ch) for ch in AI_LABEL if not ch.isspace()), re.IGNORECASE)
+
 
 class Action(StrEnum):
     """What one update did. Only TASK_CREATED, CONTROL, CANCELLED and
@@ -150,12 +170,34 @@ def _plain(text: object, limit: int) -> str:
     return " ".join(clean(str(text)).split())[:limit]
 
 
-def bound_reply(text: str) -> str:
-    """What may be sent: no control or format characters, bounded."""
+def bound_reply(text: str, limit: int = MAX_REPLY_CHARS) -> str:
+    """What may be sent: no control or format characters, at most ``limit`` characters."""
     cleaned = clean(text).strip()
-    if len(cleaned) > MAX_REPLY_CHARS:
-        cleaned = cleaned[:MAX_REPLY_CHARS - 1] + "…"
+    if len(cleaned) > limit:
+        cleaned = cleaned[:limit - 1] + "…"
     return cleaned
+
+
+def with_ai_label(text: str) -> str:
+    """The text as the person is sent it: the body, then ``AI_LABEL`` as the last line.
+
+    This is the one function every chat message passes through at the send, after
+    the reply text is final, so no model output or task payload can take the label
+    off. The body is cut to make room first, so a long reply never cuts the label.
+    The label goes after the body, not before it: the answer is what a reader sees
+    first, and the label is always the last line of the message.
+
+    Any copy of the label already in the text is removed first, whatever its case
+    or spacing, so the message holds exactly one label, at the fixed place. The text
+    is cleaned before the copies are looked for, so a hidden character inside a copy
+    does not hide it. Empty text still gets the label.
+    """
+    body = clean(text)
+    while _LABEL_COPY.search(body):
+        body = _LABEL_COPY.sub("", body)
+    room = MAX_REPLY_CHARS - len(LABEL_GAP) - len(AI_LABEL)
+    body = bound_reply(body, room)
+    return f"{body}{LABEL_GAP}{AI_LABEL}" if body else AI_LABEL
 
 
 HELP = (
@@ -592,9 +634,9 @@ class TelegramTransport:
         return result[:MAX_UPDATES_PER_POLL]
 
     def send_message(self, chat_id: int, text: str) -> None:
-        body = bound_reply(text)
-        if not body:
-            return
+        # Every chat message to the person is sent here, so the label is added here,
+        # after the text is final. An empty reply is still sent, with the label alone.
+        body = with_ai_label(text)
         # Plain text: no parse mode, so nothing in a reply is read as markup.
         self._call("sendMessage", {"chat_id": chat_id, "text": body,
                                    "disable_web_page_preview": True})

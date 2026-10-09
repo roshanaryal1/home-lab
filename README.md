@@ -132,7 +132,9 @@ log. The cited comparison is [docs/COMPARISON.md](docs/COMPARISON.md). On
 v0.1 first, then add features month by month; which features, and what home-lab
 will not copy, is in [docs/FEATURE-PLAN.md](docs/FEATURE-PLAN.md).
 The months to v1.0 and a public launch, and what v1.0 must pass, are in
-[docs/PLAN-7-MONTHS.md](docs/PLAN-7-MONTHS.md).
+[docs/PLAN-7-MONTHS.md](docs/PLAN-7-MONTHS.md). The wider market (OpenAI Dots, Meta Muse, xAI
+Grok Bot and the open-source agents) and the owner's hybrid position, local by default with an
+opt-in cloud, are in [docs/MARKET-2026.md](docs/MARKET-2026.md).
 The install guide for your own Mac is [docs/INSTALL.md](docs/INSTALL.md); it has not
 yet been tested end to end on a fresh Mac ([#188](https://github.com/roshanaryal1/home-lab/issues/188)).
 
@@ -221,8 +223,16 @@ step ([#87](https://github.com/roshanaryal1/home-lab/issues/87)).
 
 > **zsh note.** The blocks below have `#` comments at the end of some lines. macOS's default zsh does not treat those as comments when you paste, so run `setopt interactivecomments` first (it lasts for that Terminal window), or leave the comments out.
 
+`lab` and `python -m lab.cli` are the same command. Each command below works with either spelling, for example `uv run lab status`. `lab --version` prints the version.
+
 ```sh
-uv run python -m lab.cli status [--json] [--alert-config F]   # queue, worker health, counters; exit 2 if unhealthy
+uv run python -m lab.cli status [--json] [--alert-config F] [--stalled-minutes N]   # queue, worker health, counters and stalled tasks, exit 2 if unhealthy
+uv run python -m lab.cli doctor                   # read-only check: database, operator key, model, disk, backup, selftest, audit chain; exit 1 if any fails
+# read-only: memory, the action log and task results as JSON and Markdown, in a new private folder in DIR
+uv run python -m lab.cli export --to DIR
+uv run python -m lab.cli security-audit [--details]   # read-only check of owners, modes, the operator key and the loopback model URL, exit 1 if any fails
+uv run python -m lab.cli migrate --check           # before a restart onto new code: migrate a private copy of the database and check it; the database is only read (#356)
+uv run python -m lab.cli update --plan COMMIT              # print the update steps for this install with the values filled in; read-only, runs no sudo (#370)
 uv run python -m lab.cli approvals                # what is waiting for a decision
 uv run python -m lab.cli show <id>                # read the exact call before deciding
 uv run python -m lab.cli approve <id> --by you --key operator.key --expect-hash <prefix>
@@ -238,6 +248,7 @@ uv run python -m lab.cli heartbeat --url-file F   # ping the dead-man switch, on
 uv run python -m lab.cli setup-plan [--apply]      # print the lab-account setup; --apply needs root on macOS
 uv run python -m lab.cli keepawake [--once] [--grace 600]   # hold caffeinate only while work is pending
 uv run python -m lab.cli tick [--repo owner/repo]     # one pass: observe, summarize with the model, route
+uv run python -m lab.cli schedule add NAME --daily HH:MM|--weekly DAY HH:MM|--every-minutes N --kind KIND --title T --key K --by you   # an owner-signed schedule; `lab tick` starts its task when due, approve-tier steps still wait for you. `schedule list`, `schedule remove NAME --by you` (docs/SCHEDULES.md)
 uv run python -m lab.cli emit [--min-failures 3]  # queue proposals from patterns in the event log
 uv run python -m lab.cli chain <task>             # the events that produced a proposal
 uv run python -m lab.cli ops                      # operations of unknown outcome
@@ -245,8 +256,8 @@ uv run python -m lab.cli resolve <op> --happened|--not-happened --by you   # rec
 uv run python -m lab.cli audit verify             # walk the hash-chained event log
 uv run python -m lab.cli audit checkpoint --key K --out DIR    # signed head, kept outside the lab
 uv run python -m lab.cli artifacts verify         # re-hash every stored output
-uv run python -m lab.cli backup --to DIR [--keep N] [--alert-config F]   # online snapshot; with --keep, restore-check it, then keep the newest N
-uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything
+uv run python -m lab.cli backup --to DIR [--keep N] [--alert-config F]   # online snapshot of the database and every blob it refers to (task artifacts, evidence snapshots, skill files, #358); with --keep, restore-check it, then keep the newest N
+uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything, every blob re-hashed
 uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
 uv run python -m lab.cli skillstore submit|promote|known-good|rollback|history|install   # versioned skills, operator-promoted, one-step rollback
 uv run python -m lab.cli prereg m2|m6 [--json]   # run pre-registered Claim M2 or M6 on its frozen cases, refused if the case file changed
@@ -256,15 +267,19 @@ uv run python -m lab.cli repo sign <name> <path> --key K --by you   # sign a rep
 uv run python -m lab.cli memory search|inspect|add-evidence|correct|revoke|delete   # inspectable FTS5 memory
 uv run python -m lab.cli route <task> [--want paper]   # post, blog, paper or nothing, by evidence weight; thin evidence refused upward
 uv run python -m lab.cli shadow --cases evals/shadow_cases.jsonl   # measure the rubric on labeled cases; a model candidate is compared in shadow, never applied
-uv run python -m lab.cli dashboard [--port 8765]   # read-only status page on loopback; no controls, GET only, everything escaped
+uv run python -m lab.cli dashboard [--port 8765]   # read-only status page on loopback. No controls, GET only, everything escaped. /metrics serves the same numbers in Prometheus text format
 uv run python -m lab.cli ledger show <task>       # claims, their evidence and status; review, verify
-uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record; --db notes it as a measurement
+uv run python -m lab.cli memory-budget [TOKENS ...] [--measurements FILE]   # predicted resident memory of the heavy model at each context length (default 8192 16384 37000). With a measurement record, the error against it (#321)
+uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record; --db notes it as a measurement and takes the model slot the supervisor shares
 uv run python -m lab.cli eval rerun <record>      # repeat a run from its record alone, then compare
 uv run python -m lab.cli bench run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # cold start, first token, decode speed, server memory
 uv run python -m lab.cli bench tune <baseline> <candidate>   # recommend a setting only on a measured gain with no task lost
 uv run python -m lab.cli measure-ceilings [--repeats 5] [--headroom 2]   # peak memory and CPU of every reviewed handler in real workers; suggests task ceilings, changes nothing
 uv run python -m lab.attacks                      # benign-plus-hostile scenarios against a stub model
+uv run python -m lab.cli injection-suite [--json] [--out F]   # the public injection suite: 27 fixed cases in throwaway labs, exit 1 if any attack succeeds (docs/INJECTION-SUITE.md)
 ```
+
+The `chat` command labels every message it sends with `[home-lab AI agent]` on its last line, so the person always knows the text comes from the AI agent ([#375](https://github.com/roshanaryal1/home-lab/issues/375)).
 
 Approvals are signed with the operator's private key and the supervisor
 honours only signatures that verify against the public key it is given
@@ -299,6 +314,7 @@ lab/dashboard.py     read-only status page on loopback
 lab/keepawake.py, logsetup.py   queue-aware sleep prevention; rotating private JSON logs
 lab/loop.py          the loop: summarizer handler, ledger claim, rubric route, `lab tick`
 lab/emitter.py       proposals emitted from the event log, each with its event chain
+lab/schedule.py      owner-signed schedules that start tasks on a calendar rule and never approve
 lab/model.py         bounded model adapter: pinned revisions, admission, strict tool calls
 lab/memory.py        inspectable memory: FTS5, provenance, expiry, revoke that reaches drafts
 lab/rubric.py        the router's rules: evidence weight to post, blog, paper or nothing
@@ -308,6 +324,7 @@ lab/ceilings.py      peak memory and CPU of each reviewed handler, and suggested
 evals/ceilings/      the sample tasks it runs, and its reports
 lab/evals.py         fixed task set run against any endpoint, sealed provenance records
 lab/attacks.py       injection harness
+lab/injection_suite.py   the versioned public injection suite and its report
 evals/tasks.jsonl    the 24 tasks (arithmetic, extraction, format, code, tool calls, injection)
 evals/shadow_cases.jsonl   12 labeled research cases for the shadow experiment
 docs/PREREGISTRATION.md    evaluation plan, registered at osf.io/jfp74, with results

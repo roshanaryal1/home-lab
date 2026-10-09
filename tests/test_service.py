@@ -18,9 +18,11 @@ from pathlib import Path
 
 import pytest
 
-from lab import service
+from lab import evals, service
 from lab.cli import main
 from lab.supervisor import Supervisor, SupervisorConfig
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_supervisor_plist_restarts_with_bounded_backoff_and_runs_as_lab() -> None:
@@ -95,6 +97,75 @@ def test_ops_copies_of_the_plists_are_current(tmp_path: Path) -> None:
         user="lab", python=py, workdir=wd, db=db)
     assert (root / "com.homelab.chat.plist").read_bytes() == service.chat_plist(
         user="lab", python=py, workdir=wd, db=db)
+    assert (root / "com.homelab.weekly-eval.plist").read_bytes() == service.weekly_eval_plist(
+        user="lab", python=py, workdir=wd, db=db)
+
+
+WEEKLY = {"user": "lab", "python": "/opt/lab/.venv/bin/python", "workdir": "/opt/lab",
+          "db": "/var/lab/lab.db"}
+FILLED_IN = {"PASTE_MODEL_NAME": "served-model", "PASTE_MODEL_REVISION": "a" * 40,
+             "PASTE_TOKENIZER_REVISION": "b" * 40, "PASTE_WEIGHTS_MB": "17180"}
+
+
+def _weekly_eval_argv(**overrides: str) -> list[str]:
+    """The arguments after ``python -m lab.cli``, i.e. what ``lab.cli.main`` takes."""
+    args = plistlib.loads(service.weekly_eval_plist(**{**WEEKLY, **overrides}))
+    assert args["ProgramArguments"][1:3] == ["-m", "lab.cli"]
+    return list(args["ProgramArguments"][3:])
+
+
+def test_weekly_eval_runs_as_lab_once_a_week_on_sunday() -> None:
+    data = plistlib.loads(service.weekly_eval_plist(**WEEKLY))
+    assert data["Label"] == service.WEEKLY_EVAL_LABEL == "com.homelab.weekly-eval"
+    assert data["UserName"] == "lab"
+    # launchd: Weekday 0 is Sunday. 04:23 is clear of backup (02:47) and self-test (03:17).
+    assert data["StartCalendarInterval"] == {"Weekday": 0, "Hour": 4, "Minute": 23}
+    # Not at boot either: a run is a weekly measurement, and a reboot is not a week.
+    assert "KeepAlive" not in data and "StartInterval" not in data and "RunAtLoad" not in data
+
+
+def test_the_weekly_eval_arguments_parse_with_the_real_eval_run_parser(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Once the operator has filled the placeholders in, the job's arguments go through
+    the real ``lab`` parser and reach the runner with the intended configuration."""
+
+    class Reached(Exception):
+        pass
+
+    seen: list[evals.RunConfig] = []
+
+    def stop_before_the_model(config: evals.RunConfig, *a: object, **k: object) -> None:
+        seen.append(config)
+        raise Reached
+
+    monkeypatch.setattr(evals, "run_suite", stop_before_the_model)
+    argv = [FILLED_IN.get(arg, arg) for arg in _weekly_eval_argv(
+        workdir=str(ROOT), db=str(tmp_path / "lab.db"))]
+    with pytest.raises(Reached):
+        main(argv)
+    (config,) = seen
+    assert config.endpoint == service.WEEKLY_EVAL_ENDPOINT == "http://127.0.0.1:8080/v1"
+    assert config.model["name"] == "served-model" and config.model["revision"] == "a" * 40
+    assert config.model["tokenizer_revision"] == "b" * 40
+    assert config.model["weights_mb"] == 17180
+    assert config.tasks_path == str(ROOT / "evals" / "tasks.jsonl")
+
+
+def test_the_committed_weekly_eval_refuses_to_start_until_its_weights_are_filled(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as refused:
+        main(_weekly_eval_argv(workdir=str(ROOT), db=str(tmp_path / "lab.db")))
+    assert refused.value.code == 2
+    assert "--weights-mb" in capsys.readouterr().err
+
+
+def test_the_weekly_eval_record_goes_where_eval_run_writes_it() -> None:
+    """The default is ``evals/runs``. The working directory is root-owned, so the record
+    goes to the same folder beside the lab's own database."""
+    argv = _weekly_eval_argv()
+    assert argv[argv.index("--out") + 1] == "/var/lab/evals/runs"
+    assert argv[-2:] == ["--db", "/var/lab/lab.db"]
+    assert argv[argv.index("--tasks") + 1] == "/opt/lab/evals/tasks.jsonl"
 
 
 def test_a_running_supervisor_beats(tmp_path: Path) -> None:

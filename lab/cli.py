@@ -33,7 +33,10 @@ Usage:
     python3 -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
-    python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
+    python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N] [--stalled-minutes N]
+    python3 -m lab.cli doctor
+    python3 -m lab.cli export --to DIR
+    python3 -m lab.cli security-audit [--details]
     python3 -m lab.cli backup [--to DIR] [--artifacts DIR] [--keep N] [--alert-config FILE]
     python3 -m lab.cli heartbeat --url-file FILE
     python3 -m lab.cli restore-check MANIFEST --into DIR
@@ -53,6 +56,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import re
 import shlex
@@ -63,6 +67,7 @@ import time
 import unicodedata
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +80,7 @@ from lab import (
     backup,
     control,
     deadman,
+    doctor,
     drills,
     emitter,
     keepawake,
@@ -83,21 +89,28 @@ from lab import (
     metrics,
     publish,
     rubric,
+    security_audit,
     selftest,
     service,
     skills,
     sources,
     supervisor,
+    update_plan,
 )
+from lab import export as export_mod
 from lab import memory as memory_mod
+from lab import migrations as migrations_mod
 from lab import model as model_mod
 from lab import operator as operator_keys
+from lab import schedule as schedule_mod
 from lab.artifacts import ArtifactStore
 from lab.connectors import ConnectorError, load_connectors
+from lab.db import connect_readonly
 from lab.egress import EgressGateway
 from lab.journal import OperationJournal
 from lab.ledger import Ledger, LedgerError
 from lab.memory import Memory, MemoryRefused
+from lab.migrations import MigrationError
 from lab.policy import ApprovalChanged, PolicyEngine, intent_hash, task_intent
 from lab.queue import Task, TaskQueue
 from lab.sealed import write_new
@@ -404,12 +417,58 @@ def cmd_measure_ceilings(args: argparse.Namespace) -> int:
     return 1 if report.problems else 0
 
 
+def _version() -> str:
+    # build_parser runs for every command, so a checkout that was never
+    # installed must still run the other commands. Its --version says unknown.
+    try:
+        return version("home-lab")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def cmd_memory_budget(args: argparse.Namespace) -> int:
+    """Print the heavy model's predicted resident memory. With a record, compare it (#321)."""
+    from lab import memory_budget
+    spec = memory_budget.HEAVY_SPEC
+    try:
+        measurements = memory_budget.read_record(args.measurements) if args.measurements else []
+        contexts = args.contexts or list(memory_budget.DEFAULT_CONTEXTS)
+        predictions = [(tokens, memory_budget.predict_mb(spec, tokens)) for tokens in contexts]
+        comparisons = memory_budget.compare(spec, measurements)
+    except memory_budget.MemoryBudgetError as exc:
+        print(f"memory-budget: {exc}", file=sys.stderr)
+        return 1
+    budget = model_mod.DEFAULT_BUDGET_MB
+    print(f"{spec.name}: {spec.weights_mb} MB of weights plus {spec.kv_bytes_per_token} bytes "
+          "of KV cache per token (ADR 0001). No fixed overhead is added.")
+    print(f"{'context':>9}  {'predicted MB':>12}  against the {budget} MB policy budget")
+    for tokens, predicted in predictions:
+        print(f"{tokens:>9}  {predicted:>12}  {'within' if predicted <= budget else 'over'}")
+    if comparisons:
+        print()
+        print("error = predicted minus measured, so a positive error means the prediction is high")
+        print(f"{'what':>9}  {'context':>9}  {'predicted MB':>12}  {'measured MB':>11}  "
+              f"{'error MB':>9}  {'error %':>8}")
+        for c in comparisons:
+            m = c.measurement
+            print(f"{m.what:>9}  {m.context_tokens:>9}  {c.predicted_mb:>12}  "
+                  f"{m.measured_mb:>11.0f}  {c.error_mb:>+9.0f}  {c.error_percent:>+8.1f}")
+        for c in comparisons:
+            print(f"  {c.measurement.context_tokens} tokens: {_escape(c.measurement.source)}")
+        if any(c.measurement.what == "rss" for c in comparisons):
+            print("rss leaves out the Metal cache (ADR 0001), so it reads low as context grows")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lab", description="Operate the home lab."
     )
+    parser.add_argument("--version", action="version", version=f"lab {_version()}")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB,
                         help=f"database path (default: {DEFAULT_DB})")
+    parser.add_argument("--debug", action="store_true",
+                        help="show the traceback for a database or file error, not one line")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("approvals", help="list what is waiting for a decision")
@@ -657,6 +716,37 @@ def build_parser() -> argparse.ArgumentParser:
     stc.add_argument("--report-ok", action="store_true",
                      help="with --alert-config, also send one short alert when every check "
                      "passes, so a result arrives every morning")
+    sub.add_parser("doctor", help="read-only health check: exit 1 if any check fails")
+    inj = sub.add_parser("injection-suite", help="run the public injection suite (#368) in "
+                         "throwaway labs; exit 1 if any attack succeeds")
+    inj.add_argument("--version", default=None, help="suite version (default: the latest)")
+    inj.add_argument("--json", action="store_true", help="print the report as JSON")
+    inj.add_argument("--out", type=Path, default=None, help="also write the JSON report here")
+    inj.add_argument("--endpoint", default=None,
+                     help="a loopback OpenAI-compatible server; without it, the stub model")
+    inj.add_argument("--model", default=None)
+    inj.add_argument("--revision", default=None)
+    inj.add_argument("--tokenizer-revision", default=None)
+    inj.add_argument("--weights-mb", type=int, default=1)
+    inj.add_argument("--max-steps", type=int, default=6,
+                     help="model turns per case, at least 1")
+    sec = sub.add_parser("security-audit", help="read-only check of the lab's boundary: file "
+                         "owners and modes, the operator key, the loopback model URL. Exit 1 if "
+                         "any check fails")
+    sec.add_argument("--details", action="store_true",
+                     help="under each FAIL, print the offending paths (never printed without it)")
+    mg = sub.add_parser("migrate", help="--check: run this build's migrations on a private "
+                        "copy of the database and check it; the database is only read")
+    mg.add_argument("--check", action="store_true", required=True,
+                    help="required: the services migrate the database when they start")
+    exp = sub.add_parser("export", help="read-only: memory, the action log and task results as "
+                         "JSON and Markdown, in a new private folder under --to")
+    exp.add_argument("--to", type=Path, required=True,
+                     help="an existing directory; the export is written to a new folder in it")
+    up = sub.add_parser("update", help="--plan COMMIT: print the update steps for this install "
+                        "with the values filled in; read-only, runs no sudo")
+    up.add_argument("--plan", metavar="COMMIT", required=True,
+                    help="the full 40 character commit to update to")
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
@@ -688,6 +778,31 @@ def build_parser() -> argparse.ArgumentParser:
     wd.add_argument("--max-age", type=float, default=service.DEFAULT_MAX_AGE,
                     help="seconds without a heartbeat before the supervisor counts as hung")
     wd.add_argument("--dry-run", action="store_true")
+
+    sch = sub.add_parser("schedule", help="owner-signed schedules: a schedule may start work, "
+                         "never approve it (#361)")
+    sch_sub = sch.add_subparsers(dest="schedule_command", required=True)
+    s_add = sch_sub.add_parser("add", help="add a schedule signed with the operator key")
+    s_add.add_argument("name")
+    when = s_add.add_mutually_exclusive_group(required=True)
+    when.add_argument("--daily", metavar="HH:MM")
+    when.add_argument("--weekly", nargs=2, metavar=("DAY", "HH:MM"))
+    when.add_argument("--every-minutes", type=int, metavar="N")
+    s_add.add_argument("--tz", default="UTC", help="IANA time zone, such as Pacific/Auckland")
+    s_add.add_argument("--kind", required=True,
+                       help="the task kind the schedule starts, such as git.read or web.summary")
+    s_add.add_argument("--title", required=True)
+    s_add.add_argument("--payload", default="{}", help="the task's payload as JSON")
+    s_add.add_argument("--tier", default="autonomous", choices=list(schedule_mod.TIERS),
+                       help="the task's capability tier; approve still waits for a signature")
+    s_add.add_argument("--weight", default="light", choices=list(schedule_mod.WEIGHTS))
+    s_add.add_argument("--key", default=None,
+                       help="operator private key that signs the schedule (or LAB_OPERATOR_KEY)")
+    s_add.add_argument("--by", required=True, help="an audit label")
+    sch_sub.add_parser("list", help="the live schedules and when each is next due")
+    s_rm = sch_sub.add_parser("remove", help="take a schedule out of service; needs no key")
+    s_rm.add_argument("name")
+    s_rm.add_argument("--by", required=True, help="an audit label")
 
     ctl = sub.add_parser("control", help="pause, resume, drain or stop the whole lab")
     ctl.add_argument("action", choices=["show", "pause", "resume", "drain", "stop"])
@@ -789,12 +904,23 @@ def build_parser() -> argparse.ArgumentParser:
     mc.add_argument("--out", type=Path, default=None,
                     help="report directory (default: evals/ceilings)")
 
+    mb = sub.add_parser("memory-budget",
+                        help="predict the heavy model's resident memory at context lengths, "
+                             "and compare it with measurements (#321)")
+    mb.add_argument("contexts", nargs="*", type=int, metavar="TOKENS",
+                    help="context lengths to predict (default: 8192 16384 37000)")
+    mb.add_argument("--measurements", type=Path, default=None, metavar="FILE",
+                    help="a measurement record to compare with the predictions")
+
     st = sub.add_parser("status", help="queue, worker health and counters, from the event log")
     st.add_argument("--json", action="store_true")
     st.add_argument("--since-hours", type=float, default=None,
                     help="count events from the last N hours (default: all time)")
     st.add_argument("--stall-seconds", type=float, default=metrics.DEFAULT_STALL_SECONDS,
                     help="how long work may wait with no worker before it is unhealthy")
+    st.add_argument("--stalled-minutes", type=float, default=metrics.DEFAULT_STALLED_MINUTES,
+                    help="report a task as stalled when its lease keeps renewing but it has "
+                         "written no event for this many minutes (default: 30)")
     st.add_argument("--alert-config", type=Path, default=None,
                     help="operator-owned JSON naming a command to run when unhealthy")
 
@@ -840,7 +966,7 @@ def cmd_keepawake(args: argparse.Namespace) -> int:
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1
-    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    conn = connect_readonly(args.db)
     conn.execute("PRAGMA busy_timeout = 5000")
     holder = keepawake.Holder()
     try:
@@ -972,10 +1098,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1
-    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    conn = connect_readonly(args.db)
     try:
         report = metrics.collect(conn, window_hours=args.since_hours,
-                                 stall_seconds=args.stall_seconds)
+                                 stall_seconds=args.stall_seconds,
+                                 stalled_minutes=args.stalled_minutes)
     except sqlite3.DatabaseError as exc:
         print(f"status: cannot read the database: {exc}", file=sys.stderr)
         return 1
@@ -985,6 +1112,11 @@ def cmd_status(args: argparse.Namespace) -> int:
           else metrics.render(report))
     if report.health == "unhealthy" and args.alert_config is not None:
         _send_alert(args, "unhealthy", "; ".join(report.reasons) or "the lab is unhealthy")
+    if report.stalled and args.alert_config is not None:
+        # Its own kind, so it is rate limited apart from "unhealthy", and it
+        # does not change the exit code. Stalled tasks are attention, not down.
+        _send_alert(args, "stalled",
+                    "; ".join(metrics.stalled_reason(task) for task in report.stalled))
     return 2 if report.health == "unhealthy" else 0
 
 
@@ -1022,6 +1154,126 @@ def cmd_selftest(args: argparse.Namespace) -> int:
             # failure alert needs, and the config's rate limit still applies.
             _send_alert(args, "selftest_ok", f"selftest ok: {len(report.checks)} checks")
     return 0 if report.ok else 1
+
+
+def cmd_injection_suite(args: argparse.Namespace) -> int:
+    """Each case runs in a throwaway lab of its own, so the lab's database is never opened.
+    Exit 1 when any attack succeeds or the case file is refused."""
+    from lab import attacks, injection_suite
+    from lab.model import BoundedModel, ModelSpec, OpenAICompatibleAdapter
+
+    version = args.version or injection_suite.LATEST
+    model: injection_suite.ModelFactory = attacks.obedient_model
+    label = injection_suite.STUB
+    if args.endpoint:
+        if not (args.model and args.revision):
+            print("injection-suite: --endpoint needs --model and --revision", file=sys.stderr)
+            return 1
+        if args.max_steps < 1:
+            print("injection-suite: --max-steps must be at least 1, or the model is never "
+                  "asked", file=sys.stderr)
+            return 1
+        spec = ModelSpec(args.model, args.revision, args.tokenizer_revision or args.revision,
+                         8192, 256, args.weights_mb)
+        model = attacks.model_agent(BoundedModel(spec, OpenAICompatibleAdapter(args.endpoint)),
+                                    args.max_steps)
+        label = f"{args.model} at revision {args.revision}"
+    # Each throwaway lab has no operator key and refuses what the cases try. Those
+    # warnings are the expected outcome, not news, so only errors are shown.
+    lab_log = logging.getLogger("lab")
+    level = lab_log.level
+    lab_log.setLevel(logging.ERROR)
+    try:
+        report = asyncio.run(injection_suite.run(version, model=model, model_label=label))
+    except injection_suite.SuiteError as exc:
+        print(f"injection-suite: {_escape(str(exc))}", file=sys.stderr)
+        return 1
+    finally:
+        lab_log.setLevel(level)
+    data = report.as_json()
+    if args.out is not None:
+        args.out.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    if args.json:
+        print(json.dumps(data, indent=2))
+    else:
+        for line in injection_suite.format_report(report).splitlines():
+            print(_escape(line))
+    return 0 if report.passed else 1
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens, so it never creates or migrates
+    the database. Exit 0 when every check passes, 1 when any fails."""
+    checks = doctor.run(args.db, os.environ)
+    for check in checks:
+        print(_escape(check.line()))
+    return 0 if all(check.ok for check in checks) else 1
+
+
+def cmd_security_audit(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens. Exit 1 when any check fails. A path
+    is printed only with --details, under the FAIL line it belongs to."""
+    findings = security_audit.run(os.environ)
+    for finding in findings:
+        print(f"{finding.name}: {finding.status}")
+        if args.details and finding.status == "FAIL":
+            for path in finding.paths:
+                print(_escape(f"  {path}"))
+    return 1 if any(finding.status == "FAIL" for finding in findings) else 0
+
+
+def cmd_migrate(args: argparse.Namespace) -> int:
+    """Read-only on the database, and dispatched before the queue opens, so it never
+    creates or migrates it. Exit 0 when a copy migrates and checks clean, 1 when not."""
+    db = _escape(str(args.db))
+    try:
+        result = migrations_mod.check_on_copy(args.db)
+    except (migrations_mod.MigrationError, sqlite3.Error, OSError) as exc:
+        unchanged = f" {db} was not changed." if args.db.exists() else ""
+        print(f"migrate --check failed: {_escape(str(exc))}.{unchanged}", file=sys.stderr)
+        return 1
+    if result.start == result.end:
+        print(f"migrate --check: {db} is at schema version {result.end}, the latest this "
+              f"build knows. A copy checks clean, and {db} was not changed.")
+    else:
+        print(f"migrate --check: a copy of {db} went from schema version {result.start} "
+              f"to {result.end} and checks clean. {db} itself was not changed.")
+    return 0
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens, so it never creates or migrates
+    the database. Exit 0 when the export folder is written, 1 when it is refused."""
+    try:
+        report = export_mod.export(args.db, args.to)
+    except export_mod.ExportError as exc:
+        print(f"export: {_escape(exc)}", file=sys.stderr)
+        return 1
+    print(f"exported to {_escape(str(report.folder))}")
+    print(f"memory items: {report.memory_items}, events: {report.events}, "
+          f"tasks: {report.tasks}")
+    return 0
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens, like doctor and migrate. It prints
+    the update steps for this install with the values filled in, and runs no sudo."""
+    commit = args.plan
+    if not update_plan.is_full_commit(commit):
+        print("update: COMMIT must be a full 40 character commit hash", file=sys.stderr)
+        return 1
+    try:
+        # The runbook's commands name /opt/homelab and /Library/LaunchDaemons, so the plan
+        # reads those same places and no other, or it could describe one checkout and act
+        # on another.
+        old, present, writers = update_plan.gather(commit, update_plan.DEFAULT_DEPLOY,
+                                                   update_plan.DEFAULT_LAUNCH_DAEMONS)
+        text = update_plan.render(commit, old, present, writers)
+    except update_plan.UpdateError as exc:
+        print(f"update: {_escape(exc)}", file=sys.stderr)
+        return 1
+    sys.stdout.write(text)
+    return 0
 
 
 def _backup_destination(args: argparse.Namespace) -> Path:
@@ -1239,7 +1491,7 @@ def _repo_acquired(args: argparse.Namespace) -> int:
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1
-    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    conn = connect_readonly(args.db)
     conn.row_factory = sqlite3.Row
     try:
         rows = sources.acquisitions(conn, args.task)
@@ -1269,7 +1521,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
     if not args.db.exists():
         print(f"No database at {args.db}", file=sys.stderr)
         return 1
-    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    conn = connect_readonly(args.db)
     try:
         if args.audit_command == "checkpoint":
             path = audit.write_checkpoint(conn, args.key, args.out)
@@ -1423,6 +1675,62 @@ def cmd_publish(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace
     if result.operation:
         print(f"operation {result.operation[:12]} resolved as happened")
     return 0 if result.outcome == "confirmed" else 2
+
+
+def cmd_schedule(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    """Add, list or remove owner-signed schedules (#361). Adding needs the operator's
+    private key: a schedule nobody signed never fires where a supervisor has the public key."""
+    conn = queue._conn
+    if args.schedule_command == "list":
+        rows = schedule_mod.live(conn)
+        if not rows:
+            print("no schedules")
+        for row in rows:
+            signed = "signed" if row["signature"] else "UNSIGNED"
+            due = ("never (refused)" if row["next_due_at"] == schedule_mod.PARKED
+                   else row["next_due_at"])
+            print(_escape(f"{row['name']}  {row['rule']} ({row['tz']})  {row['agent_kind']}  "
+                          f"tier {row['capability_tier']}  next {due}  "
+                          f"last {row['last_fired_at'] or 'never'}  {signed}  {row['title']}"))
+        return 0
+    if args.schedule_command == "remove":
+        try:
+            schedule_mod.remove(conn, args.name, by=args.by)
+        except schedule_mod.ScheduleError as exc:
+            print(f"schedule: {_escape(str(exc))}", file=sys.stderr)
+            return 1
+        print(_escape(f"removed {args.name}"))
+        return 0
+    key_path = args.key or os.environ.get("LAB_OPERATOR_KEY")
+    if not key_path:
+        print("schedule: pass --key (or set LAB_OPERATOR_KEY): a schedule must be signed by "
+              "the operator", file=sys.stderr)
+        return 1
+    try:
+        signer = operator_keys.load_private(Path(key_path))
+        payload = json.loads(args.payload)
+        if not isinstance(payload, dict):
+            raise schedule_mod.ScheduleError("--payload must be a JSON object")
+        if args.daily:
+            rule = f"daily {args.daily}"
+        elif args.weekly:
+            rule = f"weekly {args.weekly[0]} {args.weekly[1]}"
+        else:
+            rule = f"every {args.every_minutes} minutes"
+        schedule_mod.add(conn, args.name, rule, kind=args.kind, title=args.title,
+                         payload=payload, tz=args.tz,
+                         weight=args.weight, tier=args.tier, by=args.by, signer=signer)
+    except (schedule_mod.ScheduleError, operator_keys.OperatorKeyError,
+            json.JSONDecodeError) as exc:
+        print(f"schedule: {_escape(str(exc))}", file=sys.stderr)
+        return 1
+    added = next((r for r in schedule_mod.live(conn) if r["name"] == args.name), None)
+    if added is None:
+        print(_escape(f"added {args.name}"))
+        return 0
+    print(_escape(f"added {args.name}: {added['rule']} ({added['tz']}), "
+                  f"next due {added['next_due_at']}"))
+    return 0
 
 
 def cmd_memory(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
@@ -1829,6 +2137,7 @@ COMMANDS = {
     "skillstore": cmd_skillstore,
     "publish": cmd_publish,
     "memory": cmd_memory,
+    "schedule": cmd_schedule,
     "route": cmd_route,
     "ledger": cmd_ledger,
     "artifacts": cmd_artifacts,
@@ -1842,8 +2151,7 @@ COMMANDS = {
 }
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "skills" and args.skills_command != "import":
         return cmd_skills(args)
     if args.command == "prereg":
@@ -1869,6 +2177,18 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_tick(args)
     if args.command == "selftest":
         return cmd_selftest(args)
+    if args.command == "doctor":
+        return cmd_doctor(args)
+    if args.command == "injection-suite":
+        return cmd_injection_suite(args)
+    if args.command == "security-audit":
+        return cmd_security_audit(args)
+    if args.command == "migrate":
+        return cmd_migrate(args)
+    if args.command == "export":
+        return cmd_export(args)
+    if args.command == "update":
+        return cmd_update(args)
     if args.command == "keepawake":
         return cmd_keepawake(args)
     if args.command == "shadow":
@@ -1879,6 +2199,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_setup_plan(args)
     if args.command == "measure-ceilings":
         return cmd_measure_ceilings(args)
+    if args.command == "memory-budget":
+        return cmd_memory_budget(args)
     if args.command == "bench":
         from lab import bench
         return bench.main(args.bench_args)
@@ -1898,6 +2220,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "skills":            # only import gets here, see above
             return cmd_skills_import(queue, policy, args)
         return COMMANDS[args.command](queue, policy, args)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return _dispatch(args)
+    except (sqlite3.DatabaseError, MigrationError, OSError) as exc:
+        # A file that is not a database, a newer schema, a locked database, or a
+        # path that cannot be opened is expected, so it prints one line. An OSError
+        # with no file name (a reset connection, a timeout) is not a file problem,
+        # so it keeps its traceback, as do other errors. --debug re-raises them all.
+        if args.debug or (isinstance(exc, OSError) and exc.filename is None):
+            raise
+        print(f"lab: {_escape(exc)}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

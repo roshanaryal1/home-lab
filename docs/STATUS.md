@@ -6,25 +6,37 @@ be redone. The detail lives in the documents it links; this page only points.
 
 ## Where things stand
 
+- The plan: v1.0 and a public launch by April 2027, month by month, in
+  [PLAN-7-MONTHS.md](PLAN-7-MONTHS.md) (tracking issues #338 to #344). The features to add
+  through the broker are in [FEATURE-PLAN.md](FEATURE-PLAN.md), and how home-lab compares with
+  OpenClaw and Hermes Agent is in [COMPARISON.md](COMPARISON.md). The wider market and the
+  owner's hybrid decision of 2026-10-09 (local by default, opt-in cloud; scheduled tasks, a safe
+  browser, an easy install and injection defence first) are in [MARKET-2026.md](MARKET-2026.md).
 - Open pull requests: **#312** (keep-awake as the `lab` account,
   [#235](https://github.com/roshanaryal1/home-lab/issues/235)).
   Do **not** merge #312 until both checks in step 1 of its runbook section "Moving keep-awake to
   the lab account" have passed on the Mac mini: `./ops/mac-session.sh --only caffeinate` from
-  that branch, and the same check from launchd with a throwaway daemon (added 2026-10-09).
-- #312 must also be up to date with `main` before it merges. It was brought up to date on
+  that branch, and the same check from launchd with a throwaway daemon.
+- #312 must also be up to date with `main` before it merges. It was last brought up to date on
   2026-10-09 with a merge commit, and every later merge to `main` puts it behind again. Merge
   `main` into it (a merge commit, never a rebase or force-push) and wait for green checks. If
   that merge changed `ops/mac-session.sh`, run both checks again on the updated branch before
-  merging: a pass from before the merge does not cover the new script.
-- Merged on 2026-10-08 (NZDT): #300 H1 run record, #301 H1 result, #303 `lab shadow
-  --system-file`, #304 H1b run, #305 drills (interrupted task, restore from a backup), #306
-  approvals bound to the intent the operator sees, #307 backup launcher that holds Full Disk
-  Access, #308 H1c not run, #309 watchdog checks it is signalling the supervisor, #310 install
-  guide fixes, #311 roadmap and Mac-work status, #313 backup file handling checks, #314 this page.
-  Of these, #303, #305, #306, #307, #309 and #313 change code the Mac mini runs.
-- Merged on 2026-10-09 (NZDT): #319 (when a worker is killed at its memory ceiling, the reading
-  it records is rounded up, so it never shows as the limit itself, #316). It changes code the
-  Mac mini runs.
+  merging: a pass from before the merge does not cover the new script. No merge so far has
+  changed that script since the checks were written.
+- Merged on 2026-10-08 (NZDT): #300 to #311, #313, #314 (see the git log). Of these, #303, #305,
+  #306, #307, #309 and #313 change code meant for the Mac mini.
+- Merged on 2026-10-09 (NZDT), changes to code meant for the Mac mini (none deployed yet, see below):
+  #319 (a memory reading at the ceiling is reported over it), #320 (constrained decoding for H1c),
+  #324 (`lab prereg --record`), #334 (the wheel and the `lab` command, #329, #330), #336 (one-line
+  CLI errors, #331), #345 (deploy keeps pytest, #270), #346 (`lab memory-budget`), #351
+  (`lab doctor`, #347), #353 (a snapshot before migrating, #348), #335 (the weekly eval job),
+  #354 (log tracebacks, level and rotation, #349), #357 (`lab migrate --check` and safer
+  update steps, #356) and #360 (backups hold every blob the database refers to, #358).
+- Merged on 2026-10-09 (NZDT), documents and research only:
+  #317, #322, #323 (H1b interval), #325 (incident catalog), #327 (comparison and feature plan),
+  #333 (CHANGELOG and draft versioning rules, #332), #337 (A/B and H2 drafts), #350, #352
+  (seven-month plan), and the pull request for #355 that updates this page and the other
+  overview documents.
 - Nothing merged since 2026-10-07 is deployed on the Mac mini yet. Not verified from a session:
   the deployed commit is visible only on the mini, where the first block of "Updating the
   deployed code" prints it (`deployed now`). Deploying is the owner's step.
@@ -34,57 +46,94 @@ be redone. The detail lives in the documents it links; this page only points.
 - **H1: not supported** (registered, run once, [docs/PREREGISTRATION.md](PREREGISTRATION.md)
   Results). The registration allows one accuracy run per configuration, so it is not rerun.
 - **H1b** (exploratory, route definitions in the prompt): 0.433 against the rubric's 0.833, 8
-  false promotions. Reported beside H1, never replaces it
+  false promotions, interval in #323. Reported beside H1, never replaces it
   ([registration note](PREREGISTRATION-AMENDMENT-2-REGISTRATION.md)).
 - **H1c** (constrained decoding, #179): **not run**. The served `mlx_lm.server` 0.31.3 ignores
   `response_format`. On 2026-10-09 the owner chose option 2: our own constrained decoding on the
-  same MLX weights. The code and the run plan are in #320 (`docs/H1C-RUN-PLAN.md`). The run is
-  the owner's, on the Mac mini.
+  same MLX weights, built in #320. The run follows [H1C-RUN-PLAN.md](H1C-RUN-PLAN.md) and is the
+  owner's, on the Mac mini.
 - M2, M5 and M6 safety claims: 0 failures ([docs/PREREGISTRATION-SAFETY.md](PREREGISTRATION-SAFETY.md)).
+  M2 and M6 have sealed records (#324).
+- P3 (the operations paper): the incident catalog holds 27 real incidents ([INCIDENTS.md](INCIDENTS.md)).
+  The weekly eval job, the memory budget check and drafts for four A/B tests and an exploratory
+  H2 rerun are merged ([P3-AB-DESIGN-DRAFT.md](P3-AB-DESIGN-DRAFT.md),
+  [H2-RERUN-PLAN-DRAFT.md](H2-RERUN-PLAN-DRAFT.md)). Nothing in the drafts runs until the owner
+  approves it. What is left for every hypothesis is on #321.
 
 ## Waiting on the owner (needs sudo, hardware or a decision)
 
 In this order:
 
 1. Read last night's job logs: `sudo tail -n 20 /var/log/homelab/backup.log /var/log/homelab/selftest.log`.
-   If the self-test passed, close [#270](https://github.com/roshanaryal1/home-lab/issues/270); comment the
-   backup result on [#67](https://github.com/roshanaryal1/home-lab/issues/67).
+   Comment the backup result on [#67](https://github.com/roshanaryal1/home-lab/issues/67).
 2. Redeploy `main`: runbook section "Updating the deployed code"
-   ([ops/runbook-lab-account-and-daemons.md](../ops/runbook-lab-account-and-daemons.md)).
-3. Move the backup's Full Disk Access to its launcher: runbook section "Moving the backup's Full
+   ([ops/runbook-lab-account-and-daemons.md](../ops/runbook-lab-account-and-daemons.md)). It now
+   takes a backup before anything changes, stops the supervisor and `lab tick` before the
+   checkout, tries the new migrations on a copy (`migrate --check`, #356) before anything starts
+   again, and its `uv sync` keeps the test tools (`--extra dev`) the nightly self-test needs.
+   After the next 03:17 self-test passes, close
+   [#270](https://github.com/roshanaryal1/home-lab/issues/270).
+3. Run `lab doctor` as `lab` with the service's `LAB_` values (INSTALL.md, first run). Every line
+   should say `ok`.
+4. Install the weekly eval job and fill its four `PASTE_` values (same runbook section), so P3's
+   six weekly runs start. Install the log rotation rules and dry-run them (runbook, "Log
+   rotation for the launchd logs").
+5. Move the backup's Full Disk Access to its launcher: runbook section "Moving the backup's Full
    Disk Access to its launcher" ([#287](https://github.com/roshanaryal1/home-lab/issues/287)). It ends
    by turning Terminal's Full Disk Access off.
-4. The two #312 checks above, then merge and follow its runbook section.
-5. Replace the outside heartbeat check. The heartbeat job and its outside check were set up on
-   2026-10-07 and the job pinged it, but the check's URL was exposed once, so make a new check and
-   rerun the heartbeat URL step. The Telegram alert hook is installed and a test alert reached the
-   phone. Also turn off browser Apple Events and Accessibility permissions used for the OSF work.
-6. Drills: interrupted task with a power pull (`lab drill interrupted`, [#91](https://github.com/roshanaryal1/home-lab/issues/91), [#77](https://github.com/roshanaryal1/home-lab/issues/77)),
+6. The two #312 checks above, then merge and follow its runbook section.
+7. Replace the outside heartbeat check. The heartbeat job and its outside check were set up on
+   2026-10-07 and the job pinged it. Make a new check and rerun the heartbeat URL step; the reason
+   is in the owner's private notes. Also turn off browser Apple Events and Accessibility
+   permissions used for the OSF work.
+8. Run H1c on the Mac mini ([H1C-RUN-PLAN.md](H1C-RUN-PLAN.md)).
+9. Drills: interrupted task with a power pull (`lab drill interrupted`, [#91](https://github.com/roshanaryal1/home-lab/issues/91), [#77](https://github.com/roshanaryal1/home-lab/issues/77)),
    network unplug ([#79](https://github.com/roshanaryal1/home-lab/issues/79)), `/stop` from the chat bot,
    monthly restore drill (setup section 10).
-7. Fresh-account install test on another Mac ([#188](https://github.com/roshanaryal1/home-lab/issues/188),
-   [ops/install-validation.md](../ops/install-validation.md)).
+10. Fresh-account install test on another Mac ([#188](https://github.com/roshanaryal1/home-lab/issues/188),
+    [ops/install-validation.md](../ops/install-validation.md)).
+11. Delete the branch `research/321-memory-budget`. It was replaced by
+    `research/321-memory-budget-check` and only exists because the session's git access cannot
+    delete a remote branch. `.gitleaksignore` names one of its commits; that line can go once the
+    branch is deleted.
 
 Decisions:
 
 - [#70](https://github.com/roshanaryal1/home-lab/issues/70): which account owns the database and which
   runs workers, so a worker cannot open it.
-- [#179](https://github.com/roshanaryal1/home-lab/issues/179): which constrained-decoding option, if any.
-- [#189](https://github.com/roshanaryal1/home-lab/issues/189): product direction (an options memo is on
-  the issue).
 - [#83](https://github.com/roshanaryal1/home-lab/issues/83): when to publish the first release; steps
-  are on the issue and in [RELEASE-NOTES-DRAFT.md](RELEASE-NOTES-DRAFT.md).
+  are on the issue, in [RELEASE-NOTES-DRAFT.md](RELEASE-NOTES-DRAFT.md) and in
+  [ops/release.md](../ops/release.md).
+- The versioning and compatibility rules in `ops/release.md` are a draft for the owner to approve
+  (#332).
+- An empty `LAB_LOG_LEVEL` stops the supervisor, like any value that is not a level. Treating
+  empty as unset is the other choice (#349).
+- The A/B design draft leaves margins and the sampler interval to the owner, and needs approval
+  before any run (#321).
+- Who labels the H1 cases a second time, blind, for the agreement table (#321).
 - [#318](https://github.com/roshanaryal1/home-lab/issues/318): a point in the owner's private notes;
   record the outcome on the issue in general terms.
 - The owner keeps private security review notes on the Mac mini, outside this repository. Ask the
   owner before acting on anything security-related that is not in an issue.
 
+Changed behaviour to know before the redeploy:
+
+- A migration first copies the database beside itself as `lab.db.pre-vN.bak`. If that copy cannot
+  be written (no space, or the folder is not writable), nothing is migrated and the command stops
+  with a one-line error (#348).
+- The supervisor's `supervisor.err` now gets only warnings and errors. Its full log is still the
+  rotating JSON file `supervisor.log` (#349).
+- `lab eval run --db` waits for the model slot the supervisor and `lab tick` share, and stops with
+  nothing recorded if the slot stays busy for 600 seconds (#321).
+- The update steps stop the supervisor for the whole update, not only for a restart at the end,
+  so do the update when the queue is idle (#356).
+
 ## What a new session can do without the owner
 
-Little: most open work needs the Mac mini with sudo, or a decision. Safe without the owner:
-answer review comments on #312, keep docs in step with merged work, and prepare (not publish) work
-for the decisions above once the owner has chosen. Never deploy, use sudo, publish a release or
-send alerts without being asked.
+Work on the next month's issues in [PLAN-7-MONTHS.md](PLAN-7-MONTHS.md) that need no machine:
+code, tests and docs, through pull requests. Answer review comments on #312, and keep docs in
+step with merged work. Never deploy, use sudo, publish a release or send alerts without being
+asked.
 
 ## Rules of this repository
 

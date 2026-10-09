@@ -11,7 +11,9 @@ requests and the issues on 2026-10-08. On that date an options memo on #189
 recommends shipping (b) as v0.1 with no new features. On 2026-10-08 the
 owner chose that: ship v0.1, then add features month by month through the
 broker. The features are in [FEATURE-PLAN.md](FEATURE-PLAN.md), and the
-months to v1.0 and a public launch are in [PLAN-7-MONTHS.md](PLAN-7-MONTHS.md).
+months to v1.0 and a public launch are in [PLAN-7-MONTHS.md](PLAN-7-MONTHS.md). On 2026-10-09,
+after the research in [MARKET-2026.md](MARKET-2026.md), the owner chose a hybrid position: local
+by default, with an opt-in hosted model and cloud runner.
 
 ## Where we start
 
@@ -50,7 +52,10 @@ What was missing for daily use on 2026-09-30, and where each stands on
 - **Install path: written, not yet proved.** `docs/INSTALL.md` exists since
   PR #196 (2026-10-02). The fresh-account test on another Mac that
   [#188](https://github.com/roshanaryal1/home-lab/issues/188) waits for has
-  not been run.
+  not been run. Since 2026-10-09 an install can check itself with `lab doctor`
+  (#347), the wheel installs a `lab` command (#329, #330), and an upgrade copies
+  the database before it migrates (#348). The rest of the road to v1.0 is in
+  [PLAN-7-MONTHS.md](PLAN-7-MONTHS.md).
 - **Still missing:** calendar and mail tools (no handler for either in
   `lab/handlers/`), and code editing by an executor such as Aider or
   OpenHands (README Status, step 6: not started).
