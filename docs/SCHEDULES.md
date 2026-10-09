@@ -49,8 +49,9 @@ cannot be put back. To change a schedule, remove it and add a new one.
 ## When it runs
 
 `lab tick` checks schedules first on every pass (every 5 minutes on the
-deployed Mac) and queues the task of each one that is due. The supervisor
-runs it with the handlers it has, as it runs any task. So a due schedule
+deployed Mac) and queues the task of each one that is due. The task then
+runs like any queued task: `lab tick` runs proposal tasks itself, and the
+supervisor runs every other kind with the handlers it has. So a due schedule
 starts within about 5 minutes of its time.
 
 - Missed slots fire once. If the Mac was off for three days, a daily
