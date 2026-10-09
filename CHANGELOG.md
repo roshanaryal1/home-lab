@@ -14,6 +14,13 @@ They are a draft until the owner approves them.
   refused by policy, the approvals decided, the schedules fired and the egress and
   policy denial counts. Task titles are escaped. No payloads or results are shown
   ([#390](https://github.com/roshanaryal1/home-lab/issues/390)).
+- `GET /metrics` on the read-only status page: the queue, health, leases, task
+  outcomes and counters in Prometheus text format, on loopback only, with fixed
+  names and no task ids or titles. A failure that is retried stays counted as an
+  outcome ([#380](https://github.com/roshanaryal1/home-lab/issues/380))
+- Every chat message to the person ends with the label `[home-lab AI agent]`, added
+  at the one send, so no reply text can remove it
+  ([#375](https://github.com/roshanaryal1/home-lab/issues/375)).
 - `lab status` flags a task that writes no event for 30 minutes while its lease
   keeps renewing. The task is listed in the text output, the `--json` output and
   the status page, and the status check alerts with its id. The task is only

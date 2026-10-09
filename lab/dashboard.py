@@ -16,6 +16,8 @@ forms, no script and no state of its own.
   finished, refused or approved, which schedules fired, and the denial counts.
   Task text is shown as an id, kind, state and title. Payloads, results,
   errors and approval intents are never shown.
+* ``/metrics`` serves the same numbers in the Prometheus text format. It holds
+  fixed names, fixed labels and counts only, never a task id or title.
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 .ok,.idle{color:#0a6b2d}.attention{color:#8a5a00}.unhealthy{color:#b00020}
 @media (prefers-color-scheme:dark){body{background:#111;color:#eee}}
 """
+PROMETHEUS_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
 
 class DashboardError(ValueError):
@@ -188,6 +191,11 @@ def render_today_json(db: Path, *, now: datetime | None = None, tz: tzinfo | Non
     return json.dumps(_read_today(db, now, tz).as_dict(), sort_keys=True)
 
 
+def render_metrics(db: Path) -> str:
+    m, _ = _read(db)
+    return metrics.render_prometheus(m)
+
+
 def _host_allowed(header: str | None) -> bool:
     if not header:
         return False
@@ -237,6 +245,8 @@ def make_server(db: Path, *, host: str = "127.0.0.1",
                     self._send(200, render_today(db), "text/html; charset=utf-8")
                 elif path == "/today.json":
                     self._send(200, render_today_json(db), "application/json")
+                elif path == "/metrics":
+                    self._send(200, render_metrics(db), PROMETHEUS_TYPE)
                 else:
                     self._send(404, "not found\n")
             except (sqlite3.DatabaseError, control.ControlError):
