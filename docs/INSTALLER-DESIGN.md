@@ -153,11 +153,11 @@ Use the one-line form only for a version that someone has already checked with t
 
 ## 6. Upgrade and uninstall
 
-**Upgrade.** `lab update --plan` (#370) will print the steps for moving an install to a new tagged
-release. The command is not on `origin/main` yet. `lab/cli.py` has no `update` subcommand. Until
-it exists, the installer upgrades nothing. If `$HOME/home-lab` exists, the installer stops and
-names the folder. Its message points to `lab update --plan` once #370 lands, and to the
-runbook's "Updating the deployed code" section until then.
+**Upgrade.** The installer upgrades nothing. If `$HOME/home-lab` exists, the installer stops,
+names the folder and points to `lab update --plan COMMIT` (#370, merged in #372). That command
+prints the runbook's "Updating the deployed code" steps for the standard install at
+`/opt/homelab`, with the deployed commit, the new commit and the installed jobs filled in. It
+runs no `sudo`. The owner runs the printed steps.
 
 **Uninstall.** `sh install.sh --uninstall` prints the steps from INSTALL.md section 10, including
 the `sudo` commands. It also lists the user-level paths: the clone, the model cache and, only if
@@ -171,8 +171,7 @@ the printed steps, as at install time.
 (releases page, read 2026-10-09). The script in the repository, `scripts/install.sh`, was read
 for its first 1,000 of 3,618 lines. It installs Node when needed, through the Homebrew node
 formula on macOS. It installs the package with `npm install -g`. It uses `sudo` for Linux
-package managers, and it can start onboarding. A comment in the script describes one of its
-checks as "a response-shape check, not an authenticity or completeness check". Each release asset lists a
+package managers, and it can start onboarding. Each release asset lists a
 sha256 on the releases page, and the tag is signed by the committer. The `openclaw.ai` copy of
 the script was not reachable on 2026-10-09, so the served script is not compared with the
 repository copy (unverified).
@@ -253,7 +252,8 @@ Repository files were read at `origin/main`, commit `1689d58`, on 2026-10-09:
 `docs/INSTALL.md`, `docs/FEATURE-PLAN.md`, `docs/MARKET-2026.md`, `docs/COMPARISON.md`,
 `lab/accountplan.py`, `lab/doctor.py`, `lab/cli.py`, `scripts/check-prerequisites.sh`,
 `ops/runbook-lab-account-and-daemons.md`, `ops/release.md`, `ops/install-validation.md`,
-`pyproject.toml`, `.github/workflows/check.yml`, `SECURITY.md`.
+`pyproject.toml`, `.github/workflows/check.yml`, `SECURITY.md`. Section 6 was updated from
+`lab/update_plan.py` at commit `72b3bc3`, after #372 merged.
 
 Web sources:
 
