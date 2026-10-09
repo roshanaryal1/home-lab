@@ -93,6 +93,7 @@ from lab import (
     supervisor,
 )
 from lab import memory as memory_mod
+from lab import migrations as migrations_mod
 from lab import model as model_mod
 from lab import operator as operator_keys
 from lab.artifacts import ArtifactStore
@@ -705,6 +706,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="with --alert-config, also send one short alert when every check "
                      "passes, so a result arrives every morning")
     sub.add_parser("doctor", help="read-only health check: exit 1 if any check fails")
+    mg = sub.add_parser("migrate", help="--check: run this build's migrations on a private "
+                        "copy of the database and check it; the database is only read")
+    mg.add_argument("--check", action="store_true", required=True,
+                    help="required: the services migrate the database when they start")
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
@@ -1087,6 +1092,25 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     for check in checks:
         print(_escape(check.line()))
     return 0 if all(check.ok for check in checks) else 1
+
+
+def cmd_migrate(args: argparse.Namespace) -> int:
+    """Read-only on the database, and dispatched before the queue opens, so it never
+    creates or migrates it. Exit 0 when a copy migrates and checks clean, 1 when not."""
+    db = _escape(str(args.db))
+    try:
+        result = migrations_mod.check_on_copy(args.db)
+    except (migrations_mod.MigrationError, sqlite3.Error, OSError) as exc:
+        print(f"migrate --check failed: {_escape(str(exc))}. {db} was not changed.",
+              file=sys.stderr)
+        return 1
+    if result.start == result.end:
+        print(f"migrate --check: {db} is at schema version {result.end}, the latest this "
+              f"build knows. A copy checks clean, and {db} was not changed.")
+    else:
+        print(f"migrate --check: a copy of {db} went from schema version {result.start} "
+              f"to {result.end} and checks clean. {db} itself was not changed.")
+    return 0
 
 
 def _backup_destination(args: argparse.Namespace) -> Path:
@@ -1936,6 +1960,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_selftest(args)
     if args.command == "doctor":
         return cmd_doctor(args)
+    if args.command == "migrate":
+        return cmd_migrate(args)
     if args.command == "keepawake":
         return cmd_keepawake(args)
     if args.command == "shadow":

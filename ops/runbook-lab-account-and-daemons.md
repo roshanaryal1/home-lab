@@ -500,6 +500,17 @@ backup has restored. A failure with `unable to open database file` means the ter
 app cannot reach the volume (see the Full Disk Access note in the backup folder section
 above).
 
+**Pause `lab tick` for the update (#356).** It starts every five minutes and opens
+the database. After the checkout it would run the new code, which migrates the
+database before the check further down can try the migrations on a copy. The
+self-test (03:17) and the Sunday eval (04:23) also open it, so do not update while
+they may be running. The other timer jobs only read the database, and the two
+services that stay running keep the old code until they are restarted.
+
+```sh
+sudo launchctl bootout system/com.homelab.tick
+```
+
 The deployment is owned by root so the lab account cannot change what it runs.
 As in step 3, ownership passes to you for the update and returns to root after,
 and `git` and `uv sync` run as you, never as root:
@@ -532,6 +543,26 @@ sudo chmod -R go-w /opt/homelab /opt/homelab-python
   (`sudo git -C /opt/homelab ...`): as you it stops with "dubious ownership",
   which is correct and is not to be silenced with `safe.directory`.
 
+**Try the migrations on a copy before anything restarts (#356).** The new code is
+in place, but with `lab tick` paused nothing has opened the database with it yet.
+The supervisor's restart below would migrate it, so check first:
+
+```sh
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db migrate --check
+```
+
+It copies the database into a private folder beside it, runs the new code's
+migrations and SQLite's integrity and foreign key checks on the copy, and deletes
+the copy. The database itself is only read. It needs free space for about two
+copies of the database.
+
+- A line that starts `migrate --check:` and says the database was not changed:
+  go on to the restart.
+- A line that starts `migrate --check failed`: restart nothing. Roll back now, as
+  "Roll back" below says, with `COMMIT` set to `OLD`, and put the line on an issue.
+- A `.lab.db.check-` folder left in `/var/homelab` by an interrupted check holds
+  only a copy and can be deleted.
+
 Then restart the two services that stay running (the others start fresh on
 their timers) and check. Look at `status` first: `kickstart -k` kills the
 supervisor, and work running at that moment is interrupted (startup recovery
@@ -553,9 +584,18 @@ sudo -u lab /usr/bin/touch /opt/homelab/x
   a look at the reasons it lists) and `mode` as `running`.
 - `touch` is refused with `Permission denied`.
 
+Then start `lab tick` again. The second line must print the job's details, not
+an error:
+
+```sh
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.tick.plist
+sudo launchctl print system/com.homelab.tick | head -3
+```
+
 **Roll back** by running the same block with `COMMIT` set to the `OLD` hash
 printed at the start (write it down). If the supervisor does not start, its
-reason is in `/var/log/homelab/supervisor.err`.
+reason is in `/var/log/homelab/supervisor.err`. After a rollback, start `lab tick`
+again the same way.
 
 ## Moving the backup's Full Disk Access to its launcher (#287, once)
 
