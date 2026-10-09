@@ -16,6 +16,12 @@ Three kinds of worker appear below:
 The features come from [FEATURE-PLAN.md](FEATURE-PLAN.md) (#326). The research comes from #321.
 Effort guesses are guesses, not measurements.
 
+**Changed on 2026-10-09 (#364).** After the market research in [MARKET-2026.md](MARKET-2026.md),
+the owner chose a hybrid position (local by default, opt-in hosted model and cloud runner) and
+four things to build first: scheduled tasks, a safe browser, an easy install, and injection
+defence. The months below are reordered for that. Features 12, 15, 16 and 17 joined the
+features v1.0 needs.
+
 ## What v1.0 must pass
 
 v1.0 ships only when every check below passes. Each is a yes or no.
@@ -81,10 +87,10 @@ home-lab collects no telemetry, so the launch is judged by what people choose to
 
 ## The plan by month
 
-Features 1 to 6 in [FEATURE-PLAN.md](FEATURE-PLAN.md) are required for v1.0. A missing one holds
-v1.0 back until it is merged and its claim, if it has one, has passed. Features 7 to 16 go in if
-they are on time. The cut rule is for them: one that is not merged, with its claim passed, by
-15 March 2027 moves to after v1.0.
+Features 1 to 6, 12, 15, 16 and 17 in [FEATURE-PLAN.md](FEATURE-PLAN.md) are required for v1.0.
+A missing one holds v1.0 back until it is merged and its claim, if it has one, has passed. The
+other features go in if they are on time. The cut rule is for them: one that is not merged, with
+its claim passed, by 15 March 2027 moves to after v1.0.
 
 ### Month 1: October 2026. Close the base and ship v0.1
 
@@ -110,16 +116,20 @@ Owner and Mac mini:
 
 Done when: v0.1 is tagged, and the weekly eval job has made its first record.
 
-### Month 2: November 2026. Install, update, diagnose
+### Month 2: November 2026. Install, update, diagnose, schedules
 
 Tracked in [#339](https://github.com/roshanaryal1/home-lab/issues/339).
 
 Container:
 
-- Features 1 to 3: `lab doctor` (#347), `lab update` with backup and rollback, `lab security audit`.
+- Features 1 to 3: `lab doctor` (#347), `lab update` with backup and rollback (its first part,
+  `lab migrate --check`, is #356), `lab security-audit` (#362).
+- Feature 5, owner-signed schedules (#361), with its claim S1 drafted for the owner to register.
+- Feature 17, the public injection suite, first version.
 - Upgrades: a backup before every migration, and migration tests from each released version
   (#348).
-- Backups: hold everything a restore needs, and restore into service, not only to a file.
+- Backups: hold everything a restore needs (#358), and restore into service, not only to a file.
+- The project website, built and reviewed, not yet public (#363).
 
 Owner and Mac mini:
 
@@ -131,14 +141,16 @@ Owner and Mac mini:
 
 Done when: v0.2 has `lab doctor` and `lab update`, and one fresh install has passed.
 
-### Month 3: December 2026. Metrics, schedules, a second channel
+### Month 3: December 2026. The browser, metrics, a second channel
 
 Tracked in [#340](https://github.com/roshanaryal1/home-lab/issues/340).
 
 Container:
 
-- Feature 4, metrics on loopback. Feature 5, owner-defined schedules, with its claim registered
-  first. Feature 6, a second chat channel, with the M2 cases extended to it first.
+- Feature 16, the browser in the container behind the egress allowlist, with its claim
+  registered first. Feature 4, metrics on loopback. Feature 6, a second chat channel, with the M2
+  cases extended to it first, and feature 22, the AI label on every message the agent sends.
+- Feature 18, the stalled task check.
 - Coverage floors on the safety modules. Log rotation for the launchd jobs (#349). A
   `config show` command.
 - Code for A/B 3 (a draft model for speculative decoding) and A/B 4 (a model swap manager).
@@ -149,14 +161,18 @@ Owner and Mac mini:
 - A/B 2, 32K against 64K context. It needs the owner's call on the admission budget.
 - The decision on P4 (#321).
 
-Done when: v0.3 ships features 4 to 6 with their claims passed, and P3 has six weekly records.
+Done when: v0.3 ships features 4, 6 and 16 with their claims passed, and P3 has six weekly
+records.
 
-### Month 4: January 2027. Memory and skills, supply chain, writing
+### Month 4: January 2027. The hosted model opt-in, memory and skills, supply chain, writing
 
 Tracked in [#341](https://github.com/roshanaryal1/home-lab/issues/341).
 
 Container:
 
+- Feature 12, the hosted model behind an opt-in per task class, with feature 19, the cost meter
+  and daily cap. Feature 20, export and the "today" view.
+- Feature 21, the opt-in cloud runner: the design, for the owner to approve.
 - Features 7 to 10 if on time: session search, the user profile file, safe skill drafting, a
   curated skill index.
 - Supply chain: a dependency audit, a software bill of materials, release provenance and a
@@ -178,14 +194,17 @@ Tracked in [#342](https://github.com/roshanaryal1/home-lab/issues/342).
 
 Container:
 
-- Features 11 to 14 if on time: more local runtimes, a hosted model behind opt-in, bounded
-  delegation with its claim, and voice notes.
+- Feature 15, the one-line install script. Feature 21, the cloud runner, if the owner approved
+  its design.
+- Features 11, 13 and 14 if on time: more local runtimes, bounded delegation with its claim, and
+  voice notes.
 - A written macOS support matrix, and a runtime check for it.
 - Fix what the beta users report.
 
 Owner and Mac mini:
 
 - Invite 5 to 10 beta users, each on their own Mac.
+- Switch on the website (#363), so beta users have one place to start.
 - The security review runs.
 - The 30-day run finishes.
 - Submit the P3 preprint.
@@ -199,7 +218,7 @@ Tracked in [#343](https://github.com/roshanaryal1/home-lab/issues/343).
 
 Container:
 
-- Features 15 and 16 if on time: the one-line install script and the browser in the container.
+- The injection suite's release run on the release candidate, results published.
 - Fix the review findings.
 - Finish the docs: install, upgrade, troubleshooting, a shorter README. Move owner-only scripts
   and session records out of the shipped package.
