@@ -68,6 +68,14 @@ def render_page(db: Path) -> str:
                             ("recovered tasks", m.recoveries)])
     reasons = f" ({_e('; '.join(m.reasons))})" if m.reasons else ""
     reason = f", reason: {_e(state.reason)}" if state.reason else ""
+    stalled_rows = "".join(
+        f"<tr><td>{_e(task.task_id)}</td><td>{_e(task.state)}</td>"
+        f"<td>{_e(task.agent_kind or '-')}</td>"
+        f"<td class=n>quiet {_e(metrics._dur(task.minutes_since_event * 60))}</td></tr>"
+        for task in m.stalled)
+    threshold = _e(f"{m.stalled_minutes:g}")
+    stalled = (f"<h2>Stalled</h2><p>no event for {threshold}m, lease renewed</p>"
+               f"<table>{stalled_rows}</table>") if m.stalled else ""
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -88,6 +96,7 @@ as of {_e(m.generated_at)}</p>
 oldest running {_e(metrics._dur(m.oldest_running_seconds))},
 live leases {_e(m.live_leases)},
 last success {_e(metrics._dur(m.last_success_age_seconds))} ago</p>
+{stalled}
 <h2>Counters</h2><table>{counters}</table>
 <p>needs a person: {_e(m.pending_approvals)} approval(s),
 {_e(m.unresolved_operations)} unresolved operation(s)</p>

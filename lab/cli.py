@@ -33,7 +33,7 @@ Usage:
     python3 -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
-    python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
+    python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N] [--stalled-minutes N]
     python3 -m lab.cli doctor
     python3 -m lab.cli security-audit [--details]
     python3 -m lab.cli backup [--to DIR] [--artifacts DIR] [--keep N] [--alert-config FILE]
@@ -911,6 +911,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="count events from the last N hours (default: all time)")
     st.add_argument("--stall-seconds", type=float, default=metrics.DEFAULT_STALL_SECONDS,
                     help="how long work may wait with no worker before it is unhealthy")
+    st.add_argument("--stalled-minutes", type=float, default=metrics.DEFAULT_STALLED_MINUTES,
+                    help="report a task as stalled when its lease keeps renewing but it has "
+                         "written no event for this many minutes (default: 30)")
     st.add_argument("--alert-config", type=Path, default=None,
                     help="operator-owned JSON naming a command to run when unhealthy")
 
@@ -1091,7 +1094,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
     try:
         report = metrics.collect(conn, window_hours=args.since_hours,
-                                 stall_seconds=args.stall_seconds)
+                                 stall_seconds=args.stall_seconds,
+                                 stalled_minutes=args.stalled_minutes)
     except sqlite3.DatabaseError as exc:
         print(f"status: cannot read the database: {exc}", file=sys.stderr)
         return 1
@@ -1101,6 +1105,11 @@ def cmd_status(args: argparse.Namespace) -> int:
           else metrics.render(report))
     if report.health == "unhealthy" and args.alert_config is not None:
         _send_alert(args, "unhealthy", "; ".join(report.reasons) or "the lab is unhealthy")
+    if report.stalled and args.alert_config is not None:
+        # Its own kind, so it is rate limited apart from "unhealthy", and it
+        # does not change the exit code. Stalled tasks are attention, not down.
+        _send_alert(args, "stalled",
+                    "; ".join(metrics.stalled_reason(task) for task in report.stalled))
     return 2 if report.health == "unhealthy" else 0
 
 
