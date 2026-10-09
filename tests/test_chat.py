@@ -167,7 +167,7 @@ def test_a_message_from_the_paired_chat_becomes_a_tainted_chat_task(lab: Lab) ->
     assert evidence.excerpt == "summarise my notes from yesterday"
     assert not RESERVED_PAYLOAD_KEYS & set(task.payload)
     assert lab.server.sent == [(OWNER, f"Queued as {task.id[:12]}. The reply comes here "
-                                       "when it finishes.")]
+                                       "when it finishes.\n\n" + chat.AI_LABEL)]
     assert lab.chat_events()[-1]["action"] == "task_created"
 
 
@@ -561,7 +561,8 @@ async def test_pause_from_chat_stops_leasing_and_only_a_signed_resume_restarts(
                      signer=op.load_private(private))
     await sup.run(max_tasks=1)
     assert sup.stats.succeeded == 1
-    assert lab.poller.deliver() == 1 and lab.server.sent[-1][1].endswith(": ok")
+    assert lab.poller.deliver() == 1
+    assert lab.server.sent[-1][1].endswith(": ok\n\n" + chat.AI_LABEL)
     sup.close()
     lab.close()
 
@@ -615,7 +616,7 @@ def test_the_reply_comes_from_the_result_once_per_state(lab: Lab) -> None:
     conn.execute("UPDATE tasks SET state = 'succeeded', result = '{}' WHERE id = ?", (bare,))
     assert lab.poller.deliver() == 4
     texts = [t for _c, t in lab.server.sent]
-    assert any(t.endswith(": the answer") for t in texts)
+    assert any(t.endswith(": the answer\n\n" + chat.AI_LABEL) for t in texts)
     assert any("failed: boom" in t for t in texts)
     assert not any("the password" in t for t in texts)
     assert any("no reply text" in t for t in texts)
@@ -690,7 +691,9 @@ def test_the_transport_refuses_bad_tokens_and_odd_answers(lab: Lab) -> None:
 
     with pytest.raises(ChatError, match="answered 200"):
         TelegramTransport(TOKEN, EgressGateway(resolver, garbage)).get_updates(0)
-    TelegramTransport(TOKEN, EgressGateway(resolver, garbage)).send_message(OWNER, "\x00")
+    # An empty reply is still sent, with the label alone, so a garbage answer is refused.
+    with pytest.raises(ChatError, match="answered 200"):
+        TelegramTransport(TOKEN, EgressGateway(resolver, garbage)).send_message(OWNER, "\x00")
 
 
 # ------------------------------------------------------------- handler
@@ -714,7 +717,7 @@ async def test_the_chat_handler_answers_from_the_model_with_no_tools(tmp_path: P
     assert "no tools and no authority" in prompt[0]["content"]
     assert json.loads(prompt[1]["content"])["message"]["source_type"] == "chat"
     lab.poller.deliver()
-    assert lab.server.sent[-1][1].endswith(": Hello, owner.")
+    assert lab.server.sent[-1][1].endswith(": Hello, owner.\n\n" + chat.AI_LABEL)
     sup.close()
     lab.close()
 

@@ -226,8 +226,10 @@ step ([#87](https://github.com/roshanaryal1/home-lab/issues/87)).
 `lab` and `python -m lab.cli` are the same command. Each command below works with either spelling, for example `uv run lab status`. `lab --version` prints the version.
 
 ```sh
-uv run python -m lab.cli status [--json] [--alert-config F]   # queue, worker health, counters; exit 2 if unhealthy
+uv run python -m lab.cli status [--json] [--alert-config F] [--stalled-minutes N]   # queue, worker health, counters and stalled tasks, exit 2 if unhealthy
 uv run python -m lab.cli doctor                   # read-only check: database, operator key, model, disk, backup, selftest, audit chain; exit 1 if any fails
+# read-only: memory, the action log and task results as JSON and Markdown, in a new private folder in DIR
+uv run python -m lab.cli export --to DIR
 uv run python -m lab.cli security-audit [--details]   # read-only check of owners, modes, the operator key and the loopback model URL, exit 1 if any fails
 uv run python -m lab.cli migrate --check           # before a restart onto new code: migrate a private copy of the database and check it; the database is only read (#356)
 uv run python -m lab.cli update --plan COMMIT              # print the update steps for this install with the values filled in; read-only, runs no sudo (#370)
@@ -265,7 +267,7 @@ uv run python -m lab.cli repo sign <name> <path> --key K --by you   # sign a rep
 uv run python -m lab.cli memory search|inspect|add-evidence|correct|revoke|delete   # inspectable FTS5 memory
 uv run python -m lab.cli route <task> [--want paper]   # post, blog, paper or nothing, by evidence weight; thin evidence refused upward
 uv run python -m lab.cli shadow --cases evals/shadow_cases.jsonl   # measure the rubric on labeled cases; a model candidate is compared in shadow, never applied
-uv run python -m lab.cli dashboard [--port 8765]   # read-only status page on loopback; no controls, GET only, everything escaped
+uv run python -m lab.cli dashboard [--port 8765]   # read-only status page on loopback. No controls, GET only, everything escaped. /metrics serves the same numbers in Prometheus text format, /today and /today.json the local day so far
 uv run python -m lab.cli ledger show <task>       # claims, their evidence and status; review, verify
 uv run python -m lab.cli memory-budget [TOKENS ...] [--measurements FILE]   # predicted resident memory of the heavy model at each context length (default 8192 16384 37000). With a measurement record, the error against it (#321)
 uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record; --db notes it as a measurement and takes the model slot the supervisor shares
@@ -276,6 +278,8 @@ uv run python -m lab.cli measure-ceilings [--repeats 5] [--headroom 2]   # peak 
 uv run python -m lab.attacks                      # benign-plus-hostile scenarios against a stub model
 uv run python -m lab.cli injection-suite [--json] [--out F]   # the public injection suite: 27 fixed cases in throwaway labs, exit 1 if any attack succeeds (docs/INJECTION-SUITE.md)
 ```
+
+The `chat` command labels every message it sends with `[home-lab AI agent]` on its last line, so the person always knows the text comes from the AI agent ([#375](https://github.com/roshanaryal1/home-lab/issues/375)).
 
 Approvals are signed with the operator's private key and the supervisor
 honours only signatures that verify against the public key it is given

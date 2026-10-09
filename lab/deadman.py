@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from lab import metrics
+from lab.db import connect_readonly
 from lab.egress import EgressDenied, EgressGateway, parse_allowlist
 
 MAX_URL_FILE_BYTES = 4096
@@ -84,7 +85,7 @@ def lab_health(db: Path) -> tuple[bool, str]:
     if not Path(db).exists():
         return False, "no database"
     try:
-        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        conn = connect_readonly(db)
         try:
             report = metrics.collect(conn)
         finally:
