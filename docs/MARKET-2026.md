@@ -46,9 +46,9 @@ Sources are listed at the end with their dates.
 | Hermes Agent | v0.21.6, 2026-10-08 [23] | The user's machine or one of several backends [24] | "Smart" approvals, default since v0.19.0 [23] | Free (MIT), plus model costs | Anywhere |
 | home-lab | No release yet | The owner's Mac, as a separate `lab` account. Model on the Mac | Approve-tier actions need the owner's Ed25519 signature over the exact action | Free (MIT). No model bill with the local model | Anywhere, once installed |
 
-Other agents found: Microsoft's Copilot Tasks and Autopilot (cloud, preview), Amazon Alexa+,
-Apple's Siri AI beta (not offered in the EU) [17], Perplexity Comet, Manus, Goose, OpenHands,
-Open Interpreter and Letta. None of them changes the picture below.
+The research also looked at Microsoft's, Amazon's and Perplexity's agents, at Manus, and at the
+open-source Goose, OpenHands, Open Interpreter and Letta. None of them changes the picture below.
+Apple's Siri AI beta is not offered in the EU [17].
 
 ## What users and researchers complain about
 
@@ -127,8 +127,9 @@ The month-by-month work is in [PLAN-7-MONTHS.md](PLAN-7-MONTHS.md) and the featu
 
 ## Sources
 
-Dates are publication dates where the page or search result gave one. "Search summary" means the
-fact was seen in a search result, not on the page.
+Dates are publication dates where the page or search result gave one. Every source marked
+"undated" was read, or seen in a search result, on 2026-10-09, so that is the date of the fact
+taken from it. "Search summary" means the fact was seen in a search result, not on the page.
 
 1. xAI, "Introducing Grok Bot", 2026-08-11 (search summary). https://x.ai/news/introducing-grok-bot
 2. xAI docs, Grok Bot computer and apps, undated (search summary). https://docs.x.ai/grok-bot/computer-and-apps
