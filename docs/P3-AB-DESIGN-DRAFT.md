@@ -47,9 +47,13 @@ still choose is marked **owner to set**.
    can move with no change of setting. Each arm's run 1 is reported beside its
    `lab eval rerun`, never in its place (Amendment 1, item 8).
 
-8. **Intervals.** Rates get a 95 percent bootstrap interval, 10,000 resamples, fixed
-   seed ([PREREGISTRATION.md](PREREGISTRATION.md), Analysis plan). With 24 tasks, one
-   task is 1/24 of the set, and the intervals are wide.
+8. **Intervals.** Rates get a 95 percent paired bootstrap interval, 10,000 resamples,
+   fixed seed ([PREREGISTRATION.md](PREREGISTRATION.md), Analysis plan). Each resample
+   draws task ids from the A/B's task set with replacement and keeps both arms' run-1
+   result for every task drawn. Each arm's rate and the difference between them are
+   computed on every resample. With 24 tasks, one task is 1/24 of the set, and the
+   intervals are wide. The five-run medians are for latency and tokens per second
+   only, never for rates.
 
 9. **Peak memory footprint.** Required in all four A/Bs. The harness does not measure
    it. Section 2 and section 7 say what exists and how the draft proposes to measure it.
@@ -388,7 +392,8 @@ before the run.
 - Per arm: run 1 gives the pass count and errors. Five runs after one warm-up give the
   medians of p95 and tokens per second.
 - Each arm's run 1 gets a `lab eval rerun`, reported beside it, never in its place.
-- Rates get 95 percent bootstrap intervals, 10,000 resamples, with a fixed seed.
+- Rates get 95 percent paired bootstrap intervals over task ids, 10,000 resamples, with
+  a fixed seed, as section 1, item 8 says.
 - The p95 of each run comes from the eval summary (`lab/evals.py`, lines 211 to 213),
   not from bench (`lab/bench.py`, lines 71 to 73).
 - No task is removed, and no threshold is changed, after a result is seen.

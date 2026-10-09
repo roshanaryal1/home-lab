@@ -7,6 +7,33 @@ They are a draft until the owner approves them.
 
 ## [Unreleased]
 
+### Added
+
+- `lab doctor`: one read-only health check of an install, with how to fix each
+  failure ([#347](https://github.com/roshanaryal1/home-lab/issues/347)).
+- A `lab` command with `--version`, and a built wheel that holds the whole
+  package and is installed and imported in CI
+  ([#329](https://github.com/roshanaryal1/home-lab/issues/329),
+  [#330](https://github.com/roshanaryal1/home-lab/issues/330)).
+- Before a migration, the database is copied beside itself as
+  `<name>.pre-vN.bak`. Every upgrade step is tested against a fresh schema, and
+  the shipped migrations are pinned by checksum
+  ([#348](https://github.com/roshanaryal1/home-lab/issues/348)).
+- Log records keep their traceback, `LAB_LOG_LEVEL` sets the level, and the
+  scheduled jobs' launchd logs rotate
+  ([#349](https://github.com/roshanaryal1/home-lab/issues/349)).
+- For the P3 study: a weekly eval job that shares the model slot, and
+  `lab memory-budget` ([#321](https://github.com/roshanaryal1/home-lab/issues/321)).
+
+### Fixed
+
+- A known database or file error in the CLI prints one line, not a traceback.
+  `--debug` keeps the traceback
+  ([#331](https://github.com/roshanaryal1/home-lab/issues/331)).
+- The deploy steps keep the test tools installed, so the nightly self-test can
+  run its safety tests, and the self-test says why when pytest cannot start
+  ([#270](https://github.com/roshanaryal1/home-lab/issues/270)).
+
 ## [0.1.0] - unreleased
 
 The date is set when the owner tags this release. The notes below are taken
