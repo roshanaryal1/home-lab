@@ -24,6 +24,10 @@ They are a draft until the owner approves them.
   ([#349](https://github.com/roshanaryal1/home-lab/issues/349)).
 - For the P3 study: a weekly eval job that shares the model slot, and
   `lab memory-budget` ([#321](https://github.com/roshanaryal1/home-lab/issues/321)).
+- `lab migrate --check` tries the new code's migrations on a private copy of
+  the database before an update restarts anything, and the update steps stop
+  the supervisor and `lab tick` first and say how to roll back
+  ([#356](https://github.com/roshanaryal1/home-lab/issues/356)).
 
 ### Fixed
 
