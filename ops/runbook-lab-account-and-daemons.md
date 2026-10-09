@@ -524,7 +524,11 @@ stays quiet while the supervisor is stopped.
 sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db status | head -3
 WRITERS=(supervisor tick selftest weekly-eval chat)
 for s in "${WRITERS[@]}"; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootout system/com.homelab.$s; fi; done
+for s in "${WRITERS[@]}"; do if sudo launchctl print system/com.homelab.$s >/dev/null 2>&1; then echo "STILL LOADED: $s"; fi; done
 ```
+
+The second loop prints nothing when every job is stopped. If it prints `STILL LOADED`,
+stop here and bootout that job again before the checkout.
 
 `WRITERS` is used again below, so keep this Terminal window. In a new window, set
 it again with the same line.
@@ -587,6 +591,7 @@ Then start the jobs in `WRITERS` on the new code, restart keep-awake, and check:
 
 ```sh
 for s in "${WRITERS[@]}"; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.$s.plist; fi; done
+for s in "${WRITERS[@]}"; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ] && ! sudo launchctl print system/com.homelab.$s >/dev/null 2>&1; then echo "NOT LOADED: $s"; fi; done
 sudo launchctl kickstart -k system/com.homelab.keepawake
 sleep 10
 sudo git -C /opt/homelab rev-parse HEAD
@@ -600,6 +605,8 @@ sudo -u lab /usr/bin/touch /opt/homelab/x
 - `ps` shows `lab` as the user, and a new pid.
 - `status` shows `health` as `IDLE` or `OK` (`ATTENTION` or `UNHEALTHY` needs
   a look at the reasons it lists) and `mode` as `running`.
+- The loop after the bootstrap prints nothing. A `NOT LOADED` line names a job to
+  bootstrap again.
 - `launchctl print` shows the tick job's details, not an error.
 - `touch` is refused with `Permission denied`.
 
@@ -619,6 +626,9 @@ then the old code:
 
 1. Stop everything that opens the database, keep-awake included:
    `for s in "${WRITERS[@]}" keepawake; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootout system/com.homelab.$s; fi; done`
+   and check that
+   `for s in "${WRITERS[@]}" keepawake; do if sudo launchctl print system/com.homelab.$s >/dev/null 2>&1; then echo "STILL LOADED: $s"; fi; done`
+   prints nothing. Do not go on to step 2 while anything is still loaded.
 2. Move the upgraded database aside and put the copy in its place. Set `N` first.
    Nothing is deleted: the upgraded files go into a dated folder beside them.
 
