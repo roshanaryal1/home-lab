@@ -14,6 +14,10 @@ backup API, and deletes the older copies of that file. A database from before
 versioning (version 0 with tables) gets one too. A fresh database, empty at
 version 0, and ``:memory:`` get none.
 
+``check_on_copy`` (``lab migrate --check``, #356) runs the migrations on a
+private copy instead and checks the result, so an update can be tried before
+any service opens the real file with the new code.
+
 Rules for a migration file:
 
 * Never edit one that has shipped. Add the next number, and add its line to
@@ -303,3 +307,49 @@ def migrate(conn: sqlite3.Connection, directory: Path = MIGRATIONS_DIR) -> int:
         finally:
             conn.execute("PRAGMA foreign_keys = ON")
     return current_version(conn)
+
+
+@dataclass(frozen=True)
+class CopyCheck:
+    """What ``check_on_copy`` found: a copy of the database went from ``start`` to ``end``."""
+    start: int
+    end: int
+
+
+def check_on_copy(db: Path, directory: Path = MIGRATIONS_DIR) -> CopyCheck:
+    """Migrate a private copy of ``db`` with this build, then check the copy.
+
+    ``db`` is opened read-only and never migrated. The copy is taken with the
+    online backup API into a temporary folder beside ``db`` that only its
+    owner can open, and the folder is deleted whatever happens. Raises
+    ``MigrationError`` (``SchemaTooNew`` for a database from a newer build)
+    with the reason when the copy does not migrate or does not check clean.
+    """
+    if not db.is_file():
+        raise MigrationError(f"there is no database file at {db}")
+    if db.stat().st_uid != os.geteuid():
+        # Reading a WAL database can create its -wal and -shm files, and a
+        # pair owned by the wrong account would lock the service out.
+        raise MigrationError(
+            f"{db} belongs to another account, so run the check as that account")
+    uri = f"{db.resolve().as_uri()}?mode=ro"
+    with contextlib.closing(sqlite3.connect(uri, uri=True)) as source, \
+            tempfile.TemporaryDirectory(dir=db.parent, prefix=f".{db.name}.check-") as folder:
+        copy = Path(folder) / db.name
+        online_copy(source, copy)
+        source.close()
+        conn = sqlite3.connect(copy, isolation_level=None)
+        try:
+            start = current_version(conn)
+            end = migrate(conn, directory)
+            problems = [row[0] for row in conn.execute("PRAGMA integrity_check")]
+            broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+        finally:
+            conn.close()
+    if problems != ["ok"]:
+        raise MigrationError(
+            f"the migrated copy fails SQLite's integrity check with {len(problems)} "
+            f"problem(s), the first: {problems[0]}")
+    if broken:
+        raise MigrationError(f"the migrated copy has {len(broken)} foreign key violation(s)")
+    return CopyCheck(start, end)

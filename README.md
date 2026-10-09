@@ -226,6 +226,7 @@ step ([#87](https://github.com/roshanaryal1/home-lab/issues/87)).
 ```sh
 uv run python -m lab.cli status [--json] [--alert-config F]   # queue, worker health, counters; exit 2 if unhealthy
 uv run python -m lab.cli doctor                   # read-only check: database, operator key, model, disk, backup, selftest, audit chain; exit 1 if any fails
+uv run python -m lab.cli migrate --check           # before a restart onto new code: migrate a private copy of the database and check it; the database is only read (#356)
 uv run python -m lab.cli approvals                # what is waiting for a decision
 uv run python -m lab.cli show <id>                # read the exact call before deciding
 uv run python -m lab.cli approve <id> --by you --key operator.key --expect-hash <prefix>

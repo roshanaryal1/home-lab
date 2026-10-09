@@ -11,8 +11,7 @@ be redone. The detail lives in the documents it links; this page only points.
   through the broker are in [FEATURE-PLAN.md](FEATURE-PLAN.md), and how home-lab compares with
   OpenClaw and Hermes Agent is in [COMPARISON.md](COMPARISON.md).
 - Open pull requests: **#312** (keep-awake as the `lab` account,
-  [#235](https://github.com/roshanaryal1/home-lab/issues/235)), and #357 (`lab migrate --check`,
-  #356), which tries the new code's migrations on a copy before an update restarts anything.
+  [#235](https://github.com/roshanaryal1/home-lab/issues/235)).
   Open bug: #358, backups leave out skill-version files and evidence snapshots.
   Do **not** merge #312 until both checks in step 1 of its runbook section "Moving keep-awake to
   the lab account" have passed on the Mac mini: `./ops/mac-session.sh --only caffeinate` from
@@ -29,8 +28,9 @@ be redone. The detail lives in the documents it links; this page only points.
   #319 (a memory reading at the ceiling is reported over it), #320 (constrained decoding for H1c),
   #324 (`lab prereg --record`), #334 (the wheel and the `lab` command, #329, #330), #336 (one-line
   CLI errors, #331), #345 (deploy keeps pytest, #270), #346 (`lab memory-budget`), #351
-  (`lab doctor`, #347), #353 (a snapshot before migrating, #348), #335 (the weekly eval job) and
-  #354 (log tracebacks, level and rotation, #349).
+  (`lab doctor`, #347), #353 (a snapshot before migrating, #348), #335 (the weekly eval job),
+  #354 (log tracebacks, level and rotation, #349) and #357 (`lab migrate --check` and safer
+  update steps, #356).
 - Merged on 2026-10-09 (NZDT), documents and research only:
   #317, #322, #323 (H1b interval), #325 (incident catalog), #327 (comparison and feature plan),
   #333 (CHANGELOG and draft versioning rules, #332), #337 (A/B and H2 drafts), #350, #352
@@ -67,8 +67,10 @@ In this order:
    Comment the backup result on [#67](https://github.com/roshanaryal1/home-lab/issues/67).
 2. Redeploy `main`: runbook section "Updating the deployed code"
    ([ops/runbook-lab-account-and-daemons.md](../ops/runbook-lab-account-and-daemons.md)). It now
-   takes a backup before anything changes, and its `uv sync` keeps the test tools
-   (`--extra dev`) the nightly self-test needs. After the next 03:17 self-test passes, close
+   takes a backup before anything changes, stops the supervisor and `lab tick` before the
+   checkout, tries the new migrations on a copy (`migrate --check`, #356) before anything starts
+   again, and its `uv sync` keeps the test tools (`--extra dev`) the nightly self-test needs.
+   After the next 03:17 self-test passes, close
    [#270](https://github.com/roshanaryal1/home-lab/issues/270).
 3. Run `lab doctor` as `lab` with the service's `LAB_` values (INSTALL.md, first run). Every line
    should say `ok`.
@@ -122,6 +124,8 @@ Changed behaviour to know before the redeploy:
   rotating JSON file `supervisor.log` (#349).
 - `lab eval run --db` waits for the model slot the supervisor and `lab tick` share, and stops with
   nothing recorded if the slot stays busy for 600 seconds (#321).
+- The update steps stop the supervisor for the whole update, not only for a restart at the end,
+  so do the update when the queue is idle (#356).
 
 ## What a new session can do without the owner
 
