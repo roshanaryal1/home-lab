@@ -21,6 +21,7 @@ from lab import backup, service
 from lab.artifacts import ArtifactStore
 from lab.broker import Workspace
 from lab.cli import main
+from lab.ledger import Ledger
 from lab.queue import TaskQueue
 
 T0 = datetime(2026, 9, 1, 2, 47, tzinfo=UTC)
@@ -95,6 +96,36 @@ def test_blobs_a_kept_backup_uses_stay_and_orphans_go(tmp_path: Path, live) -> N
     assert report.blobs_removed == 1 and not orphan.exists()
     assert shared and all(p.exists() for p in shared)
     assert backup.restore_check(manifests[-1], tmp_path / "r").ok
+
+
+@pytest.mark.safety
+def test_a_blob_the_kept_backup_needs_as_a_snapshot_survives_rotation(tmp_path: Path) -> None:
+    """The oldest backup holds a task artifact with the same bytes as an evidence snapshot
+    that only the newest backup refers to. Rotation must keep that shared blob."""
+    shared = b"the same bytes as an artifact and as a snapshot"
+    sha = hashlib.sha256(shared).hexdigest()
+    dest = tmp_path / "bk"
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "shared.txt").write_bytes(shared)
+    db_one = tmp_path / "one" / "lab.db"
+    db_one.parent.mkdir()
+    with TaskQueue(db_one) as one:
+        store_one = ArtifactStore(db_one.parent / "artifacts", one._conn)
+        store_one.ingest_workspace(Workspace(ws), "t1", 1)
+        older = backup.backup(db_one, dest, store_one.root, now=T0)
+    db_two = tmp_path / "two" / "lab.db"
+    db_two.parent.mkdir()
+    with TaskQueue(db_two) as two:
+        store_two = ArtifactStore(db_two.parent / "artifacts", two._conn)
+        ledger = Ledger(two._conn, store_two)
+        ledger.open_research_task("r1", "a question", "protocol-v1")
+        ledger.add_snapshot("r1", "https://a.example", "web", shared)
+        newer = backup.backup(db_two, dest, store_two.root, now=T0 + timedelta(days=1))
+    report = backup.rotate(dest, 1, protect=newer)
+    assert report.removed == [older.name] and report.blobs_removed == 0
+    assert (dest / "artifacts" / sha[:2] / sha).exists()
+    assert backup.restore_check(newer, tmp_path / "r").ok
 
 
 def test_the_new_backup_is_kept_even_if_older_ones_look_newer(tmp_path: Path, live) -> None:

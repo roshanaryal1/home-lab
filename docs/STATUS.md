@@ -9,10 +9,11 @@ be redone. The detail lives in the documents it links; this page only points.
 - The plan: v1.0 and a public launch by April 2027, month by month, in
   [PLAN-7-MONTHS.md](PLAN-7-MONTHS.md) (tracking issues #338 to #344). The features to add
   through the broker are in [FEATURE-PLAN.md](FEATURE-PLAN.md), and how home-lab compares with
-  OpenClaw and Hermes Agent is in [COMPARISON.md](COMPARISON.md).
+  OpenClaw and Hermes Agent is in [COMPARISON.md](COMPARISON.md). The wider market and the
+  owner's hybrid decision of 2026-10-09 (local by default, opt-in cloud; scheduled tasks, a safe
+  browser, an easy install and injection defence first) are in [MARKET-2026.md](MARKET-2026.md).
 - Open pull requests: **#312** (keep-awake as the `lab` account,
   [#235](https://github.com/roshanaryal1/home-lab/issues/235)).
-  Open bug: #358, backups leave out skill-version files and evidence snapshots.
   Do **not** merge #312 until both checks in step 1 of its runbook section "Moving keep-awake to
   the lab account" have passed on the Mac mini: `./ops/mac-session.sh --only caffeinate` from
   that branch, and the same check from launchd with a throwaway daemon.
@@ -29,8 +30,8 @@ be redone. The detail lives in the documents it links; this page only points.
   #324 (`lab prereg --record`), #334 (the wheel and the `lab` command, #329, #330), #336 (one-line
   CLI errors, #331), #345 (deploy keeps pytest, #270), #346 (`lab memory-budget`), #351
   (`lab doctor`, #347), #353 (a snapshot before migrating, #348), #335 (the weekly eval job),
-  #354 (log tracebacks, level and rotation, #349) and #357 (`lab migrate --check` and safer
-  update steps, #356).
+  #354 (log tracebacks, level and rotation, #349), #357 (`lab migrate --check` and safer
+  update steps, #356) and #360 (backups hold every blob the database refers to, #358).
 - Merged on 2026-10-09 (NZDT), documents and research only:
   #317, #322, #323 (H1b interval), #325 (incident catalog), #327 (comparison and feature plan),
   #333 (CHANGELOG and draft versioning rules, #332), #337 (A/B and H2 drafts), #350, #352

@@ -41,6 +41,10 @@ They are a draft until the owner approves them.
 - The deploy steps keep the test tools installed, so the nightly self-test can
   run its safety tests, and the self-test says why when pytest cannot start
   ([#270](https://github.com/roshanaryal1/home-lab/issues/270)).
+- A backup now holds every file the database refers to: task artifacts,
+  evidence snapshots and the files of each skill version. Before, it held only
+  task artifacts, and its restore check passed without the others
+  ([#358](https://github.com/roshanaryal1/home-lab/issues/358)).
 
 ## [0.1.0] - unreleased
 

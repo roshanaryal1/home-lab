@@ -132,7 +132,9 @@ log. The cited comparison is [docs/COMPARISON.md](docs/COMPARISON.md). On
 v0.1 first, then add features month by month; which features, and what home-lab
 will not copy, is in [docs/FEATURE-PLAN.md](docs/FEATURE-PLAN.md).
 The months to v1.0 and a public launch, and what v1.0 must pass, are in
-[docs/PLAN-7-MONTHS.md](docs/PLAN-7-MONTHS.md).
+[docs/PLAN-7-MONTHS.md](docs/PLAN-7-MONTHS.md). The wider market (OpenAI Dots, Meta Muse, xAI
+Grok Bot and the open-source agents) and the owner's hybrid position, local by default with an
+opt-in cloud, are in [docs/MARKET-2026.md](docs/MARKET-2026.md).
 The install guide for your own Mac is [docs/INSTALL.md](docs/INSTALL.md); it has not
 yet been tested end to end on a fresh Mac ([#188](https://github.com/roshanaryal1/home-lab/issues/188)).
 
@@ -250,8 +252,8 @@ uv run python -m lab.cli resolve <op> --happened|--not-happened --by you   # rec
 uv run python -m lab.cli audit verify             # walk the hash-chained event log
 uv run python -m lab.cli audit checkpoint --key K --out DIR    # signed head, kept outside the lab
 uv run python -m lab.cli artifacts verify         # re-hash every stored output
-uv run python -m lab.cli backup --to DIR [--keep N] [--alert-config F]   # online snapshot; with --keep, restore-check it, then keep the newest N
-uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything
+uv run python -m lab.cli backup --to DIR [--keep N] [--alert-config F]   # online snapshot of the database and every blob it refers to (task artifacts, evidence snapshots, skill files, #358); with --keep, restore-check it, then keep the newest N
+uv run python -m lab.cli restore-check <manifest> --into DIR   # restore into a fresh dir and verify everything, every blob re-hashed
 uv run python -m lab.cli drill crash              # inject a real failure and log it (ops/drills/)
 uv run python -m lab.cli skillstore submit|promote|known-good|rollback|history|install   # versioned skills, operator-promoted, one-step rollback
 uv run python -m lab.cli prereg m2|m6 [--json]   # run pre-registered Claim M2 or M6 on its frozen cases, refused if the case file changed
