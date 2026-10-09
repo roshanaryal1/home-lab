@@ -10,6 +10,7 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -179,3 +180,24 @@ def test_metrics_is_get_only(db: Path, method: str) -> None:
         resp = fetch(addr, method=method)
         assert resp.status == 405
         assert "GET" in (resp.getheader("Allow") or "")
+
+
+def test_a_failure_that_is_retried_stays_counted_as_an_outcome(tmp_path: Path) -> None:
+    path = tmp_path / "lab.db"
+    with TaskQueue(path) as queue:
+        task_id = queue.add_task("flaky", idempotent=True)
+        task = queue.lease()
+        assert task is not None and task.lease is not None
+        queue.start(task.lease)
+        queue.fail(task.lease, "boom", retry_in=timedelta(0))
+        again = queue.get(task_id)
+        assert again is not None and again.state == "queued", "the failure was retried"
+        cancelled = queue.add_task("not wanted")
+        queue.cancel(cancelled)
+    with serving(path) as addr:
+        body = scrape(addr)
+    assert "# TYPE homelab_task_outcomes_total counter\n" in body
+    assert 'homelab_task_outcomes_total{outcome="failed"} 1' in body
+    assert 'homelab_task_outcomes_total{outcome="cancelled"} 1' in body
+    assert 'homelab_task_outcomes_total{outcome="succeeded"} 0' in body
+    assert 'homelab_tasks{state="failed"} 0' in body, "no task is failed now"
