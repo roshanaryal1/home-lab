@@ -232,6 +232,7 @@ uv run python -m lab.cli doctor                   # read-only check: database, o
 uv run python -m lab.cli export --to DIR
 uv run python -m lab.cli security-audit [--details]   # read-only check of owners, modes, the operator key and the loopback model URL, exit 1 if any fails
 uv run python -m lab.cli migrate --check           # before a restart onto new code: migrate a private copy of the database and check it; the database is only read (#356)
+uv run python -m lab.cli update --plan COMMIT              # print the update steps for this install with the values filled in; read-only, runs no sudo (#370)
 uv run python -m lab.cli approvals                # what is waiting for a decision
 uv run python -m lab.cli show <id>                # read the exact call before deciding
 uv run python -m lab.cli approve <id> --by you --key operator.key --expect-hash <prefix>

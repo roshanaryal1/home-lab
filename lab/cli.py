@@ -95,6 +95,7 @@ from lab import (
     skills,
     sources,
     supervisor,
+    update_plan,
 )
 from lab import export as export_mod
 from lab import memory as memory_mod
@@ -741,6 +742,10 @@ def build_parser() -> argparse.ArgumentParser:
                          "JSON and Markdown, in a new private folder under --to")
     exp.add_argument("--to", type=Path, required=True,
                      help="an existing directory; the export is written to a new folder in it")
+    up = sub.add_parser("update", help="--plan COMMIT: print the update steps for this install "
+                        "with the values filled in; read-only, runs no sudo")
+    up.add_argument("--plan", metavar="COMMIT", required=True,
+                    help="the full 40 character commit to update to")
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
@@ -1237,6 +1242,27 @@ def cmd_export(args: argparse.Namespace) -> int:
     print(f"exported to {_escape(str(report.folder))}")
     print(f"memory items: {report.memory_items}, events: {report.events}, "
           f"tasks: {report.tasks}")
+    return 0
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens, like doctor and migrate. It prints
+    the update steps for this install with the values filled in, and runs no sudo."""
+    commit = args.plan
+    if not update_plan.is_full_commit(commit):
+        print("update: COMMIT must be a full 40 character commit hash", file=sys.stderr)
+        return 1
+    try:
+        # The runbook's commands name /opt/homelab and /Library/LaunchDaemons, so the plan
+        # reads those same places and no other, or it could describe one checkout and act
+        # on another.
+        old, present, writers = update_plan.gather(commit, update_plan.DEFAULT_DEPLOY,
+                                                   update_plan.DEFAULT_LAUNCH_DAEMONS)
+        text = update_plan.render(commit, old, present, writers)
+    except update_plan.UpdateError as exc:
+        print(f"update: {_escape(exc)}", file=sys.stderr)
+        return 1
+    sys.stdout.write(text)
     return 0
 
 
@@ -2151,6 +2177,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         return cmd_migrate(args)
     if args.command == "export":
         return cmd_export(args)
+    if args.command == "update":
+        return cmd_update(args)
     if args.command == "keepawake":
         return cmd_keepawake(args)
     if args.command == "shadow":
