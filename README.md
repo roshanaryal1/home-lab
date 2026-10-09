@@ -245,6 +245,7 @@ uv run python -m lab.cli heartbeat --url-file F   # ping the dead-man switch, on
 uv run python -m lab.cli setup-plan [--apply]      # print the lab-account setup; --apply needs root on macOS
 uv run python -m lab.cli keepawake [--once] [--grace 600]   # hold caffeinate only while work is pending
 uv run python -m lab.cli tick [--repo owner/repo]     # one pass: observe, summarize with the model, route
+uv run python -m lab.cli schedule add NAME --daily HH:MM|--weekly DAY HH:MM|--every-minutes N --kind KIND --title T --key K --by you   # an owner-signed schedule; `lab tick` starts its task when due, approve-tier steps still wait for you. `schedule list`, `schedule remove NAME --by you` (docs/SCHEDULES.md)
 uv run python -m lab.cli emit [--min-failures 3]  # queue proposals from patterns in the event log
 uv run python -m lab.cli chain <task>             # the events that produced a proposal
 uv run python -m lab.cli ops                      # operations of unknown outcome
@@ -307,6 +308,7 @@ lab/dashboard.py     read-only status page on loopback
 lab/keepawake.py, logsetup.py   queue-aware sleep prevention; rotating private JSON logs
 lab/loop.py          the loop: summarizer handler, ledger claim, rubric route, `lab tick`
 lab/emitter.py       proposals emitted from the event log, each with its event chain
+lab/schedule.py      owner-signed schedules that start tasks on a calendar rule and never approve
 lab/model.py         bounded model adapter: pinned revisions, admission, strict tool calls
 lab/memory.py        inspectable memory: FTS5, provenance, expiry, revoke that reaches drafts
 lab/rubric.py        the router's rules: evidence weight to post, blog, paper or nothing
