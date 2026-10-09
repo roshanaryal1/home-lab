@@ -117,7 +117,8 @@ def stalled_tasks(conn: sqlite3.Connection, now: datetime, *,
     A task is stalled when all of these hold.
 
     * Its state is ``leased`` or ``running`` and it holds a live lease,
-      which means ``leases.released_at`` is NULL.
+      which means ``leases.released_at`` is NULL and ``expires_at`` is after
+      ``now``. An expired lease is reported by the health check instead.
     * The lease was renewed after it was taken. ``renew_lease`` moves
       ``leases.expires_at`` in place and writes no event, and the schema
       has no ``renewed_at`` column. The expiry the lease was taken with is
@@ -139,6 +140,10 @@ def stalled_tasks(conn: sqlite3.Connection, now: datetime, *,
         "WHERE t.state IN ('leased', 'running') ORDER BY t.id").fetchall()
     stalled: list[Stalled] = []
     for task_id, agent_kind, state, lease_id, expires_now in live:
+        expiry = _parse(expires_now)
+        if expiry is None or expiry <= now:
+            # An expired lease is not live: the health check reports it as expired.
+            continue
         taken = _taken_expiry(conn, task_id, lease_id)
         if taken is None or taken == expires_now:
             continue

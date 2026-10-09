@@ -116,6 +116,16 @@ def test_a_renewed_lease_with_no_event_past_the_limit_is_stalled(
         metrics.Stalled(task_id, "researcher", "running", 39.0)]
 
 
+def test_an_expired_lease_is_not_stalled(q: TaskQueue, clock: FakeClock) -> None:
+    # Renewed once, then the worker stopped renewing: by minute 40 the lease has
+    # expired, which the health check reports, so it is not counted as stalled.
+    _, token = take(q)
+    clock.move_to(1)
+    q.start(token)
+    renew_at(q, clock, token, 5)
+    assert stalled_at(clock, q, 5 + TTL / 60 + 1) == []
+
+
 def test_a_leased_task_whose_lease_renews_is_stalled_too(q: TaskQueue, clock: FakeClock) -> None:
     task_id, token = take(q)
     renew_at(q, clock, token, 10)
