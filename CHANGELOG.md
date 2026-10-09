@@ -9,6 +9,9 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- `lab export --to DIR`: a read-only export of memory, the action log and task
+  results as JSON and Markdown, written to a new private folder
+  ([#381](https://github.com/roshanaryal1/home-lab/issues/381)).
 - `lab security-audit`: one read-only check of the lab's own boundary (file owners
   and modes, the operator key, the loopback model URL), with `--details` to list
   the offending paths ([#362](https://github.com/roshanaryal1/home-lab/issues/362)).
