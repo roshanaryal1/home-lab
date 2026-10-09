@@ -35,6 +35,7 @@ Usage:
     python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
     python3 -m lab.cli doctor
+    python3 -m lab.cli security-audit [--details]
     python3 -m lab.cli backup [--to DIR] [--artifacts DIR] [--keep N] [--alert-config FILE]
     python3 -m lab.cli heartbeat --url-file FILE
     python3 -m lab.cli restore-check MANIFEST --into DIR
@@ -86,6 +87,7 @@ from lab import (
     metrics,
     publish,
     rubric,
+    security_audit,
     selftest,
     service,
     skills,
@@ -708,6 +710,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="with --alert-config, also send one short alert when every check "
                      "passes, so a result arrives every morning")
     sub.add_parser("doctor", help="read-only health check: exit 1 if any check fails")
+    sec = sub.add_parser("security-audit", help="read-only check of the lab's boundary: file "
+                         "owners and modes, the operator key, the loopback model URL. Exit 1 if "
+                         "any check fails")
+    sec.add_argument("--details", action="store_true",
+                     help="under each FAIL, print the offending paths (never printed without it)")
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
@@ -1090,6 +1097,18 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     for check in checks:
         print(_escape(check.line()))
     return 0 if all(check.ok for check in checks) else 1
+
+
+def cmd_security_audit(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens. Exit 1 when any check fails. A path
+    is printed only with --details, under the FAIL line it belongs to."""
+    findings = security_audit.run(os.environ)
+    for finding in findings:
+        print(f"{finding.name}: {finding.status}")
+        if args.details and finding.status == "FAIL":
+            for path in finding.paths:
+                print(_escape(f"  {path}"))
+    return 1 if any(finding.status == "FAIL" for finding in findings) else 0
 
 
 def _backup_destination(args: argparse.Namespace) -> Path:
@@ -1938,6 +1957,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         return cmd_selftest(args)
     if args.command == "doctor":
         return cmd_doctor(args)
+    if args.command == "security-audit":
+        return cmd_security_audit(args)
     if args.command == "keepawake":
         return cmd_keepawake(args)
     if args.command == "shadow":

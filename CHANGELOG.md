@@ -9,6 +9,9 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- `lab security-audit`: one read-only check of the lab's own boundary (file owners
+  and modes, the operator key, the loopback model URL), with `--details` to list
+  the offending paths ([#362](https://github.com/roshanaryal1/home-lab/issues/362)).
 - `lab doctor`: one read-only health check of an install, with how to fix each
   failure ([#347](https://github.com/roshanaryal1/home-lab/issues/347)).
 - A `lab` command with `--version`, and a built wheel that holds the whole
