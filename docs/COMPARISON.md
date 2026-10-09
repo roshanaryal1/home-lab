@@ -79,8 +79,9 @@ an update command with a backup step, and OpenTelemetry export (OpenClaw
 `docs/install/updating.md`, `docs/gateway/opentelemetry.md`. Hermes Agent
 `website/docs/getting-started/updating.md`, `developer-guide/gateway-monitoring.md`). OpenClaw
 also has `openclaw security audit` (`docs/gateway/security/running-the-audit.md`). home-lab has
-`lab status`, a read-only loopback status page and a written install guide, but no installer,
-no `doctor` and no update command.
+`lab status`, a read-only loopback status page and a written install guide. Since 2026-10-09 it
+also has `lab doctor` (#347). It has no installer and no update command yet: `lab migrate
+--check` (#356) is the first part of one.
 
 ## Where home-lab differs on safety
 
@@ -141,7 +142,7 @@ sends to the fixed Telegram API host the owner set it up for (`lab/telegram_aler
 
 - One chat channel, six reviewed handlers besides the demo, one local model, macOS on Apple
   silicon only, and only the 32 GB tier measured.
-- No installer, no `doctor`, no update command, no release yet.
+- No installer, no update command, no release yet. (`lab doctor` arrived on 2026-10-09.)
 - No voice, no browser automation, no companion apps, no scheduling a user can set, no
   delegation tool, no session search.
 - No community. The safety claims have been checked by the owner on one Mac mini, not by an
