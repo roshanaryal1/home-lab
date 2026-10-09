@@ -32,10 +32,11 @@ import os
 import sqlite3
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lab import emitter
+from lab import emitter, schedule
 from lab.artifacts import ArtifactStore
 from lab.broker import PermanentFailure, ToolSession
 from lab.ledger import Ledger, LedgerError
@@ -232,6 +233,7 @@ class TickReport:
     summarized: int
     routed: int
     ran: bool
+    scheduled: int = 0       # tasks created by owner-signed schedules (#361)
 
 
 def _count(queue: TaskQueue, state: str) -> int:
@@ -252,6 +254,10 @@ async def tick(db: str | Path, model: BoundedModel, *, repo: str | None = None,
                                       require_operator_key=require_operator_key))
     try:
         queue = sup.queue
+        # Schedules fire first, so a scheduled proposal is summarized in this same
+        # pass. The supervisor daemon runs scheduled tasks of every other kind.
+        scheduled = sum(1 for fired in schedule.fire_due(
+            queue, datetime.now(UTC), sup.operator_public_key) if fired.outcome == "fired")
         proposed = 0
         signals: list[Signal] = []
         if repo:
@@ -277,6 +283,6 @@ async def tick(db: str | Path, model: BoundedModel, *, repo: str | None = None,
         summarized = _count(queue, "succeeded") - done_before
         routed = route_pending(queue._conn, ArtifactStore(Path(db).parent / "artifacts",
                                                           queue._conn))
-        return TickReport(proposed, summarized, routed, ran)
+        return TickReport(proposed, summarized, routed, ran, scheduled)
     finally:
         sup.close()

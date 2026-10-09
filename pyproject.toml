@@ -25,7 +25,7 @@ lab = "lab.cli:main"
 packages = ["lab", "lab.handlers", "lab.migrations"]
 
 [tool.setuptools.package-data]
-lab = ["migrations/*.sql"]
+lab = ["migrations/*.sql", "injection_cases/*.jsonl"]
 
 [tool.uv]
 # Only uv-managed (python-build-standalone) interpreters, never the

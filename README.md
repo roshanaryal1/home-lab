@@ -245,6 +245,7 @@ uv run python -m lab.cli heartbeat --url-file F   # ping the dead-man switch, on
 uv run python -m lab.cli setup-plan [--apply]      # print the lab-account setup; --apply needs root on macOS
 uv run python -m lab.cli keepawake [--once] [--grace 600]   # hold caffeinate only while work is pending
 uv run python -m lab.cli tick [--repo owner/repo]     # one pass: observe, summarize with the model, route
+uv run python -m lab.cli schedule add NAME --daily HH:MM|--weekly DAY HH:MM|--every-minutes N --kind KIND --title T --key K --by you   # an owner-signed schedule; `lab tick` starts its task when due, approve-tier steps still wait for you. `schedule list`, `schedule remove NAME --by you` (docs/SCHEDULES.md)
 uv run python -m lab.cli emit [--min-failures 3]  # queue proposals from patterns in the event log
 uv run python -m lab.cli chain <task>             # the events that produced a proposal
 uv run python -m lab.cli ops                      # operations of unknown outcome
@@ -272,6 +273,7 @@ uv run python -m lab.cli bench run --endpoint URL --model M --revision H --token
 uv run python -m lab.cli bench tune <baseline> <candidate>   # recommend a setting only on a measured gain with no task lost
 uv run python -m lab.cli measure-ceilings [--repeats 5] [--headroom 2]   # peak memory and CPU of every reviewed handler in real workers; suggests task ceilings, changes nothing
 uv run python -m lab.attacks                      # benign-plus-hostile scenarios against a stub model
+uv run python -m lab.cli injection-suite [--json] [--out F]   # the public injection suite: 27 fixed cases in throwaway labs, exit 1 if any attack succeeds (docs/INJECTION-SUITE.md)
 ```
 
 The `chat` command labels every message it sends with `[home-lab AI agent]` on its last line, so the person always knows the text comes from the AI agent ([#375](https://github.com/roshanaryal1/home-lab/issues/375)).
@@ -309,6 +311,7 @@ lab/dashboard.py     read-only status page on loopback
 lab/keepawake.py, logsetup.py   queue-aware sleep prevention; rotating private JSON logs
 lab/loop.py          the loop: summarizer handler, ledger claim, rubric route, `lab tick`
 lab/emitter.py       proposals emitted from the event log, each with its event chain
+lab/schedule.py      owner-signed schedules that start tasks on a calendar rule and never approve
 lab/model.py         bounded model adapter: pinned revisions, admission, strict tool calls
 lab/memory.py        inspectable memory: FTS5, provenance, expiry, revoke that reaches drafts
 lab/rubric.py        the router's rules: evidence weight to post, blog, paper or nothing
@@ -318,6 +321,7 @@ lab/ceilings.py      peak memory and CPU of each reviewed handler, and suggested
 evals/ceilings/      the sample tasks it runs, and its reports
 lab/evals.py         fixed task set run against any endpoint, sealed provenance records
 lab/attacks.py       injection harness
+lab/injection_suite.py   the versioned public injection suite and its report
 evals/tasks.jsonl    the 24 tasks (arithmetic, extraction, format, code, tool calls, injection)
 evals/shadow_cases.jsonl   12 labeled research cases for the shadow experiment
 docs/PREREGISTRATION.md    evaluation plan, registered at osf.io/jfp74, with results
