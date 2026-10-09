@@ -48,7 +48,25 @@ Built and tested in CI on Linux ([README](../README.md), Status):
 - Evaluation tools: a fixed task set with sealed provenance records
   (`lab eval`), benchmarks (`lab bench`), the shadow comparison (`lab shadow`)
   and runners for the pre-registered claims (`lab prereg`).
-- An install guide for another Mac, [INSTALL.md](INSTALL.md).
+- An install guide for another Mac, [INSTALL.md](INSTALL.md), and `lab doctor`,
+  one read-only health check of an install
+  ([#347](https://github.com/roshanaryal1/home-lab/issues/347)).
+- Packaging: a built wheel holds the whole `lab` package, CI installs and imports
+  it, and it installs a `lab` command with `--version`
+  ([#329](https://github.com/roshanaryal1/home-lab/issues/329),
+  [#330](https://github.com/roshanaryal1/home-lab/issues/330)). A known database
+  or file error prints one line, not a traceback
+  ([#331](https://github.com/roshanaryal1/home-lab/issues/331)).
+- Upgrades: before a migration the database is copied beside itself, every
+  upgrade step is tested against a fresh schema, and the shipped migrations are
+  pinned by checksum ([#348](https://github.com/roshanaryal1/home-lab/issues/348)).
+- Logs keep tracebacks, take a level setting, and the scheduled jobs' launchd
+  logs rotate ([#349](https://github.com/roshanaryal1/home-lab/issues/349)).
+- For the P3 study: a weekly eval job and a memory budget check
+  ([#321](https://github.com/roshanaryal1/home-lab/issues/321)).
+- A [CHANGELOG](../CHANGELOG.md) and draft versioning rules in
+  [ops/release.md](../ops/release.md)
+  ([#332](https://github.com/roshanaryal1/home-lab/issues/332)).
 
 ## What has run on the project's Mac mini
 
@@ -167,7 +185,8 @@ Nothing below has been done. See also [ops/release.md](../ops/release.md).
 1. Choose the version. Set `version` in `pyproject.toml` and `CITATION.cff`
    together (`tests/test_citation.py` fails if they differ), and set
    `date-released` in `CITATION.cff` to the release date. It says 2026-09-28
-   today, which is before any release.
+   today, which is before any release. Move the CHANGELOG's Unreleased notes
+   under the version, as `ops/release.md` says.
 2. `ops/release.md` also asks for a fresh `lab eval run` record on the Mac
    mini, committed before the release.
 3. Validate the citation file. The current file passed with `cffconvert`

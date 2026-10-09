@@ -262,7 +262,7 @@ uv run python -m lab.cli shadow --cases evals/shadow_cases.jsonl   # measure the
 uv run python -m lab.cli dashboard [--port 8765]   # read-only status page on loopback; no controls, GET only, everything escaped
 uv run python -m lab.cli ledger show <task>       # claims, their evidence and status; review, verify
 uv run python -m lab.cli memory-budget [TOKENS ...] [--measurements FILE]   # predicted resident memory of the heavy model at each context length (default 8192 16384 37000). With a measurement record, the error against it (#321)
-uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record; --db notes it as a measurement
+uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record; --db notes it as a measurement and takes the model slot the supervisor shares
 uv run python -m lab.cli eval rerun <record>      # repeat a run from its record alone, then compare
 uv run python -m lab.cli bench run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # cold start, first token, decode speed, server memory
 uv run python -m lab.cli bench tune <baseline> <candidate>   # recommend a setting only on a measured gain with no task lost
