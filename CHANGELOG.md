@@ -9,6 +9,9 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- Every chat message to the person ends with the label `[home-lab AI agent]`, added
+  at the one send, so no reply text can remove it
+  ([#375](https://github.com/roshanaryal1/home-lab/issues/375)).
 - `lab security-audit`: one read-only check of the lab's own boundary (file owners
   and modes, the operator key, the loopback model URL), with `--details` to list
   the offending paths ([#362](https://github.com/roshanaryal1/home-lab/issues/362)).

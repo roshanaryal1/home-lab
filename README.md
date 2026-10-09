@@ -274,6 +274,8 @@ uv run python -m lab.cli measure-ceilings [--repeats 5] [--headroom 2]   # peak 
 uv run python -m lab.attacks                      # benign-plus-hostile scenarios against a stub model
 ```
 
+The `chat` command labels every message it sends with `[home-lab AI agent]` on its last line, so the person always knows the text comes from the AI agent ([#375](https://github.com/roshanaryal1/home-lab/issues/375)).
+
 Approvals are signed with the operator's private key and the supervisor
 honours only signatures that verify against the public key it is given
 (`LAB_OPERATOR_PUBKEY`). That is a boundary only once the key is out of the
