@@ -98,6 +98,9 @@
 <li>Schedules you sign with your key. A due schedule adds a task to the queue. It never approves anything. <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/SCHEDULES.md">Source</a>.</li>
 <li>A public injection suite of 27 cases you can rerun. Against a stub model that obeys every instruction it reads, 0 of 27 attacks succeeded. A run with the real model is next. <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/INJECTION-SUITE.md">Source</a>.</li>
 <li>A read-only check of the lab's own boundary: <code>lab security-audit</code>.</li>
+<li>Every chat message from the lab ends with the label <code>[home-lab AI agent]</code>.</li>
+<li>The status page flags a task whose lease keeps renewing while it records nothing new for 30 minutes. It also serves its numbers in Prometheus format, and a page of what the lab did today, on loopback only.</li>
+<li><code>lab export</code> writes your memory, the action log and task results as plain JSON and Markdown. The action log keeps its hash chain, so you can check it.</li>
 </ul>
 <p>The lab has done no real work yet. Its queue is empty, and it holds no credentials.</p>
 <p>Not yet proved on the Mac: the power-pull and interrupted-task drills, the network unplug test, and <code>/stop</code> from the chat.</p>

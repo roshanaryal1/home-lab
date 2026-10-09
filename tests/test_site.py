@@ -17,7 +17,8 @@ INDEX = SITE / "index.html"
 STYLE = SITE / "style.css"
 EM_DASH = chr(0x2014)
 REPO = "https://github.com/roshanaryal1/home-lab/"
-URL_ATTRS = ("href", "src", "srcset", "action", "formaction", "data", "poster", "background")
+URL_ATTRS = ("href", "src", "srcset", "action", "formaction", "data", "poster", "background",
+             "ping")
 
 
 class _Page(HTMLParser):

@@ -41,7 +41,8 @@ dash.
 ## Publishing
 
 `.github/workflows/pages.yml` publishes `site/` to GitHub Pages on every push to `main`
-that changes `site/` or the workflow, and when run by hand. Its actions are pinned by
+that changes `site/`, and when run by hand. The hand run is for the first publish after
+switching it on, when no push has changed `site/` yet. Its actions are pinned by
 commit hash. Until the owner switches it on, both of its jobs are skipped, not failed, so
 nothing is published. A manual run from a branch other than `main` is skipped as well. To switch it on, the owner:
 
