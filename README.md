@@ -246,7 +246,7 @@ uv run python -m lab.cli heartbeat --url-file F   # ping the dead-man switch, on
 uv run python -m lab.cli setup-plan [--apply]      # print the lab-account setup; --apply needs root on macOS
 uv run python -m lab.cli keepawake [--once] [--grace 600]   # hold caffeinate only while work is pending
 uv run python -m lab.cli tick [--repo owner/repo]     # one pass: observe, summarize with the model, route
-uv run python -m lab.cli schedule add NAME --daily HH:MM|--weekly DAY HH:MM|--every-minutes N --kind KIND --title T --key K --by you   # an owner-signed schedule; `lab tick` starts its task when due, approve-tier steps still wait for you. `schedule list`, `schedule remove NAME --by you` (docs/SCHEDULES.md)
+uv run python -m lab.cli schedule add NAME --daily HH:MM|--weekly DAY HH:MM|--every-minutes N --kind KIND --title T --key K --by you   # an owner-signed schedule; `lab tick` queues its task when due and the supervisor runs it, approve-tier steps still wait for you. `schedule list`, `schedule remove NAME --by you` (docs/SCHEDULES.md)
 uv run python -m lab.cli emit [--min-failures 3]  # queue proposals from patterns in the event log
 uv run python -m lab.cli chain <task>             # the events that produced a proposal
 uv run python -m lab.cli ops                      # operations of unknown outcome
