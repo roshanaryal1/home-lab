@@ -95,6 +95,9 @@
 <li>Repository copies, skill scripts and MCP calls, each as a reviewed handler.</li>
 <li>Memory you can search, inspect, correct, revoke and delete.</li>
 <li>Status and control commands, and a read-only status page on loopback.</li>
+<li>Schedules you sign with your key. A due schedule adds a task to the queue. It never approves anything. <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/SCHEDULES.md">Source</a>.</li>
+<li>A public injection suite of 27 cases you can rerun. Against a stub model that obeys every instruction it reads, 0 of 27 attacks succeeded. A run with the real model is next. <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/INJECTION-SUITE.md">Source</a>.</li>
+<li>A read-only check of the lab's own boundary: <code>lab security-audit</code>.</li>
 </ul>
 <p>The lab has done no real work yet. Its queue is empty, and it holds no credentials.</p>
 <p>Not yet proved on the Mac: the power-pull and interrupted-task drills, the network unplug test, and <code>/stop</code> from the chat.</p>
@@ -125,11 +128,10 @@
 <li>One chat channel, Telegram.</li>
 <li>No calendar or mail tools. There is no handler for either.</li>
 <li>No voice, browser automation or companion apps.</li>
-<li>No way for you to set a schedule yourself.</li>
 <li>No delegation tool and no session search.</li>
 <li>No approval from your phone. Signing needs your key, which stays on the Mac.</li>
 <li>One local model, and only the 32 GB memory tier has been measured. macOS on Apple silicon only.</li>
-<li>No one-line installer and no update command yet.</li>
+<li>No one-line installer yet. Updates are still run by hand: <code>lab update --plan</code> prints the steps for your install, and you run them.</li>
 <li>No release has been tagged yet.</li>
 <li>The local model did not route well on its own (H1).</li>
 </ul>
