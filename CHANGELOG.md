@@ -9,6 +9,11 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- A read-only `/today` page on the status page, and `/today.json` with the same
+  data. It lists the local day's tasks created, finished, waiting for approval and
+  refused by policy, the approvals decided, the schedules fired and the egress and
+  policy denial counts. Task titles are escaped. No payloads or results are shown
+  ([#390](https://github.com/roshanaryal1/home-lab/issues/390)).
 - `lab export --to DIR`: a read-only export of memory, the action log and task
   results as JSON and Markdown, written to a new private folder. The action log
   keeps every column as stored, so its hash chain can be checked from the export

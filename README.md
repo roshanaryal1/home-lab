@@ -248,7 +248,7 @@ uv run python -m lab.cli heartbeat --url-file F   # ping the dead-man switch, on
 uv run python -m lab.cli setup-plan [--apply]      # print the lab-account setup; --apply needs root on macOS
 uv run python -m lab.cli keepawake [--once] [--grace 600]   # hold caffeinate only while work is pending
 uv run python -m lab.cli tick [--repo owner/repo]     # one pass: observe, summarize with the model, route
-uv run python -m lab.cli schedule add NAME --daily HH:MM|--weekly DAY HH:MM|--every-minutes N --kind KIND --title T --key K --by you   # an owner-signed schedule; `lab tick` starts its task when due, approve-tier steps still wait for you. `schedule list`, `schedule remove NAME --by you` (docs/SCHEDULES.md)
+uv run python -m lab.cli schedule add NAME --daily HH:MM|--weekly DAY HH:MM|--every-minutes N --kind KIND --title T --key K --by you   # an owner-signed schedule; `lab tick` queues its task when due and it runs like any queued task (`lab tick` runs proposal tasks itself, the supervisor every other kind), approve-tier steps still wait for you. `schedule list`, `schedule remove NAME --by you` (docs/SCHEDULES.md)
 uv run python -m lab.cli emit [--min-failures 3]  # queue proposals from patterns in the event log
 uv run python -m lab.cli chain <task>             # the events that produced a proposal
 uv run python -m lab.cli ops                      # operations of unknown outcome
@@ -267,7 +267,7 @@ uv run python -m lab.cli repo sign <name> <path> --key K --by you   # sign a rep
 uv run python -m lab.cli memory search|inspect|add-evidence|correct|revoke|delete   # inspectable FTS5 memory
 uv run python -m lab.cli route <task> [--want paper]   # post, blog, paper or nothing, by evidence weight; thin evidence refused upward
 uv run python -m lab.cli shadow --cases evals/shadow_cases.jsonl   # measure the rubric on labeled cases; a model candidate is compared in shadow, never applied
-uv run python -m lab.cli dashboard [--port 8765]   # read-only status page on loopback. No controls, GET only, everything escaped. /metrics serves the same numbers in Prometheus text format
+uv run python -m lab.cli dashboard [--port 8765]   # read-only status page on loopback. No controls, GET only, everything escaped. /metrics serves the same numbers in Prometheus text format, /today and /today.json the local day so far
 uv run python -m lab.cli ledger show <task>       # claims, their evidence and status; review, verify
 uv run python -m lab.cli memory-budget [TOKENS ...] [--measurements FILE]   # predicted resident memory of the heavy model at each context length (default 8192 16384 37000). With a measurement record, the error against it (#321)
 uv run python -m lab.cli eval run --endpoint URL --model M --revision H --tokenizer-revision H --weights-mb N   # 24 fixed tasks, sealed provenance record; --db notes it as a measurement and takes the model slot the supervisor shares
