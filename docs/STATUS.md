@@ -113,7 +113,7 @@ In this order:
     `research/321-memory-budget-check` and only exists because the session's git access cannot
     delete a remote branch. `.gitleaksignore` names one of its commits; that line can go once the
     branch is deleted.
-13. Switch the website on when you want it public: `docs/WEBSITE.md` (#374, GitHub Pages from
+13. Switch the website on when you want it public: [WEBSITE.md](WEBSITE.md) (GitHub Pages from
     Actions, and the repository variable `PAGES_ENABLED` set to `true`), then run the pages
     workflow once by hand. Until then the Pages workflow does nothing.
 
