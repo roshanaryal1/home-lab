@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
 from lab import control, service
 from lab.artifacts import ArtifactError, ArtifactStore
 from lab.authority import AgentCapability, AuthorityViolation, check, held_legs
@@ -271,6 +273,11 @@ class Supervisor:
     @property
     def healthy(self) -> bool:
         return self.unhealthy_reason is None
+
+    @property
+    def operator_public_key(self) -> Ed25519PublicKey | None:
+        """The operator's public key this supervisor checks signatures with, if configured."""
+        return self._control_key
 
     # --------------------------------------------------------- handlers
 

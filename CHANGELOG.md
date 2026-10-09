@@ -31,6 +31,14 @@ They are a draft until the owner approves them.
   the database before an update restarts anything, and the update steps stop
   the supervisor and `lab tick` first and say how to roll back
   ([#356](https://github.com/roshanaryal1/home-lab/issues/356)).
+- `lab injection-suite`: a versioned public injection suite, 27 fixed cases of
+  hidden instructions in a fetched page, run in throwaway labs through the real
+  broker and graded on state. The case file is pinned by SHA-256
+  ([#368](https://github.com/roshanaryal1/home-lab/issues/368)).
+- `lab schedule add|list|remove`: owner-signed schedules that start a task on
+  a daily, weekly or every-N-minutes rule. A schedule can start work but never
+  approve it. An unsigned or altered schedule is refused and logged
+  ([#361](https://github.com/roshanaryal1/home-lab/issues/361)).
 
 ### Fixed
 
