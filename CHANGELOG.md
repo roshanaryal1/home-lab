@@ -28,6 +28,9 @@ They are a draft until the owner approves them.
   the database before an update restarts anything, and the update steps stop
   the supervisor and `lab tick` first and say how to roll back
   ([#356](https://github.com/roshanaryal1/home-lab/issues/356)).
+- `lab update --plan COMMIT` prints the update steps for this install, with the
+  commit, the deployed commit and the installed jobs filled in. It is read-only
+  and runs no sudo ([#370](https://github.com/roshanaryal1/home-lab/issues/370)).
 
 ### Fixed
 
