@@ -132,7 +132,9 @@ log. The cited comparison is [docs/COMPARISON.md](docs/COMPARISON.md). On
 v0.1 first, then add features month by month; which features, and what home-lab
 will not copy, is in [docs/FEATURE-PLAN.md](docs/FEATURE-PLAN.md).
 The months to v1.0 and a public launch, and what v1.0 must pass, are in
-[docs/PLAN-7-MONTHS.md](docs/PLAN-7-MONTHS.md).
+[docs/PLAN-7-MONTHS.md](docs/PLAN-7-MONTHS.md). The wider market (OpenAI Dots, Meta Muse, xAI
+Grok Bot and the open-source agents) and the owner's hybrid position, local by default with an
+opt-in cloud, are in [docs/MARKET-2026.md](docs/MARKET-2026.md).
 The install guide for your own Mac is [docs/INSTALL.md](docs/INSTALL.md); it has not
 yet been tested end to end on a fresh Mac ([#188](https://github.com/roshanaryal1/home-lab/issues/188)).
 

@@ -10,6 +10,9 @@ quoting any of this.
 
 The feature plan that follows from this comparison is in [FEATURE-PLAN.md](FEATURE-PLAN.md).
 
+A wider look at the market, including OpenAI Dots, Meta Muse and xAI Grok Bot, is in
+[MARKET-2026.md](MARKET-2026.md) (2026-10-09).
+
 ## Size and maturity
 
 | | OpenClaw | Hermes Agent | home-lab |
