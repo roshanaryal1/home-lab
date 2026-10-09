@@ -12,7 +12,6 @@ be redone. The detail lives in the documents it links; this page only points.
   OpenClaw and Hermes Agent is in [COMPARISON.md](COMPARISON.md).
 - Open pull requests: **#312** (keep-awake as the `lab` account,
   [#235](https://github.com/roshanaryal1/home-lab/issues/235)).
-  Open bug: #358, backups leave out skill-version files and evidence snapshots.
   Do **not** merge #312 until both checks in step 1 of its runbook section "Moving keep-awake to
   the lab account" have passed on the Mac mini: `./ops/mac-session.sh --only caffeinate` from
   that branch, and the same check from launchd with a throwaway daemon.
@@ -29,8 +28,8 @@ be redone. The detail lives in the documents it links; this page only points.
   #324 (`lab prereg --record`), #334 (the wheel and the `lab` command, #329, #330), #336 (one-line
   CLI errors, #331), #345 (deploy keeps pytest, #270), #346 (`lab memory-budget`), #351
   (`lab doctor`, #347), #353 (a snapshot before migrating, #348), #335 (the weekly eval job),
-  #354 (log tracebacks, level and rotation, #349) and #357 (`lab migrate --check` and safer
-  update steps, #356).
+  #354 (log tracebacks, level and rotation, #349), #357 (`lab migrate --check` and safer
+  update steps, #356) and #360 (backups hold every blob the database refers to, #358).
 - Merged on 2026-10-09 (NZDT), documents and research only:
   #317, #322, #323 (H1b interval), #325 (incident catalog), #327 (comparison and feature plan),
   #333 (CHANGELOG and draft versioning rules, #332), #337 (A/B and H2 drafts), #350, #352
