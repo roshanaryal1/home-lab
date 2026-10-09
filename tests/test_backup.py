@@ -244,7 +244,7 @@ def test_snapshot_and_skill_blobs_are_backed_up_and_the_restore_verifies_them(
     manifest = backup.backup(db, tmp_path / "bk", store.root)
     data = json.loads(manifest.read_text())
     assert data["artifact_blobs"] == 2 and data["blobs"] == 5
-    assert data["artifact_blobs_copied"] == 5
+    assert data["artifact_blobs_copied"] == 2 and data["blobs_copied"] == 5
     copied = [p for p in (manifest.parent / "artifacts").rglob("*") if p.is_file()]
     assert len(copied) == 5
     report = backup.restore_check(manifest, tmp_path / "restored")
@@ -262,6 +262,19 @@ def test_a_missing_snapshot_or_skill_blob_fails_the_backup_naming_it(
     with pytest.raises(backup.BackupError, match=sha[:12]):
         backup.backup(db, tmp_path / "bk", store.root)
     assert not list((tmp_path / "bk").glob("*.db")), "no half backup left behind"
+
+
+def test_a_restored_blob_that_is_a_folder_fails_the_restore_without_raising(
+        tmp_path: Path, with_evidence) -> None:
+    q, db, store = with_evidence
+    sha = _blob_of("snapshot", q)
+    manifest = backup.backup(db, tmp_path / "bk", store.root)
+    blob = manifest.parent / "artifacts" / sha[:2] / sha
+    os.chmod(blob, 0o600)
+    blob.unlink()
+    blob.mkdir()
+    report = backup.restore_check(manifest, tmp_path / "restored")
+    assert not report.ok and any(sha[:12] in p for p in report.problems)
 
 
 @pytest.mark.safety

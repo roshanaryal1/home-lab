@@ -151,6 +151,8 @@ def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
         check.close()
 
     copied = 0
+    artifacts_copied = 0
+    artifact_digests = {str(sha) for (sha,) in artifact_rows}
     if artifacts_dir is not None and blob_digests:
         store_src = ArtifactStore(artifacts_dir, sqlite3.connect(":memory:"))
         store_dst = ArtifactStore(dest / "artifacts", sqlite3.connect(":memory:"))
@@ -161,7 +163,8 @@ def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
                 continue
             if not src.exists():
                 tmp_db.unlink(missing_ok=True)
-                raise BackupError(f"artifact {sha[:12]} is missing from {artifacts_dir}")
+                kind = "artifact" if sha in artifact_digests else "blob"
+                raise BackupError(f"{kind} {sha[:12]} is missing from {artifacts_dir}")
             dst.parent.mkdir(mode=0o700, exist_ok=True)
             partial = dst.with_name(dst.name + ".partial")
             shutil.copyfile(src, partial)
@@ -170,6 +173,8 @@ def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
                 os.fsync(fh.fileno())
             os.replace(partial, dst)
             copied += 1
+            if sha in artifact_digests:
+                artifacts_copied += 1
 
     with open(tmp_db, "rb") as fh:
         os.fsync(fh.fileno())
@@ -185,8 +190,9 @@ def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
         "audit_head": chain.last_hash,
         "audit_chain_ok": chain.ok,
         "artifact_blobs": len(artifact_rows),
-        "artifact_blobs_copied": copied,
+        "artifact_blobs_copied": artifacts_copied,
         "blobs": len(blob_digests),
+        "blobs_copied": copied,
     }
     manifest_path = dest / f"{name}.manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -226,6 +232,12 @@ def _check_restored_blob(store: ArtifactStore, sha: str, report: RestoreReport) 
         actual = _sha256_file(path)
     except FileNotFoundError:
         report.fail(f"blob {sha[:12]} is missing from the restored store")
+        return
+    except OSError as exc:
+        # A directory or an unreadable file where the blob should be: a failed
+        # restore to report, not an exception to crash the drill with.
+        report.fail(f"blob {sha[:12]} cannot be read in the restored store "
+                    f"({type(exc).__name__})")
         return
     if actual != sha:
         report.fail(f"blob {sha[:12]} does not match its name")
