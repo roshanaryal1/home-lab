@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from lab import control, metrics
+from lab.db import connect_readonly
 
 DEFAULT_PORT = 8765
 LOOPBACK_NAMES = {"localhost"}
@@ -60,7 +61,7 @@ def is_loopback(host: str) -> bool:
 
 def _open(db: Path) -> sqlite3.Connection:
     """The one way this module opens the database: read-only, never created."""
-    return sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+    return connect_readonly(db, timeout=5)
 
 
 def _read(db: Path) -> tuple[metrics.Metrics, control.ControlState]:
