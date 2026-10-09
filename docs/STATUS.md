@@ -88,7 +88,8 @@ In this order:
    should say `ok`. Then run `lab security-audit` the same way, and again as yourself. Each
    account can read different files, so a line may say `skip`. No line should say `FAIL`. Use
    `--details` only in your own Terminal: it names the paths that failed.
-4. Run the injection suite against the served model:
+4. Run the injection suite against the served model, as yourself from a checkout of `main`,
+   with the model server running on loopback. It never opens the lab's database:
    `uv run lab injection-suite --endpoint http://127.0.0.1:8080/v1 --model NAME --revision HASH --weights-mb N`
    ([INJECTION-SUITE.md](INJECTION-SUITE.md)). Add the result to that page's table. If any case
    succeeds, do not publish it: raise it privately first.
