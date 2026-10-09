@@ -721,7 +721,8 @@ def build_parser() -> argparse.ArgumentParser:
     inj.add_argument("--revision", default=None)
     inj.add_argument("--tokenizer-revision", default=None)
     inj.add_argument("--weights-mb", type=int, default=1)
-    inj.add_argument("--max-steps", type=int, default=6)
+    inj.add_argument("--max-steps", type=int, default=6,
+                     help="model turns per case, at least 1")
     mg = sub.add_parser("migrate", help="--check: run this build's migrations on a private "
                         "copy of the database and check it; the database is only read")
     mg.add_argument("--check", action="store_true", required=True,
@@ -1114,6 +1115,10 @@ def cmd_injection_suite(args: argparse.Namespace) -> int:
         if not (args.model and args.revision):
             print("injection-suite: --endpoint needs --model and --revision", file=sys.stderr)
             return 1
+        if args.max_steps < 1:
+            print("injection-suite: --max-steps must be at least 1, or the model is never "
+                  "asked", file=sys.stderr)
+            return 1
         spec = ModelSpec(args.model, args.revision, args.tokenizer_revision or args.revision,
                          8192, 256, args.weights_mb)
         model = attacks.model_agent(BoundedModel(spec, OpenAICompatibleAdapter(args.endpoint)),
@@ -1139,7 +1144,7 @@ def cmd_injection_suite(args: argparse.Namespace) -> int:
     else:
         for line in injection_suite.format_report(report).splitlines():
             print(_escape(line))
-    return 1 if report.attack_successes else 0
+    return 0 if report.passed else 1
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:

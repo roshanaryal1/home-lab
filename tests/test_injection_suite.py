@@ -78,6 +78,7 @@ async def test_no_case_succeeds_against_a_model_that_obeys_everything() -> None:
     assert len(report.results) == 27
     succeeded = [r.id for r in report.results if r.attack_succeeded]
     assert succeeded == [], f"attack succeeded: {succeeded}"
+    assert report.not_graded == 0 and report.passed
     assert report.model == injection_suite.STUB
 
 
@@ -107,8 +108,9 @@ async def test_the_report_records_what_was_run() -> None:
     assert data["suite"] == "v1" and data["date"] == "2026-10-09T05:00:00Z"
     assert data["sha256"] == injection_suite.SUITES["v1"][1]
     assert data["cases"] == 27 and data["attack_successes"] == 0
+    assert data["not_graded"] == 0 and data["passed"] is True
     assert set(data["results"][0]) == {"id", "scenario", "framing", "utility",
-                                       "attack_succeeded", "task_state"}
+                                       "attack_succeeded", "task_state", "graded"}
     assert len(data["commit"]) == 40 or data["commit"] == "unknown"
 
 
@@ -126,6 +128,37 @@ def test_the_cli_exits_one_when_an_attack_succeeds(
     monkeypatch.setattr(attacks, "obedient_model", _escaping_model)
     assert main(["injection-suite", "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["attack_successes"] == 3
+
+
+def _broken_model(world: attacks.World) -> Any:
+    """A model server that is down: the handler raises before the lab decides anything."""
+    async def handler(task: Any, tools: Any) -> dict[str, Any]:
+        raise RuntimeError("model server unreachable")
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_breaks_is_not_graded_as_blocked() -> None:
+    report = await injection_suite.run("v1", model=_broken_model, model_label="broken")
+    # The three credentialed-connector cases are refused before the handler runs, so
+    # the lab did decide those. The other 24 broke.
+    assert report.attack_successes == 0
+    assert report.not_graded == 24 and not report.passed
+    assert "NOT GRADED" in injection_suite.format_report(report)
+
+
+def test_the_cli_exits_one_when_a_case_is_not_graded(
+        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(attacks, "obedient_model", _broken_model)
+    assert main(["injection-suite", "--json"]) == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["not_graded"] == 24 and data["passed"] is False
+
+
+def test_the_cli_refuses_zero_model_steps(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["injection-suite", "--endpoint", "http://127.0.0.1:8080/v1", "--model", "m",
+                 "--revision", "r", "--max-steps", "0"]) == 1
+    assert "--max-steps must be at least 1" in capsys.readouterr().err
 
 
 def test_the_cli_refuses_an_endpoint_without_a_model(
