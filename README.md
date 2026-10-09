@@ -228,6 +228,8 @@ step ([#87](https://github.com/roshanaryal1/home-lab/issues/87)).
 ```sh
 uv run python -m lab.cli status [--json] [--alert-config F] [--stalled-minutes N]   # queue, worker health, counters and stalled tasks, exit 2 if unhealthy
 uv run python -m lab.cli doctor                   # read-only check: database, operator key, model, disk, backup, selftest, audit chain; exit 1 if any fails
+# read-only: memory, the action log and task results as JSON and Markdown, in a new private folder in DIR
+uv run python -m lab.cli export --to DIR
 uv run python -m lab.cli security-audit [--details]   # read-only check of owners, modes, the operator key and the loopback model URL, exit 1 if any fails
 uv run python -m lab.cli migrate --check           # before a restart onto new code: migrate a private copy of the database and check it; the database is only read (#356)
 uv run python -m lab.cli update --plan COMMIT              # print the update steps for this install with the values filled in; read-only, runs no sudo (#370)
