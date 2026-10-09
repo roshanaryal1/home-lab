@@ -342,6 +342,11 @@ for s in supervisor watchdog keepawake statuscheck selftest tick backup heartbea
 done
 ```
 
+- Optional, for the P3 study only: the weekly eval job. Install
+  `ops/launchd/com.homelab.weekly-eval.plist` like the others, fill its four `PASTE_`
+  values and check them with `plutil -p` as "Updating the deployed code" says, then
+  `sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.weekly-eval.plist`.
+  It needs the model server, and the lab runs fine without it.
 - Check: the supervisor runs as `lab`
   (`ps -o user= -p $(pgrep -f lab.supervisor)`), its log has no
   "approvals are NOT signature-checked" line

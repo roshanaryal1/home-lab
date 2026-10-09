@@ -50,7 +50,10 @@ What was missing for daily use on 2026-09-30, and where each stands on
 - **Install path: written, not yet proved.** `docs/INSTALL.md` exists since
   PR #196 (2026-10-02). The fresh-account test on another Mac that
   [#188](https://github.com/roshanaryal1/home-lab/issues/188) waits for has
-  not been run.
+  not been run. Since 2026-10-09 an install can check itself with `lab doctor`
+  (#347), the wheel installs a `lab` command (#329, #330), and an upgrade copies
+  the database before it migrates (#348). The rest of the road to v1.0 is in
+  [PLAN-7-MONTHS.md](PLAN-7-MONTHS.md).
 - **Still missing:** calendar and mail tools (no handler for either in
   `lab/handlers/`), and code editing by an executor such as Aider or
   OpenHands (README Status, step 6: not started).
