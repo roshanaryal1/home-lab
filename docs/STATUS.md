@@ -9,7 +9,9 @@ be redone. The detail lives in the documents it links; this page only points.
 - The plan: v1.0 and a public launch by April 2027, month by month, in
   [PLAN-7-MONTHS.md](PLAN-7-MONTHS.md) (tracking issues #338 to #344). The features to add
   through the broker are in [FEATURE-PLAN.md](FEATURE-PLAN.md), and how home-lab compares with
-  OpenClaw and Hermes Agent is in [COMPARISON.md](COMPARISON.md).
+  OpenClaw and Hermes Agent is in [COMPARISON.md](COMPARISON.md). The wider market and the
+  owner's hybrid decision of 2026-10-09 (local by default, opt-in cloud; scheduled tasks, a safe
+  browser, an easy install and injection defence first) are in [MARKET-2026.md](MARKET-2026.md).
 - Open pull requests: **#312** (keep-awake as the `lab` account,
   [#235](https://github.com/roshanaryal1/home-lab/issues/235)).
   Do **not** merge #312 until both checks in step 1 of its runbook section "Moving keep-awake to
