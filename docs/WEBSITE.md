@@ -43,7 +43,7 @@ dash.
 `.github/workflows/pages.yml` publishes `site/` to GitHub Pages on every push to `main`
 that changes `site/` or the workflow, and when run by hand. Its actions are pinned by
 commit hash. Until the owner switches it on, both of its jobs are skipped, not failed, so
-nothing is published. To switch it on, the owner:
+nothing is published. A manual run from a branch other than `main` is skipped as well. To switch it on, the owner:
 
 1. Opens the repository's Settings, then Pages, and sets the source to GitHub Actions.
 2. Opens Settings, then Secrets and variables, then Actions, then Variables, and adds a

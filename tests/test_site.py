@@ -93,7 +93,7 @@ def test_every_relative_link_and_source_points_at_a_file_under_site() -> None:
 
 def test_the_stylesheet_is_linked_relatively_and_loads_nothing_remote() -> None:
     styles = [attrs for tag, attrs in _parse().tags
-              if tag == "link" and attrs.get("rel") == "stylesheet"]
+              if tag == "link" and "stylesheet" in (attrs.get("rel") or "").lower().split()]
     assert [s["href"] for s in styles] == ["style.css"]
     css = STYLE.read_text(encoding="utf-8")
     assert "@import" not in css and "url(" not in css

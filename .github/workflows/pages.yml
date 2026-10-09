@@ -3,7 +3,8 @@ name: pages
 # Publishes site/ to GitHub Pages (#363). Nothing is published until the
 # owner switches Pages on with "GitHub Actions" as the source and sets the
 # repository variable PAGES_ENABLED to true (docs/WEBSITE.md). Until then
-# both jobs are skipped, not failed.
+# both jobs are skipped, not failed. A manual run from any branch but main is
+# skipped too, so only main is ever published.
 on:
   push:
     branches: [main]
@@ -20,7 +21,7 @@ concurrency:
 
 jobs:
   build:
-    if: ${{ vars.PAGES_ENABLED == 'true' }}
+    if: ${{ vars.PAGES_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -33,7 +34,7 @@ jobs:
           path: site
 
   deploy:
-    if: ${{ vars.PAGES_ENABLED == 'true' }}
+    if: ${{ vars.PAGES_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
     needs: build
     runs-on: ubuntu-24.04
     permissions:
