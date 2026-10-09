@@ -483,7 +483,9 @@ def today(conn: sqlite3.Connection, now: datetime | None = None,
     """
     now = now or datetime.now(UTC)
     day, first, last = local_day(now, tz)
-    start, end = _stamp(first), _stamp(last)
+    # The day so far: nothing stamped after ``now`` is shown. One second of slack,
+    # since the bound is in whole seconds and a stamp can carry milliseconds.
+    start, end = _stamp(first), _stamp(min(last, now + timedelta(seconds=1)))
     local_now = now.astimezone(tz)
 
     created = [TaskLine(*row) for row in conn.execute(

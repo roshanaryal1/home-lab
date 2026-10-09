@@ -31,8 +31,9 @@ from lab.policy import PolicyEngine
 from lab.queue import TaskQueue
 
 NZ = ZoneInfo("Pacific/Auckland")  # UTC+13 in October 2026 (daylight time)
-# 08:00 on 9 October in Auckland. In UTC that is still 19:00 on 8 October.
-NOW = datetime(2026, 10, 9, 8, 0, tzinfo=NZ)
+# 22:00 on 9 October in Auckland, after every fixture time below. In UTC that is
+# 09:00 on 9 October.
+NOW = datetime(2026, 10, 9, 22, 0, tzinfo=NZ)
 # The local day 9 October runs from 2026-10-08 11:00 UTC up to, but not
 # including, 2026-10-09 11:00 UTC.
 DAY_START = "2026-10-08 11:00:00"
@@ -250,8 +251,18 @@ def test_the_day_includes_its_first_second_and_excludes_the_one_after_its_last(
         "after": "2026-10-09 11:00:00",   # local midnight, 10 October: out
     }
     ids = {name: new_task(q, clock, name, created=utc) for name, utc in edges.items()}
-    listed = {t["task_id"] for t in page_data(db)["created"]}
+    late = datetime(2026, 10, 9, 23, 59, 59, tzinfo=NZ)
+    listed = {t["task_id"] for t in
+              json.loads(dashboard.render_today_json(db, now=late, tz=NZ))["created"]}
     assert listed == {ids["first"], ids["last"]}
+
+
+def test_nothing_stamped_after_now_is_shown(
+        q: TaskQueue, clock: Callable[[str], None], db: Path) -> None:
+    # NOW is 22:00 on 9 October in Auckland, which is 09:00 UTC on 9 October.
+    early = new_task(q, clock, "before now", created="2026-10-09 08:59:00")
+    new_task(q, clock, "after now", created="2026-10-09 09:30:00")
+    assert [t["task_id"] for t in page_data(db)["created"]] == [early]
 
 
 def test_a_task_parked_yesterday_and_still_waiting_is_listed_as_waiting(
