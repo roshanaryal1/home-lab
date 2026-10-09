@@ -56,6 +56,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import re
 import shlex
@@ -714,6 +715,19 @@ def build_parser() -> argparse.ArgumentParser:
                      help="with --alert-config, also send one short alert when every check "
                      "passes, so a result arrives every morning")
     sub.add_parser("doctor", help="read-only health check: exit 1 if any check fails")
+    inj = sub.add_parser("injection-suite", help="run the public injection suite (#368) in "
+                         "throwaway labs; exit 1 if any attack succeeds")
+    inj.add_argument("--version", default=None, help="suite version (default: the latest)")
+    inj.add_argument("--json", action="store_true", help="print the report as JSON")
+    inj.add_argument("--out", type=Path, default=None, help="also write the JSON report here")
+    inj.add_argument("--endpoint", default=None,
+                     help="a loopback OpenAI-compatible server; without it, the stub model")
+    inj.add_argument("--model", default=None)
+    inj.add_argument("--revision", default=None)
+    inj.add_argument("--tokenizer-revision", default=None)
+    inj.add_argument("--weights-mb", type=int, default=1)
+    inj.add_argument("--max-steps", type=int, default=6,
+                     help="model turns per case, at least 1")
     sec = sub.add_parser("security-audit", help="read-only check of the lab's boundary: file "
                          "owners and modes, the operator key, the loopback model URL. Exit 1 if "
                          "any check fails")
@@ -1125,6 +1139,51 @@ def cmd_selftest(args: argparse.Namespace) -> int:
             # failure alert needs, and the config's rate limit still applies.
             _send_alert(args, "selftest_ok", f"selftest ok: {len(report.checks)} checks")
     return 0 if report.ok else 1
+
+
+def cmd_injection_suite(args: argparse.Namespace) -> int:
+    """Each case runs in a throwaway lab of its own, so the lab's database is never opened.
+    Exit 1 when any attack succeeds or the case file is refused."""
+    from lab import attacks, injection_suite
+    from lab.model import BoundedModel, ModelSpec, OpenAICompatibleAdapter
+
+    version = args.version or injection_suite.LATEST
+    model: injection_suite.ModelFactory = attacks.obedient_model
+    label = injection_suite.STUB
+    if args.endpoint:
+        if not (args.model and args.revision):
+            print("injection-suite: --endpoint needs --model and --revision", file=sys.stderr)
+            return 1
+        if args.max_steps < 1:
+            print("injection-suite: --max-steps must be at least 1, or the model is never "
+                  "asked", file=sys.stderr)
+            return 1
+        spec = ModelSpec(args.model, args.revision, args.tokenizer_revision or args.revision,
+                         8192, 256, args.weights_mb)
+        model = attacks.model_agent(BoundedModel(spec, OpenAICompatibleAdapter(args.endpoint)),
+                                    args.max_steps)
+        label = f"{args.model} at revision {args.revision}"
+    # Each throwaway lab has no operator key and refuses what the cases try. Those
+    # warnings are the expected outcome, not news, so only errors are shown.
+    lab_log = logging.getLogger("lab")
+    level = lab_log.level
+    lab_log.setLevel(logging.ERROR)
+    try:
+        report = asyncio.run(injection_suite.run(version, model=model, model_label=label))
+    except injection_suite.SuiteError as exc:
+        print(f"injection-suite: {_escape(str(exc))}", file=sys.stderr)
+        return 1
+    finally:
+        lab_log.setLevel(level)
+    data = report.as_json()
+    if args.out is not None:
+        args.out.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    if args.json:
+        print(json.dumps(data, indent=2))
+    else:
+        for line in injection_suite.format_report(report).splitlines():
+            print(_escape(line))
+    return 0 if report.passed else 1
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -2084,6 +2143,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         return cmd_selftest(args)
     if args.command == "doctor":
         return cmd_doctor(args)
+    if args.command == "injection-suite":
+        return cmd_injection_suite(args)
     if args.command == "security-audit":
         return cmd_security_audit(args)
     if args.command == "migrate":

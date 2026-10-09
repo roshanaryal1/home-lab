@@ -275,6 +275,7 @@ uv run python -m lab.cli bench run --endpoint URL --model M --revision H --token
 uv run python -m lab.cli bench tune <baseline> <candidate>   # recommend a setting only on a measured gain with no task lost
 uv run python -m lab.cli measure-ceilings [--repeats 5] [--headroom 2]   # peak memory and CPU of every reviewed handler in real workers; suggests task ceilings, changes nothing
 uv run python -m lab.attacks                      # benign-plus-hostile scenarios against a stub model
+uv run python -m lab.cli injection-suite [--json] [--out F]   # the public injection suite: 27 fixed cases in throwaway labs, exit 1 if any attack succeeds (docs/INJECTION-SUITE.md)
 ```
 
 Approvals are signed with the operator's private key and the supervisor
@@ -320,6 +321,7 @@ lab/ceilings.py      peak memory and CPU of each reviewed handler, and suggested
 evals/ceilings/      the sample tasks it runs, and its reports
 lab/evals.py         fixed task set run against any endpoint, sealed provenance records
 lab/attacks.py       injection harness
+lab/injection_suite.py   the versioned public injection suite and its report
 evals/tasks.jsonl    the 24 tasks (arithmetic, extraction, format, code, tool calls, injection)
 evals/shadow_cases.jsonl   12 labeled research cases for the shadow experiment
 docs/PREREGISTRATION.md    evaluation plan, registered at osf.io/jfp74, with results
