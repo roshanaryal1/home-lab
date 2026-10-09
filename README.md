@@ -226,7 +226,7 @@ step ([#87](https://github.com/roshanaryal1/home-lab/issues/87)).
 `lab` and `python -m lab.cli` are the same command. Each command below works with either spelling, for example `uv run lab status`. `lab --version` prints the version.
 
 ```sh
-uv run python -m lab.cli status [--json] [--alert-config F]   # queue, worker health, counters; exit 2 if unhealthy
+uv run python -m lab.cli status [--json] [--alert-config F] [--stalled-minutes N]   # queue, worker health, counters and stalled tasks, exit 2 if unhealthy
 uv run python -m lab.cli doctor                   # read-only check: database, operator key, model, disk, backup, selftest, audit chain; exit 1 if any fails
 uv run python -m lab.cli security-audit [--details]   # read-only check of owners, modes, the operator key and the loopback model URL, exit 1 if any fails
 uv run python -m lab.cli migrate --check           # before a restart onto new code: migrate a private copy of the database and check it; the database is only read (#356)
@@ -276,6 +276,8 @@ uv run python -m lab.cli measure-ceilings [--repeats 5] [--headroom 2]   # peak 
 uv run python -m lab.attacks                      # benign-plus-hostile scenarios against a stub model
 uv run python -m lab.cli injection-suite [--json] [--out F]   # the public injection suite: 27 fixed cases in throwaway labs, exit 1 if any attack succeeds (docs/INJECTION-SUITE.md)
 ```
+
+The `chat` command labels every message it sends with `[home-lab AI agent]` on its last line, so the person always knows the text comes from the AI agent ([#375](https://github.com/roshanaryal1/home-lab/issues/375)).
 
 Approvals are signed with the operator's private key and the supervisor
 honours only signatures that verify against the public key it is given
