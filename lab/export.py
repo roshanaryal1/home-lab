@@ -32,6 +32,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from lab.db import connect_readonly
 from lab.untrusted import clean
 
 FOLDER_MODE = 0o700
@@ -86,9 +87,7 @@ def _read(db: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[di
     if not db.exists():
         raise ExportError(f"no database at {db}")
     try:
-        # as_uri() percent-encodes the path. A raw ? or # would end the file name
-        # early, and mode=ro would be lost with it.
-        conn = sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro", uri=True)
+        conn = connect_readonly(db)
     except sqlite3.Error as exc:
         raise ExportError(f"cannot open {db}: {exc}") from exc
     conn.row_factory = sqlite3.Row
