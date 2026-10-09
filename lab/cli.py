@@ -35,6 +35,7 @@ Usage:
     python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N] [--stalled-minutes N]
     python3 -m lab.cli doctor
+    python3 -m lab.cli export --to DIR
     python3 -m lab.cli security-audit [--details]
     python3 -m lab.cli backup [--to DIR] [--artifacts DIR] [--keep N] [--alert-config FILE]
     python3 -m lab.cli heartbeat --url-file FILE
@@ -96,6 +97,7 @@ from lab import (
     supervisor,
     update_plan,
 )
+from lab import export as export_mod
 from lab import memory as memory_mod
 from lab import migrations as migrations_mod
 from lab import model as model_mod
@@ -737,6 +739,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "copy of the database and check it; the database is only read")
     mg.add_argument("--check", action="store_true", required=True,
                     help="required: the services migrate the database when they start")
+    exp = sub.add_parser("export", help="read-only: memory, the action log and task results as "
+                         "JSON and Markdown, in a new private folder under --to")
+    exp.add_argument("--to", type=Path, required=True,
+                     help="an existing directory; the export is written to a new folder in it")
     up = sub.add_parser("update", help="--plan COMMIT: print the update steps for this install "
                         "with the values filled in; read-only, runs no sudo")
     up.add_argument("--plan", metavar="COMMIT", required=True,
@@ -1232,6 +1238,20 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     else:
         print(f"migrate --check: a copy of {db} went from schema version {result.start} "
               f"to {result.end} and checks clean. {db} itself was not changed.")
+    return 0
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens, so it never creates or migrates
+    the database. Exit 0 when the export folder is written, 1 when it is refused."""
+    try:
+        report = export_mod.export(args.db, args.to)
+    except export_mod.ExportError as exc:
+        print(f"export: {_escape(exc)}", file=sys.stderr)
+        return 1
+    print(f"exported to {_escape(str(report.folder))}")
+    print(f"memory items: {report.memory_items}, events: {report.events}, "
+          f"tasks: {report.tasks}")
     return 0
 
 
@@ -2165,6 +2185,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         return cmd_security_audit(args)
     if args.command == "migrate":
         return cmd_migrate(args)
+    if args.command == "export":
+        return cmd_export(args)
     if args.command == "update":
         return cmd_update(args)
     if args.command == "keepawake":

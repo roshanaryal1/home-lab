@@ -9,6 +9,10 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- `lab export --to DIR`: a read-only export of memory, the action log and task
+  results as JSON and Markdown, written to a new private folder. The action log
+  keeps every column as stored, so its hash chain can be checked from the export
+  ([#381](https://github.com/roshanaryal1/home-lab/issues/381)).
 - `GET /metrics` on the read-only status page: the queue, health, leases, task
   outcomes and counters in Prometheus text format, on loopback only, with fixed
   names and no task ids or titles. A failure that is retried stays counted as an
