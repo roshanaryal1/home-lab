@@ -3,7 +3,9 @@
 ``lab export --to DIR`` writes a new folder under DIR holding five files:
 ``memory.json`` and ``memory.md`` (memory items, every column plus who
 read each one and which proposal it came from), ``events.jsonl`` (the
-events table, one object per row, which is the action log), and
+events table, one object per row, which is the action log, with every
+column exactly as stored, so the hash chain can be checked from the
+export alone), and
 ``tasks.json`` and ``tasks.md`` (every task row, with payload and result
 parsed from JSON). The database is opened read-only and is never written.
 
@@ -101,8 +103,9 @@ def _read(db: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[di
                     item["proposal_tainted"] = bool(item["proposal_tainted"])
                 item["read_by_tasks"] = uses.get(item["id"], [])
                 memory.append(item)
-            events = [{**dict(row), "detail": _parse(row["detail"])}
-                      for row in conn.execute("SELECT * FROM events ORDER BY id")]
+            # Each column as stored: ``detail`` is part of the event hash, so it
+            # stays the exact text that was hashed, not a parsed copy.
+            events = [dict(row) for row in conn.execute("SELECT * FROM events ORDER BY id")]
             tasks = [{**dict(row), "payload": _parse(row["payload"]),
                       "result": _parse(row["result"])}
                      for row in conn.execute("SELECT * FROM tasks ORDER BY created_at, id")]

@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 import lab.export as export_mod
+from lab.audit import event_hash
 from lab.cli import main
 from lab.export import ExportError, ExportReport, export
 from lab.memory import Memory
@@ -128,8 +129,20 @@ def test_events_jsonl_has_one_object_per_event_row(lab_db: Path, out: Path) -> N
         assert set(event) == set(row.keys())
         assert event["id"] == row["id"] and event["kind"] == row["kind"]
         assert event["hash"] == row["hash"] and event["prev_hash"] == row["prev_hash"]
-        if row["detail"] is not None:
-            assert event["detail"] == json.loads(row["detail"])
+        assert event["detail"] == row["detail"], "the stored text, not a parsed copy"
+
+
+def test_the_hash_chain_can_be_checked_from_events_jsonl(lab_db: Path, out: Path) -> None:
+    report = _export(lab_db, out)
+    events = [json.loads(line) for line in
+              (report.folder / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert any(e["detail"] is not None for e in events), "the fixture has events with detail"
+    prev = events[0]["prev_hash"]
+    for event in events:
+        assert event["prev_hash"] == prev
+        assert event_hash(prev, event["task_id"], event["kind"], event["from_state"],
+                          event["to_state"], event["detail"], event["created_at"]) == event["hash"]
+        prev = event["hash"]
 
 
 def test_memory_json_carries_provenance_status_and_readers(lab_db: Path, out: Path) -> None:
