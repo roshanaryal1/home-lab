@@ -33,8 +33,9 @@ Usage:
     python3 -m lab.cli publish list|show <key>|reconcile <key> --connectors FILE
     python3 -m lab.cli route <task-id> [--want post|blog|paper]
     python3 -m lab.cli eval run|rerun ...
-    python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N]
+    python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N] [--stalled-minutes N]
     python3 -m lab.cli doctor
+    python3 -m lab.cli export --to DIR
     python3 -m lab.cli security-audit [--details]
     python3 -m lab.cli backup [--to DIR] [--artifacts DIR] [--keep N] [--alert-config FILE]
     python3 -m lab.cli heartbeat --url-file FILE
@@ -94,7 +95,9 @@ from lab import (
     skills,
     sources,
     supervisor,
+    update_plan,
 )
+from lab import export as export_mod
 from lab import memory as memory_mod
 from lab import migrations as migrations_mod
 from lab import model as model_mod
@@ -735,6 +738,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "copy of the database and check it; the database is only read")
     mg.add_argument("--check", action="store_true", required=True,
                     help="required: the services migrate the database when they start")
+    exp = sub.add_parser("export", help="read-only: memory, the action log and task results as "
+                         "JSON and Markdown, in a new private folder under --to")
+    exp.add_argument("--to", type=Path, required=True,
+                     help="an existing directory; the export is written to a new folder in it")
+    up = sub.add_parser("update", help="--plan COMMIT: print the update steps for this install "
+                        "with the values filled in; read-only, runs no sudo")
+    up.add_argument("--plan", metavar="COMMIT", required=True,
+                    help="the full 40 character commit to update to")
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
@@ -906,6 +917,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="count events from the last N hours (default: all time)")
     st.add_argument("--stall-seconds", type=float, default=metrics.DEFAULT_STALL_SECONDS,
                     help="how long work may wait with no worker before it is unhealthy")
+    st.add_argument("--stalled-minutes", type=float, default=metrics.DEFAULT_STALLED_MINUTES,
+                    help="report a task as stalled when its lease keeps renewing but it has "
+                         "written no event for this many minutes (default: 30)")
     st.add_argument("--alert-config", type=Path, default=None,
                     help="operator-owned JSON naming a command to run when unhealthy")
 
@@ -1086,7 +1100,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
     try:
         report = metrics.collect(conn, window_hours=args.since_hours,
-                                 stall_seconds=args.stall_seconds)
+                                 stall_seconds=args.stall_seconds,
+                                 stalled_minutes=args.stalled_minutes)
     except sqlite3.DatabaseError as exc:
         print(f"status: cannot read the database: {exc}", file=sys.stderr)
         return 1
@@ -1096,6 +1111,11 @@ def cmd_status(args: argparse.Namespace) -> int:
           else metrics.render(report))
     if report.health == "unhealthy" and args.alert_config is not None:
         _send_alert(args, "unhealthy", "; ".join(report.reasons) or "the lab is unhealthy")
+    if report.stalled and args.alert_config is not None:
+        # Its own kind, so it is rate limited apart from "unhealthy", and it
+        # does not change the exit code. Stalled tasks are attention, not down.
+        _send_alert(args, "stalled",
+                    "; ".join(metrics.stalled_reason(task) for task in report.stalled))
     return 2 if report.health == "unhealthy" else 0
 
 
@@ -1217,6 +1237,41 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     else:
         print(f"migrate --check: a copy of {db} went from schema version {result.start} "
               f"to {result.end} and checks clean. {db} itself was not changed.")
+    return 0
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens, so it never creates or migrates
+    the database. Exit 0 when the export folder is written, 1 when it is refused."""
+    try:
+        report = export_mod.export(args.db, args.to)
+    except export_mod.ExportError as exc:
+        print(f"export: {_escape(exc)}", file=sys.stderr)
+        return 1
+    print(f"exported to {_escape(str(report.folder))}")
+    print(f"memory items: {report.memory_items}, events: {report.events}, "
+          f"tasks: {report.tasks}")
+    return 0
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens, like doctor and migrate. It prints
+    the update steps for this install with the values filled in, and runs no sudo."""
+    commit = args.plan
+    if not update_plan.is_full_commit(commit):
+        print("update: COMMIT must be a full 40 character commit hash", file=sys.stderr)
+        return 1
+    try:
+        # The runbook's commands name /opt/homelab and /Library/LaunchDaemons, so the plan
+        # reads those same places and no other, or it could describe one checkout and act
+        # on another.
+        old, present, writers = update_plan.gather(commit, update_plan.DEFAULT_DEPLOY,
+                                                   update_plan.DEFAULT_LAUNCH_DAEMONS)
+        text = update_plan.render(commit, old, present, writers)
+    except update_plan.UpdateError as exc:
+        print(f"update: {_escape(exc)}", file=sys.stderr)
+        return 1
+    sys.stdout.write(text)
     return 0
 
 
@@ -2129,6 +2184,10 @@ def _dispatch(args: argparse.Namespace) -> int:
         return cmd_security_audit(args)
     if args.command == "migrate":
         return cmd_migrate(args)
+    if args.command == "export":
+        return cmd_export(args)
+    if args.command == "update":
+        return cmd_update(args)
     if args.command == "keepawake":
         return cmd_keepawake(args)
     if args.command == "shadow":

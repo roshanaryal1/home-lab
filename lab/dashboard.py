@@ -12,6 +12,8 @@ forms, no script and no state of its own.
   from a web page in the operator's own browser.
 * The database is opened read-only per request; nothing is written.
 * Every stored string is HTML-escaped before it reaches the page.
+* ``/metrics`` serves the same numbers in the Prometheus text format. It holds
+  fixed names, fixed labels and counts only, never a task id or title.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from lab import control, metrics
 DEFAULT_PORT = 8765
 LOOPBACK_NAMES = {"localhost"}
 CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+PROMETHEUS_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
 
 class DashboardError(ValueError):
@@ -65,6 +68,14 @@ def render_page(db: Path) -> str:
                             ("recovered tasks", m.recoveries)])
     reasons = f" ({_e('; '.join(m.reasons))})" if m.reasons else ""
     reason = f", reason: {_e(state.reason)}" if state.reason else ""
+    stalled_rows = "".join(
+        f"<tr><td>{_e(task.task_id)}</td><td>{_e(task.state)}</td>"
+        f"<td>{_e(task.agent_kind or '-')}</td>"
+        f"<td class=n>quiet {_e(metrics._dur(task.minutes_since_event * 60))}</td></tr>"
+        for task in m.stalled)
+    threshold = _e(f"{m.stalled_minutes:g}")
+    stalled = (f"<h2>Stalled</h2><p>no event for {threshold}m, lease renewed</p>"
+               f"<table>{stalled_rows}</table>") if m.stalled else ""
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -85,6 +96,7 @@ as of {_e(m.generated_at)}</p>
 oldest running {_e(metrics._dur(m.oldest_running_seconds))},
 live leases {_e(m.live_leases)},
 last success {_e(metrics._dur(m.last_success_age_seconds))} ago</p>
+{stalled}
 <h2>Counters</h2><table>{counters}</table>
 <p>needs a person: {_e(m.pending_approvals)} approval(s),
 {_e(m.unresolved_operations)} unresolved operation(s)</p>
@@ -96,6 +108,11 @@ last success {_e(metrics._dur(m.last_success_age_seconds))} ago</p>
 def render_json(db: Path) -> str:
     m, state = _read(db)
     return json.dumps({**m.as_dict(), "control_mode": state.mode}, sort_keys=True)
+
+
+def render_metrics(db: Path) -> str:
+    m, _ = _read(db)
+    return metrics.render_prometheus(m)
 
 
 def _host_allowed(header: str | None) -> bool:
@@ -143,6 +160,8 @@ def make_server(db: Path, *, host: str = "127.0.0.1",
                     self._send(200, render_page(db), "text/html; charset=utf-8")
                 elif path == "/status.json":
                     self._send(200, render_json(db), "application/json")
+                elif path == "/metrics":
+                    self._send(200, render_metrics(db), PROMETHEUS_TYPE)
                 else:
                     self._send(404, "not found\n")
             except (sqlite3.DatabaseError, control.ControlError):
