@@ -23,6 +23,8 @@
 	<string>/var/log/homelab/keepawake.log</string>
 	<key>ThrottleInterval</key>
 	<integer>30</integer>
+	<key>UserName</key>
+	<string>lab</string>
 	<key>WorkingDirectory</key>
 	<string>/opt/homelab</string>
 </dict>

@@ -331,14 +331,27 @@ step_home() {
   fi
 }
 
+# Only an assertion held by a caffeinate that runs as lab counts: the root
+# keep-awake daemon starts its own caffeinate while work is pending, and other
+# sessions may run theirs, so any caffeinate line would pass without lab.
 step_caffeinate() {
   begin caffeinate "lab can hold the Mac awake" "#235" \
-    "Starts caffeinate as lab for 15 seconds and looks for its PreventUserIdleSystemSleep assertion."
+    "Starts caffeinate as lab for 15 seconds and looks for a PreventUserIdleSystemSleep \
+assertion held by a caffeinate process that runs as lab. Assertions of other accounts' \
+caffeinate processes do not count."
   run 'sudo -u lab /usr/bin/caffeinate -i -t 15 >/dev/null 2>&1 &'
   run 'sleep 2'
+  run 'LAB_PIDS=$(pgrep -d " " -u lab -x caffeinate); echo "caffeinate running as lab: ${LAB_PIDS:-none}"'
   run 'pmset -g assertions | grep -i caffeinate'
-  if has PreventUserIdleSystemSleep; then
-    finish PASS "a caffeinate assertion with PreventUserIdleSystemSleep is held"
+  local pid held=""
+  for pid in ${LAB_PIDS:-}; do
+    printf '%s\n' "$LAST_OUT" | grep -q "pid $pid(caffeinate):.*PreventUserIdleSystemSleep" \
+      && held="$pid"
+  done
+  if [ -n "$held" ]; then
+    finish PASS "caffeinate pid $held runs as lab and holds PreventUserIdleSystemSleep"
+  elif has PreventUserIdleSystemSleep; then
+    finish FAIL "PreventUserIdleSystemSleep is held, but not by a caffeinate that runs as lab"
   else
     finish FAIL "no caffeinate line with PreventUserIdleSystemSleep in pmset -g assertions"
   fi

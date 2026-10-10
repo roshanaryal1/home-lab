@@ -47,6 +47,7 @@ WATCHDOG_INTERVAL_SECONDS = 30
 TICK_LABEL = "com.homelab.tick"
 TICK_INTERVAL_SECONDS = 300
 KEEPAWAKE_LABEL = "com.homelab.keepawake"
+KEEPAWAKE_CHECK_LABEL = "com.homelab.keepawake-check"
 BACKUP_LABEL = "com.homelab.backup"
 BACKUP_KEEP = 14
 # The committed backup definition carries this placeholder; the operator puts
@@ -265,18 +266,32 @@ def tick_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
                   UserName=user, RunAtLoad=False, StartInterval=TICK_INTERVAL_SECONDS)
 
 
-def keepawake_plist(*, python: str, workdir: str, db: str, user: str | None = None) -> bytes:
-    """``lab keepawake`` as a daemon: read-only on the database, holds
-    ``caffeinate`` only while work is pending.
+def keepawake_plist(*, user: str, python: str, workdir: str, db: str) -> bytes:
+    """``lab keepawake`` as a daemon, as the lab user: read-only on the
+    database, holds ``caffeinate`` only while work is pending.
 
-    It needs no privilege, so it should run as the lab account (#235). The
-    committed copy still runs as root until the operator confirms on the
-    mini that ``caffeinate`` under the lab account holds a power assertion
-    from a LaunchDaemon with no login session.
+    It needs no privilege, so it runs as the lab account (#235). On the mini
+    the installed copy changes only after the operator's check that
+    ``caffeinate`` run as the lab account holds a power assertion (runbook,
+    "Moving keep-awake to the lab account").
     """
-    extra: dict[str, object] = {} if user is None else {"UserName": user}
     return _plist(KEEPAWAKE_LABEL, [python, "-m", "lab.cli", "--db", db, "keepawake"], workdir,
-                  RunAtLoad=True, KeepAlive=True, ThrottleInterval=30, **extra)
+                  UserName=user, RunAtLoad=True, KeepAlive=True, ThrottleInterval=30)
+
+
+def keepawake_check_plist(*, user: str, seconds: int = 60) -> bytes:
+    """A throwaway daemon for the check before keep-awake moves to ``user`` (#235).
+
+    It runs only ``caffeinate -i`` as ``user`` from launchd's system domain, with no
+    login session, as keep-awake will. It writes no log, and launchd does not
+    restart it when it ends. The operator loads it, checks that its pid holds the
+    power assertion, and removes it (runbook, "Moving keep-awake to the lab
+    account", step 1).
+    """
+    return plistlib.dumps({
+        "Label": KEEPAWAKE_CHECK_LABEL, "UserName": user, "RunAtLoad": True,
+        "ProgramArguments": ["/usr/bin/caffeinate", "-i", "-t", str(seconds)],
+    })
 
 
 def selftest_plist(*, user: str, python: str, workdir: str, db: str,
