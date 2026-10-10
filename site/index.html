@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>home-lab: a personal AI agent with signed approvals</title>
+<meta name="description" content="home-lab is a personal AI agent for your own Mac. Risky actions wait for your signature, and nothing leaves the machine by default.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+<div class="wrap">
+<span class="brand">home-lab</span>
+<nav aria-label="Site">
+<ul>
+<li><a href="https://github.com/roshanaryal1/home-lab/tree/main/docs">Docs</a></li>
+<li><a href="https://github.com/roshanaryal1/home-lab">GitHub</a></li>
+<li><a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/STATUS.md">Status</a></li>
+</ul>
+</nav>
+</div>
+</header>
+
+<main id="main" class="wrap">
+
+<section class="hero" aria-labelledby="top">
+<h1 id="top">home-lab</h1>
+<p class="lead">home-lab is a personal AI agent that runs on your own Mac, where risky actions wait for your signature and nothing leaves the machine by default.</p>
+<p>Today it is for a technical person who wants to read the code and the evidence.</p>
+<p class="actions">
+<a class="button" href="https://github.com/roshanaryal1/home-lab/blob/main/docs/STATUS.md">Read the status</a>
+<a class="button" href="https://github.com/roshanaryal1/home-lab">View the source</a>
+</p>
+</section>
+
+<section aria-labelledby="approval">
+<h2 id="approval">The approval rule</h2>
+<p>Every action the agent takes falls into one of four policy tiers. The tier decides whether the action waits for you.</p>
+<ul>
+<li><strong>Autonomous.</strong> Reading and listing run on their own.</li>
+<li><strong>Notify.</strong> Writing and fetching. These do not wait for a signature.</li>
+<li><strong>Approve.</strong> Deleting, shell commands, connector calls, skill scripts, MCP calls and copying a repository into a workspace. These wait for your signature.</li>
+<li><strong>Never.</strong> Refused. An approval does not apply. See <a href="https://github.com/roshanaryal1/home-lab/blob/main/lab/policy.py">the policy code</a>.</li>
+</ul>
+<p>An approve-tier action needs your Ed25519 signature over that exact action. Each approval covers one tool and its arguments. It works once and then expires.</p>
+<p>The model only proposes. Rules and your signature decide.</p>
+<p class="sources">Sources: <a href="https://github.com/roshanaryal1/home-lab/blob/main/CHANGELOG.md">CHANGELOG.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/SECURITY.md">SECURITY.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/COMPARISON.md">COMPARISON.md</a>.</p>
+</section>
+
+<section aria-labelledby="local">
+<h2 id="local">Local by default</h2>
+<ul>
+<li>The model runs on your Mac. The model server listens on loopback only.</li>
+<li>The agent runs as a separate <code>lab</code> account. That account is not an admin, cannot use sudo, and cannot read your approval key.</li>
+<li>Skill scripts run in a disposable container with no network. This path is off unless you set it up.</li>
+</ul>
+<p>Nothing leaves the machine by default. A web fetch goes through a default-deny egress gateway, and only a task that asks for one sends it. Three things send traffic out once you set them up: the heartbeat ping to an outside check, the alert to Telegram, and the paired Telegram chat.</p>
+<p><strong>Planned, not built:</strong> an opt-in hosted model, and an opt-in cloud runner, a second lab on a machine you rent, with your own key and the same signatures. Both are off by default.</p>
+<p class="sources">Sources: <a href="https://github.com/roshanaryal1/home-lab/blob/main/README.md">README.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/SECURITY.md">SECURITY.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/CHANGELOG.md">CHANGELOG.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/FEATURE-PLAN.md">FEATURE-PLAN.md</a>.</p>
+</section>
+
+<section aria-labelledby="measured">
+<h2 id="measured">Measured, not promised</h2>
+<p>Each claim was written down before the run that tests it. The results are as the documents state them.</p>
+<ul class="claims">
+<li><strong>M2, chat through the broker.</strong> 0 failures in 32 frozen cases. The model in the test was scripted to obey every injected directive. <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/PREREGISTRATION-SAFETY.md">Source</a>.</li>
+<li><strong>M5, untrusted code in a container.</strong> 0 failures in 30 frozen cases, run on the Mac on 2026-10-07. An outside observer could not see connections to public addresses, so those cases rest on the container having no network interface. <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/PREREGISTRATION-SAFETY.md">Source</a>.</li>
+<li><strong>M6, skill promotion.</strong> 0 failures in 36 frozen cases. No skill became active without a signed promotion. The rule that imported skill code runs only in the container is not tested yet. <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/PREREGISTRATION-SAFETY.md">Source</a>.</li>
+<li><strong>H4, isolation with the real model.</strong> 0 of 9 injection attacks succeeded. The model tried the injected action in 3 of the 8 scenarios where the handler ran, and the broker stopped all three. Registered on <a href="https://osf.io/jfp74">OSF</a>. <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/PREREGISTRATION.md">Source</a>.</li>
+<li><strong>H1, local model routing.</strong> Not supported. On 30 labeled cases, accuracy was 0.10 against 0.83 for the fixed rubric, with five false promotions. This says that this model with this prompt fails. It does not say the model cannot do the task. <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/PREREGISTRATION.md">Source</a>.</li>
+</ul>
+<p class="warning"><strong>No independent security review has been done. Do not connect real credentials.</strong></p>
+<p class="sources">Sources: <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/PREREGISTRATION-SAFETY.md">PREREGISTRATION-SAFETY.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/PREREGISTRATION.md">PREREGISTRATION.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/CHANGELOG.md">CHANGELOG.md</a>.</p>
+</section>
+
+<section aria-labelledby="status">
+<h2 id="status">Build status</h2>
+<h3>Running on the project's Mac mini</h3>
+<ul>
+<li>A task queue and supervisor. After a crash, tasks that are not safe to repeat wait for a person.</li>
+<li>A local model on loopback: Qwen3-Coder-30B-A3B-Instruct, served by mlx-lm.</li>
+<li>The lab as a non-admin <code>lab</code> account, since 2026-09-30.</li>
+<li>Signed approvals. Approvals made without your key were refused in a test on 2026-10-06.</li>
+<li>A paired Telegram chat. On 2026-10-07, <code>/status</code> and a plain message got the model's reply.</li>
+<li>A watchdog that replaces a frozen supervisor. In two drills it took 96 and 97 seconds.</li>
+<li>Backups. One was restore-checked by hand on 2026-10-07. The scheduled job has run once, by hand.</li>
+</ul>
+<h3>Built and tested on Linux, not yet run on the Mac</h3>
+<ul>
+<li>Three reviewed tools: workspace files, read-only git and web fetch with summary.</li>
+<li>Repository copies, skill scripts and MCP calls, each as a reviewed handler.</li>
+<li>Memory you can search, inspect, correct, revoke and delete.</li>
+<li>Status and control commands, and a read-only status page on loopback.</li>
+<li>Schedules you sign with your key. A due schedule adds a task to the queue. It never approves anything. <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/SCHEDULES.md">Source</a>.</li>
+<li>A public injection suite of 27 cases you can rerun. Against a stub model that obeys every instruction it reads, 0 of 27 attacks succeeded. A run with the real model is next. <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/INJECTION-SUITE.md">Source</a>.</li>
+<li>A read-only check of the lab's own boundary: <code>lab security-audit</code>.</li>
+<li>Every chat message from the lab ends with the label <code>[home-lab AI agent]</code>.</li>
+<li>The status page flags a task whose lease keeps renewing while it records nothing new for 30 minutes. It also serves its numbers in Prometheus format, and a page of what the lab did today, on loopback only.</li>
+<li><code>lab export</code> writes your memory, the action log and task results as plain JSON and Markdown. The action log keeps its hash chain, so you can check it.</li>
+</ul>
+<p>The lab has done no real work yet. Its queue is empty, and it holds no credentials.</p>
+<p>Not yet proved on the Mac: the power-pull and interrupted-task drills, the network unplug test, and <code>/stop</code> from the chat.</p>
+
+<h3>The plan to v1.0 in April 2027</h3>
+<p>The plan runs month by month from October 2026. v1.0 ships only when every check in the plan passes. One check is an outside security review, and none has been done.</p>
+<table>
+<thead>
+<tr><th scope="col">Month</th><th scope="col">Goal, and what ends it</th></tr>
+</thead>
+<tbody>
+<tr><th scope="row">October 2026</th><td>Close the base and ship v0.1. Ends with v0.1 tagged.</td></tr>
+<tr><th scope="row">November 2026</th><td>Install, update, diagnose, and schedules you sign. Ends with v0.2 and one fresh install passed.</td></tr>
+<tr><th scope="row">December 2026</th><td>A browser inside the task container, metrics and a second chat channel. Ends with v0.3.</td></tr>
+<tr><th scope="row">January 2027</th><td>The hosted model opt-in, memory and skills, supply chain and a draft paper. Ends with v0.4.</td></tr>
+<tr><th scope="row">February 2027</th><td>Beta with 5 to 10 users, each on their own Mac, and a one-line installer. Ends with v0.5 out.</td></tr>
+<tr><th scope="row">March 2027</th><td>Release candidate. No new features after 15 March. Ends with v1.0-rc1.</td></tr>
+<tr><th scope="row">April 2027</th><td>v1.0 and a public launch.</td></tr>
+</tbody>
+</table>
+<p class="sources">Sources: <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/STATUS.md">STATUS.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/README.md">README.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/PLAN-7-MONTHS.md">PLAN-7-MONTHS.md</a>.</p>
+</section>
+
+<section aria-labelledby="gaps">
+<h2 id="gaps">Known gaps</h2>
+<p>These are not solved yet. The security gaps are listed in <a href="https://github.com/roshanaryal1/home-lab/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+<ul>
+<li>One chat channel, Telegram.</li>
+<li>No calendar or mail tools. There is no handler for either.</li>
+<li>No voice, browser automation or companion apps.</li>
+<li>No delegation tool and no session search.</li>
+<li>No approval from your phone. Signing needs your key, which stays on the Mac.</li>
+<li>One local model, and only the 32 GB memory tier has been measured. macOS on Apple silicon only.</li>
+<li>No one-line installer yet. Updates are still run by hand: <code>lab update --plan</code> prints the steps for your install, and you run them.</li>
+<li>No release has been tagged yet.</li>
+<li>The local model did not route well on its own (H1).</li>
+</ul>
+<p class="sources">Sources: <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/COMPARISON.md">COMPARISON.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/ROADMAP.md">ROADMAP.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/README.md">README.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/CHANGELOG.md">CHANGELOG.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/FEATURE-PLAN.md">FEATURE-PLAN.md</a>.</p>
+</section>
+
+<section aria-labelledby="install">
+<h2 id="install">Install</h2>
+<p>An install guide exists: <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/INSTALL.md">INSTALL.md</a>. It covers the requirements, a read-only prerequisite check, setup, the first run and uninstalling.</p>
+<p>You need macOS 14 or later on Apple silicon, Git, the Xcode Command Line Tools, uv and an account that can use sudo during installation. Only the 32 GB memory tier has been measured.</p>
+<pre><code>git clone https://github.com/roshanaryal1/home-lab.git "$HOME/home-lab"
+cd "$HOME/home-lab"
+./scripts/check-prerequisites.sh</code></pre>
+<p>The fresh-account test on another Mac has not been run yet. Until it runs, the guide is not proved on a second Mac (<a href="https://github.com/roshanaryal1/home-lab/issues/188">issue 188</a>).</p>
+<p class="sources">Sources: <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/INSTALL.md">INSTALL.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/README.md">README.md</a>.</p>
+</section>
+
+<section aria-labelledby="not-for">
+<h2 id="not-for">Not for</h2>
+<ul>
+<li>Anyone who wants to connect real accounts or credentials today. Use dummy data only. SECURITY.md lists the conditions before real credentials can be connected, and they are not all met.</li>
+<li>Anyone who wants a hosted service. home-lab runs on your own Mac. A hosted model is planned, and it is off by default.</li>
+</ul>
+<p class="sources">Sources: <a href="https://github.com/roshanaryal1/home-lab/blob/main/SECURITY.md">SECURITY.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/INSTALL.md">INSTALL.md</a>, <a href="https://github.com/roshanaryal1/home-lab/blob/main/docs/FEATURE-PLAN.md">FEATURE-PLAN.md</a>.</p>
+</section>
+
+</main>
+
+<footer>
+<div class="wrap">
+<section aria-labelledby="licence">
+<h2 id="licence">Licence and citation</h2>
+<ul>
+<li>Licence: <a href="https://github.com/roshanaryal1/home-lab/blob/main/LICENSE">MIT License</a>.</li>
+<li>How to cite: see <a href="https://github.com/roshanaryal1/home-lab/blob/main/CITATION.cff">CITATION.cff</a>.</li>
+<li>Repository: <a href="https://github.com/roshanaryal1/home-lab">github.com/roshanaryal1/home-lab</a>.</li>
+<li>Report a security problem: see <a href="https://github.com/roshanaryal1/home-lab/blob/main/SECURITY.md">SECURITY.md</a>.</li>
+</ul>
+</section>
+</div>
+</footer>
+</body>
+</html>
