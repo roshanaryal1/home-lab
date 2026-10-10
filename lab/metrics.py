@@ -15,7 +15,8 @@ What is reported:
   egress denials, rejected approvals, recoveries, worker errors;
 * attention items that need a person, including stalled tasks: a task
   whose lease keeps renewing but which has written no event for a while
-  (``stalled_tasks``, #376).
+  (``stalled_tasks``, #376);
+* what happened on the local day so far, for the ``/today`` page (``today``).
 
 Model load time, peak memory and swap are not here: they need the model
 adapter (5.1) and the Mac mini, and will be added as more event kinds
@@ -42,8 +43,10 @@ from __future__ import annotations
 import contextlib
 import json
 import sqlite3
+import time
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
+from datetime import time as dtime
 from typing import Any
 
 from lab.untrusted import clean
@@ -65,6 +68,10 @@ COUNTERS: dict[str, tuple[str, ...]] = {
     "worker_errors": ("worker_error",),
     "tasks_tainted": ("task_tainted",),
 }
+
+# The states a task's outcome is counted in. A count comes from the state
+# changes in the event log, so a failure that is retried stays counted.
+OUTCOMES = ("succeeded", "failed", "cancelled")
 
 
 def _parse(stamp: str | None) -> datetime | None:
@@ -186,6 +193,7 @@ class Metrics:
     health: str
     reasons: list[str] = field(default_factory=list)
     control_mode: str = "running"
+    outcomes: dict[str, int] = field(default_factory=dict)
     stalled: list[Stalled] = field(default_factory=list)
     stalled_minutes: float = DEFAULT_STALLED_MINUTES
     model: None = None       # load time, peak memory, swap: added with the adapter (5.1)
@@ -238,6 +246,9 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
     retries = int(conn.execute(
         "SELECT COUNT(*) FROM events WHERE from_state = 'failed' AND to_state = 'queued' "
         "AND created_at >= ?", (since,)).fetchone()[0])
+    outcomes = {outcome: int(conn.execute(
+        "SELECT COUNT(*) FROM events WHERE to_state = ? AND from_state IS NOT to_state "
+        "AND created_at >= ?", (outcome, since)).fetchone()[0]) for outcome in OUTCOMES}
     recoveries = 0
     for (detail,) in conn.execute(
             "SELECT detail FROM events WHERE kind = 'recovery' AND created_at >= ?", (since,)):
@@ -292,7 +303,8 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
         last_event_age_seconds=silent_for, live_leases=live, counters=counters,
         retries=retries, recoveries=recoveries, unresolved_operations=unresolved,
         pending_approvals=pending, health=health, reasons=reasons,
-        control_mode=control_mode, stalled=stalled, stalled_minutes=stalled_minutes,
+        control_mode=control_mode, outcomes=outcomes, stalled=stalled,
+        stalled_minutes=stalled_minutes,
     )
 
 
@@ -343,3 +355,229 @@ def render(m: Metrics) -> str:
     lines.append(f"needs a person: {m.pending_approvals} approval(s), "
                  f"{m.unresolved_operations} unresolved operation(s)")
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ today
+#
+# The /today view of the status page: what happened on the machine's local
+# day so far. It is read-only like the rest of this module. It returns the
+# id, kind, state and title of a task, and nothing else about it. It never
+# selects a payload, a result, an error or an approval's intent.
+
+
+def _midnight(day: date, tz: tzinfo | None) -> datetime:
+    """Local midnight at the start of ``day``, as a UTC moment.
+
+    ``tz`` None is the machine's own zone. ``time.mktime`` applies that
+    zone's daylight saving rules, so a day that changes clocks is measured
+    in real hours.
+    """
+    if tz is not None:
+        return datetime.combine(day, dtime.min, tzinfo=tz).astimezone(UTC)
+    seconds = time.mktime((day.year, day.month, day.day, 0, 0, 0, 0, 0, -1))
+    return datetime.fromtimestamp(seconds, UTC)
+
+
+def local_day(now: datetime, tz: tzinfo | None = None) -> tuple[date, datetime, datetime]:
+    """The local calendar day that holds ``now``: its date, then its UTC bounds.
+
+    The start is inclusive and the end is exclusive. ``now`` must be
+    timezone-aware. ``tz`` None means the machine's zone.
+    """
+    day = now.astimezone(tz).date()
+    return day, _midnight(day, tz), _midnight(day + timedelta(days=1), tz)
+
+
+def _stamp(moment: datetime) -> str:
+    """A UTC moment as whole seconds, the form the day bounds are compared in."""
+    return moment.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
+
+
+@dataclass(frozen=True)
+class TaskLine:
+    """A task on the today page: its id, kind (routing hint), state and title."""
+
+    task_id: str
+    kind: str | None
+    state: str
+    title: str
+
+
+@dataclass(frozen=True)
+class ApprovalDecision:
+    """An approval that a person granted or denied on the day."""
+
+    approval_id: str
+    task_id: str
+    state: str              # granted or denied
+    decided_at: str
+    decided_by: str | None
+
+
+@dataclass(frozen=True)
+class ScheduleFiring:
+    """A schedule that fired on the day, and the task it started."""
+
+    schedule: str | None
+    task_id: str | None
+    fired_at: str
+
+
+@dataclass
+class Today:
+    day: str
+    zone: str
+    window_start: str       # UTC, inclusive
+    window_end: str         # UTC, exclusive
+    generated_at: str
+    created: list[TaskLine]
+    finished: list[TaskLine]
+    awaiting_approval: list[TaskLine]
+    refused: list[TaskLine]
+    approvals: list[ApprovalDecision]
+    schedules: list[ScheduleFiring]
+    egress_denials: int
+    policy_denials: int
+    approvals_rejected: int
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _count_kinds(conn: sqlite3.Connection, kinds: tuple[str, ...], start: str, end: str) -> int:
+    marks = ",".join("?" for _ in kinds)
+    return int(conn.execute(
+        f"SELECT COUNT(*) FROM events WHERE kind IN ({marks}) "  # nosemgrep
+        "AND created_at >= ? AND created_at < ?", (*kinds, start, end)).fetchone()[0])
+
+
+def _tasks_with_events(conn: sqlite3.Connection, kinds: tuple[str, ...], start: str,
+                       end: str) -> list[TaskLine]:
+    marks = ",".join("?" for _ in kinds)
+    return [TaskLine(*row) for row in conn.execute(
+        "SELECT t.id, t.agent_kind, t.state, t.title FROM events e "
+        f"JOIN tasks t ON t.id = e.task_id WHERE e.kind IN ({marks}) "  # nosemgrep
+        "AND e.created_at >= ? AND e.created_at < ? GROUP BY t.id ORDER BY MIN(e.id)",
+        (*kinds, start, end))]
+
+
+def today(conn: sqlite3.Connection, now: datetime | None = None,
+          tz: tzinfo | None = None) -> Today:
+    """What happened on the local day that holds ``now``.
+
+    Every statement is a SELECT. Times are compared as UTC text in whole
+    seconds. ``events.created_at`` can carry milliseconds, and such a time
+    still sorts correctly against a bound in whole seconds.
+
+    * ``created``: tasks created on the day, in their current state.
+    * ``finished``: tasks whose last terminal transition on the day was
+      succeeded, failed or cancelled. ``state`` is that transition.
+    * ``awaiting_approval``: tasks waiting for a person right now. A task
+      parked on an earlier day and still waiting is listed, because it still
+      needs an answer.
+    * ``refused``: tasks with a policy, tool or authority denial on the day.
+    * ``approvals``: approvals granted or denied on the day, from the
+      approvals table, since a denial writes no event of its own.
+    * ``schedules``: schedules that fired on the day, by name.
+    * the counts use the same event kinds as the status counters.
+    """
+    now = now or datetime.now(UTC)
+    day, first, last = local_day(now, tz)
+    # The day so far: nothing stamped after ``now`` is shown. One second of slack,
+    # since the bound is in whole seconds and a stamp can carry milliseconds.
+    start, end = _stamp(first), _stamp(min(last, now + timedelta(seconds=1)))
+    local_now = now.astimezone(tz)
+
+    created = [TaskLine(*row) for row in conn.execute(
+        "SELECT id, agent_kind, state, title FROM tasks "
+        "WHERE created_at >= ? AND created_at < ? ORDER BY created_at, id", (start, end))]
+
+    finished_by_task: dict[str, TaskLine] = {}
+    for task_id, to_state, kind, title in conn.execute(
+            "SELECT e.task_id, e.to_state, t.agent_kind, t.title FROM events e "
+            "JOIN tasks t ON t.id = e.task_id "
+            "WHERE e.to_state IN ('succeeded', 'failed', 'cancelled') "
+            "AND e.created_at >= ? AND e.created_at < ? ORDER BY e.id", (start, end)):
+        finished_by_task[task_id] = TaskLine(task_id, kind, to_state, title)
+
+    awaiting = [TaskLine(*row) for row in conn.execute(
+        "SELECT id, agent_kind, state, title FROM tasks "
+        "WHERE state = 'awaiting_approval' ORDER BY updated_at, id")]
+
+    approvals = [ApprovalDecision(*row) for row in conn.execute(
+        "SELECT id, task_id, state, decided_at, decided_by FROM approvals "
+        "WHERE state IN ('granted', 'denied') AND decided_at >= ? AND decided_at < ? "
+        "ORDER BY decided_at, id", (start, end))]
+
+    schedules: list[ScheduleFiring] = []
+    for task_id, detail, fired_at in conn.execute(
+            "SELECT task_id, detail, created_at FROM events WHERE kind = 'schedule_fired' "
+            "AND created_at >= ? AND created_at < ? ORDER BY id", (start, end)):
+        name: str | None = None
+        with contextlib.suppress(ValueError, TypeError):
+            data = json.loads(detail or "{}")
+            if isinstance(data, dict) and isinstance(data.get("schedule"), str):
+                name = data["schedule"]
+        schedules.append(ScheduleFiring(name, task_id, fired_at))
+
+    return Today(
+        day=day.isoformat(), zone=local_now.strftime("%Z %z").strip(),
+        window_start=start, window_end=end,
+        generated_at=local_now.isoformat(timespec="seconds"),
+        created=created, finished=list(finished_by_task.values()),
+        awaiting_approval=awaiting,
+        refused=_tasks_with_events(conn, COUNTERS["policy_denials"], start, end),
+        approvals=approvals, schedules=schedules,
+        egress_denials=_count_kinds(conn, COUNTERS["egress_denials"], start, end),
+        policy_denials=_count_kinds(conn, COUNTERS["policy_denials"], start, end),
+        approvals_rejected=_count_kinds(conn, COUNTERS["approvals_rejected"], start, end),
+    )
+
+
+TASK_STATES = ("queued", "leased", "running", "awaiting_approval", "interrupted",
+               "succeeded", "failed", "cancelled")
+HEALTH_STATES = ("idle", "ok", "attention", "unhealthy")
+
+
+def render_prometheus(m: Metrics) -> str:
+    """The numbers in the Prometheus text format, version 0.0.4.
+
+    Only metric names, fixed label values and numbers are written. No task
+    id, title, path or reason reaches the output. A task state this code does
+    not know is counted under ``state="other"`` and never printed.
+    """
+    out: list[str] = []
+
+    def family(name: str, kind: str, help_text: str, samples: list[str]) -> None:
+        out.append(f"# HELP {name} {help_text}")
+        out.append(f"# TYPE {name} {kind}")
+        out.extend(samples)
+
+    other = sum(n for state, n in m.states.items() if state not in TASK_STATES)
+    tasks = [(state, m.states.get(state, 0)) for state in TASK_STATES] + [("other", other)]
+    family("homelab_tasks", "gauge", "Tasks in each state.",
+           [f'homelab_tasks{{state="{state}"}} {n}' for state, n in tasks])
+    family("homelab_health", "gauge", "1 for the current health state, 0 for the others.",
+           [f'homelab_health{{state="{s}"}} {int(m.health == s)}' for s in HEALTH_STATES])
+    family("homelab_pending_approvals", "gauge", "Approvals waiting for a person.",
+           [f"homelab_pending_approvals {m.pending_approvals}"])
+    family("homelab_unresolved_operations", "gauge",
+           "Operations of unknown outcome that need reconciling.",
+           [f"homelab_unresolved_operations {m.unresolved_operations}"])
+    family("homelab_live_leases", "gauge", "Leases held by a live worker.",
+           [f"homelab_live_leases {m.live_leases}"])
+    age = m.last_success_age_seconds
+    family("homelab_last_success_age_seconds", "gauge",
+           "Seconds since a task last succeeded. No sample until one has.",
+           [] if age is None else [f"homelab_last_success_age_seconds {age:.3f}"])
+    family("homelab_task_outcomes_total", "counter",
+           "Tasks that reached each outcome, counted from the event log. A failure "
+           "that was retried stays counted.",
+           [f'homelab_task_outcomes_total{{outcome="{o}"}} {m.outcomes.get(o, 0)}'
+            for o in OUTCOMES])
+    counters = [*m.counters.items(), ("retries", m.retries), ("recovered_tasks", m.recoveries)]
+    for name, value in counters:
+        family(f"homelab_{name}_total", "counter",
+               f"{name.replace('_', ' ').capitalize()} over all time.",
+               [f"homelab_{name}_total {value}"])
+    return "\n".join(out) + "\n"
