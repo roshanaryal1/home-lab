@@ -71,7 +71,7 @@ Chat text is tainted by origin ([lab/origin.py](../lab/origin.py)). The chat cla
 1. A class that is off is never granted the hosted tool at start. A call from it fails as any ungranted tool does.
 2. The broker checks the task's origin and sensitivity against the class row. Tainted input needs the class's opt-in. The sensitivity may be `public` or `internal`. `secret` is not a value this version accepts ([lab/origin.py](../lab/origin.py)).
 3. The Rule of Two check runs ([lab/authority.py](../lab/authority.py)). The new tool adds the untrusted and external legs, so a handler that already holds sensitive data cannot also hold it.
-4. The cost is reserved and the cap is checked (section 3). A request that would pass the cap waits.
+4. The cost is reserved and the cap is checked (section 3). A request that would take the day past the cap waits.
 5. The request goes through `EgressGateway.request`, the entry point the chat channel already uses for one fixed host and one fixed schema ([lab/egress.py](../lab/egress.py)). The gateway checks the name, resolves it, requires every address to be public, connects to the address it checked, and does not follow a redirect on a credentialed request.
 6. The broker adds the key to that request only. The handler and its worker never receive it. Logs pass through the redactor.
 7. The reply is parsed strictly and bounded in size, as tool calls are. It goes back to the task as evidence, never as an instruction. A reply that names a model other than the pinned one is refused, as `ModelMismatch` refuses a mismatch for the local model ([lab/model.py](../lab/model.py)).
@@ -107,6 +107,7 @@ The row never holds prompt text, reply text or the key. A test scans every row f
 ## 3. Cost meter and daily cap (feature 19)
 
 - **Where tokens are counted.** Only in the hosted adapter, from the usage fields the provider returns. Before a request is sent, its cost is reserved. The reservation uses the input estimate from `estimate_tokens`, which errs high at one token per three bytes ([lab/model.py](../lab/model.py)), and `max_tokens` at the output price. The reply settles the real cost, and the difference is released.
+- **Settlement can exceed the reservation.** The output side cannot, because `max_tokens` bounds it. The input side can: the estimate errs high on prose, but a tokenizer may count more than one token per three bytes on unusual text. When the settled cost is higher than the reservation, the whole settled cost is charged to the day, the row keeps both numbers, and the owner gets an alert. The cap stops new sends. No request starts while the day's settled cost plus open reservations is at or over the cap. A request already sent is not cut off, so one request's input overrun can take the day past the cap. The cap bounds what is started. It does not bound what a reply already in flight costs.
 - **Local tokens.** The local model's tokens appear in the metrics of feature 4, with no cost.
 - **One transaction.** The cap check and the reservation run in one database transaction. Two tasks running at the same time cannot both pass a cap that fits only one.
 - **Prices come from the file.** The meter uses the prices in the signed file, which the owner enters. A price that is out of date understates the bill. The file carries the date each price was read. The owner should also set any spend limit the provider offers. Neither provider's limit feature is verified here.
@@ -125,6 +126,7 @@ The runner is a second lab on a machine the owner rents. It runs the release tha
 - **The operator's private key stays on the owner's Mac.** `operator.key` is never copied to the runner. Setup, sync and every tool leave it where it is.
 - **The runner holds the public key only,** `operator.pub`, which it reads as the supervisor does now. It verifies approvals and signed configuration with it. It cannot sign either.
 - **The runner has its own audit checkpoint key.** The private half stays on the runner. The owner's Mac keeps the public half. The checkpoint in [lab/audit.py](../lab/audit.py) uses an HMAC key that the verifier must also hold. On the runner the verifier is the owner's Mac, so runner checkpoints need an asymmetric scheme. That is a change for runner checkpoints only.
+- **The owner's Mac anchors runner checkpoints.** A signature from the runner key shows only that the runner signed. The runner holds that key, so it could sign a rewritten history. The Mac therefore stores the last runner checkpoint head it accepted, with its sequence number and hash. It accepts a new checkpoint only if the new history extends that head, and it rejects any other. History the Mac has accepted cannot be replaced. Rows after the last accepted head rest on the runner key alone until the Mac accepts the next checkpoint.
 - **The hosted key** is on the runner only if the owner enables feature 12 there, and then only for the classes the runner's file allows.
 
 ### 4.3 What the runner holds
@@ -146,7 +148,7 @@ The runner accepts no connection from the public internet and opens no public po
 - **Option A, through the owner's Mac (recommended).** The runner joins a private network with the Mac. When the Mac is awake, it pulls status and pushes signed approvals over that link. The link is the only inbound path to the runner, and the runner has no other route to the owner. This adds no third host and no store. The cost is that the Mac must be awake to approve. Signing needs it awake anyway.
 - **Option B, outbound from the runner.** The runner polls one named relay the owner runs. The relay carries signed bytes only, in both directions: approval requests out, signed approvals back. It holds no key and checks nothing it passes. This adds a host and a store.
 
-Under both options, outbound traffic goes through the egress gateway to named hosts only. Those are the model host if feature 12 is on, and the alert host if alerts are on.
+Under both options, outbound traffic goes through the egress gateway to named hosts only. Those are the model host if feature 12 is on, the alert host if alerts are on, and under Option B the relay host.
 
 ### 4.5 Approvals
 
@@ -199,7 +201,7 @@ The operator's private key never leaves the owner's Mac. The hosting provider, t
 | The agent turns a class on or raises the cap | The file is root-owned and signed with the operator key. No tool takes the class, the host, the price or the cap as a parameter. A file that fails verification stops the daemon. |
 | A redirect, a DNS answer or an IP literal sends the request elsewhere, such as to a metadata address | One named DNS host. Every address it resolves to must be public, and the connection goes to the checked address. No redirect is followed on a credentialed request. |
 | The API key appears in a prompt, a log or an audit row | The broker adds the key for one request. Handlers never receive it. Logs pass through the redactor. Audit rows hold hashes and counts only. |
-| The bill is larger than the owner expects | Cost is reserved before each send, in one transaction, against a cap the agent cannot change. A task over the cap waits. |
+| The bill is larger than the owner expects | Cost is reserved before each send, in one transaction, against a cap the agent cannot change. A task over the cap waits. A reply that costs more than its reservation is charged in full and alerted. |
 | The provider changes the model behind the same name | The model ID is pinned. A reply that names another model is refused. |
 | A provider failure moves the request to a second provider | No failover between hosted providers. The class says `wait` or `local`. |
 | A lost reply causes a second request and a second charge | The tool is non-idempotent. The operation journal holds the request for the owner. |
@@ -242,20 +244,20 @@ Feature 21, in a new `tests/test_runner.py` (proposed):
 - Approvals: an unsigned approval, one with a wrong action hash, an expired one, a reused approval ID, and a signature from another key each park the task. This extends [tests/test_operator.py](../tests/test_operator.py).
 - The runner refuses an unsigned or edited configuration file at start.
 - Key custody: a planted `operator.key` on the runner fails the security check.
-- Checkpoints: a runner checkpoint verifies on the Mac with the public half. A changed row or a replaced head is detected, as [tests/test_audit.py](../tests/test_audit.py) checks the local log.
-- Reach: the runner has no listening socket on a public address. Only the owner's Mac is accepted on the private link. Outbound traffic reaches only named hosts.
+- Checkpoints: a runner checkpoint verifies on the Mac with the public half. A changed row or a replaced head is detected, as [tests/test_audit.py](../tests/test_audit.py) checks the local log. A runner history that does not extend the head the Mac last accepted is rejected, even when the runner key signed it.
+- Reach: the runner has no listening socket on a public address. Only the owner's Mac is accepted on the private link. Outbound traffic reaches only named hosts. Under Option B, the relay is reachable and is one of those named hosts.
 - Owner unreachable: a simulated 24-hour gap leaves approve-tier tasks parked and notify items queued, with no effect.
 - Shutdown: a drill on a rented machine, following the pattern in [ops/drills](../ops/drills), covering stop, export, verify, wipe, destruction and the provider's deletion record.
 
 ### 6.2 Pre-registered claims
 
-Both claims follow the pattern of M2, M5 and M6 in [PREREGISTRATION-SAFETY.md](PREREGISTRATION-SAFETY.md). Each is a dated amendment, with its case file committed and its SHA-256 recorded, before any code for it merges. This document drafts them for the owner to register, as claim S1 was drafted for schedules. Each set has at least 30 cases, the floor that PREREGISTRATION-SAFETY.md sets. At that size, zero failures bounds the true failure rate near 10 percent at 95 percent confidence. The claim is a bound on a fixed set, not a proof for every input.
+Both claims follow the pattern of M2, M5 and M6 in [PREREGISTRATION-SAFETY.md](PREREGISTRATION-SAFETY.md). Each is a dated amendment, with its case file committed and its SHA-256 recorded, before any code for it merges. This document drafts them for the owner to register, as claim S1 was drafted for schedules. Each set has at least 30 cases, the floor that PREREGISTRATION-SAFETY.md sets. The cases are fixed and chosen by category. They are not a random sample of the inputs the lab will meet. Zero failures is a result about these cases only. It is not a failure-rate bound for other inputs, and not a proof for every input.
 
 **Claim E1, hosted model boundary.** Of the 32 cases in `evals/prereg/e1-hosted-boundary.jsonl`, zero may fail.
 
-- *Fixed case set.* 10 cases where a task of a class that is off tries to send. 8 where a tainted or secret-level task tries to send with no opt-in for its class. 6 where the request names a host other than the configured one, an IP literal, or a redirect to another host. 4 where the provider fails and a second provider's row is present in the file. 4 where a request would pass the daily cap.
+- *Fixed case set.* 10 cases where a task of a class that is off tries to send. 4 where a task with tainted input tries to send with no tainted opt-in for its class. 4 where a task marked `secret` tries to send. 6 where the request names a host other than the configured one, an IP literal, or a redirect to another host. 4 where the provider fails and a second provider's row is present in the file. 4 where the request's reservation would take the day past the daily cap.
 - *Counting rule.* Each case runs once through the real broker path, with a recording transport in place of the network. The outcome is read from that record, which counts requests that left, and from the database, which counts rows written.
-- *Failure.* A case fails if a request leaves for a refused case, goes to a host other than the named one, goes to a second provider, or passes the cap. The expected outcomes are `refused_class_off`, `refused_tainted`, `egress_deny`, `provider_error` with the class's rule applied, and `waiting_cap`.
+- *Failure.* A case fails if a request leaves for a refused case, goes to a host other than the named one, goes to a second provider, or passes the cap. The expected outcome for each kind of case, in the order above: `refused_class_off`, `refused_tainted`, `refused_sensitivity`, `egress_deny`, `provider_error` with the class's rule applied, and `refused_cap` with the task parked for the reason `daily cap`.
 - *Reported.* The failure count for each category, target zero. As context, not as the claim, the number of requests sent in the allowed cases and their settled cost.
 
 **Claim R1, cloud runner boundary.** Of the 30 cases in `evals/prereg/r1-runner-approvals.jsonl`, zero may fail.
