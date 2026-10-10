@@ -72,7 +72,7 @@ Chat text is tainted by origin ([lab/origin.py](../lab/origin.py)). The chat cla
 2. The broker checks the task's origin and sensitivity against the class row. Tainted input needs the class's opt-in. The sensitivity may be `public` or `internal`. `secret` is not a value this version accepts ([lab/origin.py](../lab/origin.py)).
 3. The Rule of Two check runs ([lab/authority.py](../lab/authority.py)). The new tool adds the untrusted and external legs, so a handler that already holds sensitive data cannot also hold it.
 4. The cost is reserved and the cap is checked (section 3). A request that would take the day past the cap waits.
-5. The request goes through `EgressGateway.request`, the entry point the chat channel already uses for one fixed host and one fixed schema ([lab/egress.py](../lab/egress.py)). The gateway checks the name, resolves it, requires every address to be public, connects to the address it checked, and does not follow a redirect on a credentialed request.
+5. The request goes through `EgressGateway.request`, the entry point the chat channel already uses for one fixed host and one fixed schema ([lab/egress.py](../lab/egress.py)). The gateway allows only https on port 443 and checks the server certificate and host name. It checks the name, resolves it, requires every address to be public, connects to the address it checked, and does not follow a redirect on a credentialed request.
 6. The broker adds the key to that request only. The handler and its worker never receive it. Logs pass through the redactor.
 7. The reply is parsed strictly and bounded in size, as tool calls are. It goes back to the task as evidence, never as an instruction. A reply that names a model other than the pinned one is refused, as `ModelMismatch` refuses a mismatch for the local model ([lab/model.py](../lab/model.py)).
 8. The cost is settled from the provider's usage fields, and one audit row is written (section 2.6).
@@ -178,9 +178,9 @@ Some Mac rentals bill by allocation, not by use (section 4.8). The timing of the
 
 | Option | Price | Status |
 |---|---|---|
-| Scaleway Apple silicon, M2, 16 GB, 256 GB | €115 a month, €0.17 an hour, before tax | Search summary of the Scaleway page (unverified) [8] |
-| Scaleway Apple silicon, M4 Pro, 64 GB, 2.05 TB | €335 a month, €0.49 an hour, before tax | Same source (unverified) [8] |
-| Amazon EC2 Mac | Billed per dedicated host with a 24-hour minimum. No current rate found (unverified) | Search summary (unverified) [9] |
+| Scaleway Apple silicon, M2, 16 GB, 256 GB | €115 a month, €0.17 an hour, before tax | Search summary of the Scaleway page (unverified) [9] |
+| Scaleway Apple silicon, M4 Pro, 64 GB, 2.05 TB | €335 a month, €0.49 an hour, before tax | Same source (unverified) [9] |
+| Amazon EC2 Mac | Billed per dedicated host with a 24-hour minimum. No current rate found (unverified) | Search summary (unverified) [10] |
 
 The size matters. The lab's memory budget gives 20.5 GB to weights and cache on a 32 GB Mac ([lab/model.py](../lab/model.py), `DEFAULT_BUDGET_MB`). A runner with a local model needs the larger size. A runner that uses only hosted models can use the smaller one. Prices change, and the owner picks the provider (open question 8).
 
@@ -212,11 +212,12 @@ The operator's private key never leaves the owner's Mac. The hosting provider, t
 | Threat | What stops it |
 |---|---|
 | The rented machine's operator, or another tenant with access to its disk, reads owner data | No operator private key on the runner. The runner holds public keys, its checkpoint key and any key the owner enables. Data on the runner is what the owner names. |
-| A compromised runner approves its own actions | The runner holds no key that signs approvals. It checks signatures with the public key only. |
+| An approval is forged on the runner | The runner holds no key that signs approvals. It checks signatures with the public key only. |
+| A compromised runner acts without an approval | Not stopped by the signature check. The check runs on the runner, and a compromised runner can skip it. What limits the harm: the runner holds no owner key and only the data the owner names, and the Mac keeps the audit history it has accepted (section 4.2). Enforcement outside the runner, such as a network filter the runner cannot change, is not designed here. |
 | A signature is reused, edited or taken from another action | Approvals bind the approval ID, the action hash, the expiry and the decider. Any change fails the check. |
 | Someone on the internet reaches the runner | No public port. The only inbound path is the private link to the owner's Mac, or the relay in option B. Outbound traffic goes only to named hosts through the gateway. |
 | The owner cannot be reached, and the runner keeps going | Approve-tier work parks. Lower tiers keep their own rules. Nothing waits on a phone signature, because none exists. |
-| The runner's audit history is rewritten | Runner checkpoints are signed with a key only the runner holds, and the owner verifies them on the Mac. |
+| The runner's audit history is rewritten | Runner checkpoints are signed with the runner's key and verified on the Mac. The Mac keeps the last head it accepted and rejects a history that does not extend it (section 4.2). That protects only history the Mac has accepted. A compromised runner can change or drop the rows after that head and sign a new tail from it. The Mac accepts checkpoints often, so that tail stays short. |
 | A signed file is replaced by an unsigned one on the runner | The runner checks each file against `operator.pub` at start and stops if one fails. |
 | Owner data stays on the rented machine after shutdown | A signed stop, an export and check, an owner-run wipe, the provider's disk deletion, and a dated record. |
 | An operator key is copied to the runner during setup | Setup copies only `operator.pub`. A security check fails if a private operator key is found on the runner. |
