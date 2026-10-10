@@ -1,6 +1,6 @@
 # Status and handoff
 
-Last updated 2026-10-09 (NZDT), late evening. Read this first when picking the work up in a new session,
+Last updated 2026-10-11 (NZDT), early morning. Read this first when picking the work up in a new session,
 on any account or machine. It says what is done, what is waiting and on whom, and what must not
 be redone. The detail lives in the documents it links; this page only points.
 
@@ -12,14 +12,17 @@ be redone. The detail lives in the documents it links; this page only points.
   OpenClaw and Hermes Agent is in [COMPARISON.md](COMPARISON.md). The wider market and the
   owner's hybrid decision of 2026-10-09 (local by default, opt-in cloud; scheduled tasks, a safe
   browser, an easy install and injection defence first) are in [MARKET-2026.md](MARKET-2026.md).
-- Open pull requests that wait for the owner: **#373** (browser design, #369), **#379** (hybrid
-  design, #377) and **#388** (installer design, #385) each end with questions only the owner can
-  answer. Do not merge them until the owner has answered. **#312** (keep-awake as the `lab`
+- Open pull requests that wait for the owner: **#373** (browser design, #369) ends with questions
+  only the owner can answer, and the owner holds it until they have read one of its sections. Do
+  not merge it until the owner says so. The hybrid design (#379, [HYBRID-DESIGN.md](HYBRID-DESIGN.md))
+  and the installer design (#388, [INSTALLER-DESIGN.md](INSTALLER-DESIGN.md)) were merged on
+  2026-10-11 at the owner's request with their questions still open. Nothing in them is built
+  until the owner answers. **#312** (keep-awake as the `lab`
   account, [#235](https://github.com/roshanaryal1/home-lab/issues/235)): do **not** merge #312 until both checks in step 1 of its runbook section "Moving keep-awake to
   the lab account" have passed on the Mac mini: `./ops/mac-session.sh --only caffeinate` from
   that branch, and the same check from launchd with a throwaway daemon.
 - #312 must also be up to date with `main` before it merges. It was last brought up to date on
-  2026-10-09 with a merge commit, and every later merge to `main` puts it behind again. Merge
+  2026-10-11 with a merge commit, and every later merge to `main` puts it behind again. Merge
   `main` into it (a merge commit, never a rebase or force-push) and wait for green checks. If
   that merge changed `ops/mac-session.sh`, run both checks again on the updated branch before
   merging: a pass from before the merge does not cover the new script. No merge so far has
@@ -41,6 +44,11 @@ be redone. The detail lives in the documents it links; this page only points.
   (read-only database opens encode the path, #386) and #391 (a today page on the status page,
   #390). Documents: #365 (the 2026 market, the
   hybrid position and the reordered plan, #364) and #374 (the project website in `site/`, #363).
+- Merged on 2026-10-11 (NZDT), at the owner's request: the dependency bumps #392 (mypy 2.4.0),
+  #393 (hypothesis 6.168.5), #394 (cryptography 50.0.2) and #395 (ruff 0.16.10), approved from
+  the owner's account at the owner's request, and the designs #379 and #388. #312 also gained a
+  fix: `lab update --plan` tells the reader not to reinstall the keep-awake definition until both
+  of its checks pass.
 - Merged on 2026-10-09 (NZDT), documents and research only:
   #317, #322, #323 (H1b interval), #325 (incident catalog), #327 (comparison and feature plan),
   #333 (CHANGELOG and draft versioning rules, #332), #337 (A/B and H2 drafts), #350, #352
@@ -134,8 +142,8 @@ Decisions:
 - Who labels the H1 cases a second time, blind, for the agreement table (#321).
 - [#318](https://github.com/roshanaryal1/home-lab/issues/318): a point in the owner's private notes;
   record the outcome on the issue in general terms.
-- #373, #379 and #388: the questions at the end of the browser, hybrid and installer designs.
-  Each design picks a default, and the build waits for the answers.
+- #373 (open), #379 and #388 (merged): the questions at the end of the browser, hybrid and
+  installer designs. Each design picks a default, and the build waits for the answers.
 - Register the draft claim S1 ([SCHEDULES.md](SCHEDULES.md)) before a release ships schedules.
 - `lab update --plan` covers the standard install only. The issue asked for `--deploy` and
   `--launch-daemons`. They were left out because the runbook's commands name four fixed paths
@@ -157,6 +165,8 @@ Changed behaviour to know before the redeploy:
 - Migration 17 adds the schedule tables, with an append-only list of removed schedules (#361).
   `migrate --check` should name schema version 17.
 - Every chat message the lab sends ends with the label `[home-lab AI agent]` (#375).
+- The deploy's `uv sync` installs cryptography 50.0.2, the one runtime dependency, in place of
+  50.0.1 (#394).
 - `lab status` reports ATTENTION, and the status check alerts with the kind `stalled`, for a task
   whose lease keeps renewing with no new event for 30 minutes. Its exit code is unchanged (#376).
 - The status page also serves `/metrics` in Prometheus text format, and `/today` with the local day's
