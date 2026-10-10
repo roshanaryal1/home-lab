@@ -461,6 +461,8 @@ line, `backup.err` must be empty, and the folder must hold a new
 Do this when a merged change has to reach the Mac mini (#204). It has not been
 tried yet: the first run is the owner's, and its result belongs in this section.
 
+`lab update --plan COMMIT` prints the blocks in this section with the values for this install filled in. It is read-only: it runs no sudo and writes no file.
+
 The weekly eval job (`com.homelab.weekly-eval`, #321) is new, so the owner
 installs it as in this section: it shows in the `diff --stat` as a new file.
 Its four `PASTE_` values are `ProgramArguments` entries 10, 12, 14 and 16
