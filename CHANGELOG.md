@@ -9,6 +9,27 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- A read-only `/today` page on the status page, and `/today.json` with the same
+  data. It lists the local day's tasks created, finished, waiting for approval and
+  refused by policy, the approvals decided, the schedules fired and the egress and
+  policy denial counts. Task titles are escaped. No payloads or results are shown
+  ([#390](https://github.com/roshanaryal1/home-lab/issues/390)).
+- `lab export --to DIR`: a read-only export of memory, the action log and task
+  results as JSON and Markdown, written to a new private folder. The action log
+  keeps every column as stored, so its hash chain can be checked from the export
+  ([#381](https://github.com/roshanaryal1/home-lab/issues/381)).
+- `GET /metrics` on the read-only status page: the queue, health, leases, task
+  outcomes and counters in Prometheus text format, on loopback only, with fixed
+  names and no task ids or titles. A failure that is retried stays counted as an
+  outcome ([#380](https://github.com/roshanaryal1/home-lab/issues/380))
+- Every chat message to the person ends with the label `[home-lab AI agent]`, added
+  at the one send, so no reply text can remove it
+  ([#375](https://github.com/roshanaryal1/home-lab/issues/375)).
+- `lab status` flags a task that writes no event for 30 minutes while its lease
+  keeps renewing. The task is listed in the text output, the `--json` output and
+  the status page, and the status check alerts with its id. The task is only
+  flagged, never cancelled or requeued. `--stalled-minutes` sets the limit
+  ([#376](https://github.com/roshanaryal1/home-lab/issues/376)).
 - `lab security-audit`: one read-only check of the lab's own boundary (file owners
   and modes, the operator key, the loopback model URL), with `--details` to list
   the offending paths ([#362](https://github.com/roshanaryal1/home-lab/issues/362)).
@@ -31,6 +52,17 @@ They are a draft until the owner approves them.
   the database before an update restarts anything, and the update steps stop
   the supervisor and `lab tick` first and say how to roll back
   ([#356](https://github.com/roshanaryal1/home-lab/issues/356)).
+- `lab update --plan COMMIT` prints the update steps for this install, with the
+  commit, the deployed commit and the installed jobs filled in. It is read-only
+  and runs no sudo ([#370](https://github.com/roshanaryal1/home-lab/issues/370)).
+- `lab injection-suite`: a versioned public injection suite, 27 fixed cases of
+  hidden instructions in a fetched page, run in throwaway labs through the real
+  broker and graded on state. The case file is pinned by SHA-256
+  ([#368](https://github.com/roshanaryal1/home-lab/issues/368)).
+- `lab schedule add|list|remove`: owner-signed schedules that start a task on
+  a daily, weekly or every-N-minutes rule. A schedule can start work but never
+  approve it. An unsigned or altered schedule is refused and logged
+  ([#361](https://github.com/roshanaryal1/home-lab/issues/361)).
 
 ### Fixed
 
@@ -44,6 +76,8 @@ They are a draft until the owner approves them.
   evidence snapshots and the files of each skill version. Before, it held only
   task artifacts, and its restore check passed without the others
   ([#358](https://github.com/roshanaryal1/home-lab/issues/358)).
+- A read-only database open no longer opens another file when the path has a
+  `?`, `#` or `%` in it ([#386](https://github.com/roshanaryal1/home-lab/issues/386)).
 
 ## [0.1.0] - unreleased
 

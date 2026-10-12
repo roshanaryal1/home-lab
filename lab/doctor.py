@@ -31,6 +31,7 @@ from typing import IO
 
 from lab import audit, backup
 from lab import operator as operator_keys
+from lab.db import connect_readonly
 from lab.migrations import latest_version
 from lab.supervisor import DEPLOYED_OPERATOR_KEY
 
@@ -62,7 +63,7 @@ def _connect(db: Path) -> sqlite3.Connection:
     """A read-only connection to a database that exists. Never creates or migrates it."""
     if not db.is_file():
         raise sqlite3.OperationalError(f"no database at {db}")
-    return sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro", uri=True)
+    return connect_readonly(db)
 
 
 def check_database(db: Path) -> Check:

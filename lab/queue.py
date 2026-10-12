@@ -278,10 +278,17 @@ class TaskQueue:
         lease permanently live, so the task could never be leased again
         even after a human granted the approval.
 
-        Callers must not nest this: SQLite does not support nested
-        ``BEGIN``. Operations acting under a lease use ``_fenced()``
-        instead, which adds the lease check to the same transaction.
+        SQLite does not support nested ``BEGIN``. When a caller already
+        holds a transaction (``lab.schedule`` creates a task in the same
+        transaction that moves the schedule), this joins it, and the caller
+        commits or rolls back. The connection is in autocommit mode, so a
+        transaction is open only after an explicit ``BEGIN``. Operations
+        acting under a lease use ``_fenced()`` instead, which adds the lease
+        check to the same transaction.
         """
+        if self._conn.in_transaction:
+            yield
+            return
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             yield

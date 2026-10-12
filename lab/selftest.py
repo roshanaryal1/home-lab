@@ -23,6 +23,7 @@ from pathlib import Path
 
 from lab import backup, metrics
 from lab.audit import verify_chain
+from lab.db import connect_readonly
 from lab.queue import TaskQueue
 
 DEFAULT_TESTS = Path(__file__).resolve().parent.parent / "tests"
@@ -49,7 +50,7 @@ class SelfTestReport:
 
 
 def _readonly(db: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    conn = connect_readonly(db)
     conn.row_factory = sqlite3.Row
     return conn
 

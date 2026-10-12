@@ -42,6 +42,7 @@ from typing import Any
 
 from lab import audit
 from lab.artifacts import ArtifactError, ArtifactStore
+from lab.db import connect_readonly
 from lab.migrations import latest_version, online_copy
 
 MANIFEST_VERSION = 1
@@ -124,7 +125,7 @@ def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
         raise BackupError(f"{final_db} already exists; one backup per second per directory")
     tmp_db = dest / f".{name}.db.partial"
 
-    source = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    source = connect_readonly(db_path)
     try:
         online_copy(source, tmp_db)
     except BaseException:
@@ -408,7 +409,7 @@ def _blobs_of(dest: Path, item: _Own) -> set[str]:
     """
     if item.database is None:
         return set()
-    conn = sqlite3.connect(f"file:{dest / item.database}?mode=ro", uri=True)
+    conn = connect_readonly(dest / item.database)
     try:
         version = int(conn.execute("PRAGMA user_version").fetchone()[0])
         return set(_referenced_blobs(conn, version))
