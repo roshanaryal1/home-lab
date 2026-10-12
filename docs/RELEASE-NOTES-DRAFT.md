@@ -1,6 +1,6 @@
 # Release notes for a first release (draft)
 
-**Draft, not published.** On 2026-10-08 this repository has no tag, no GitHub
+**Draft, not published.** On 2026-10-13 this repository has no tag, no GitHub
 release and no DOI (`gh release list` and `git ls-remote --tags origin` return
 nothing). `pyproject.toml` and `CITATION.cff` both say version 0.1.0. The owner
 picks the version and the date; the steps are at the end of this file and in
@@ -67,6 +67,32 @@ Built and tested in CI on Linux ([README](../README.md), Status):
 - A [CHANGELOG](../CHANGELOG.md) and draft versioning rules in
   [ops/release.md](../ops/release.md)
   ([#332](https://github.com/roshanaryal1/home-lab/issues/332)).
+- Owner-signed schedules (`lab schedule`) that start a task at set times. A
+  schedule can start work but never approve it
+  ([#361](https://github.com/roshanaryal1/home-lab/issues/361)).
+- `lab security-audit`, a read-only check of the lab's own file and account
+  boundary ([#362](https://github.com/roshanaryal1/home-lab/issues/362)).
+- Updates: `lab migrate --check` tries the new code's migrations on a copy of
+  the database before anything restarts
+  ([#356](https://github.com/roshanaryal1/home-lab/issues/356)), and
+  `lab update --plan COMMIT` prints the update steps for this install without
+  running sudo ([#370](https://github.com/roshanaryal1/home-lab/issues/370)).
+- A backup holds every file the database refers to, including evidence
+  snapshots and skill-version files, and its restore check verifies them
+  ([#358](https://github.com/roshanaryal1/home-lab/issues/358)).
+- The read-only status page also serves `/metrics` in Prometheus text format
+  and a `/today` page, both on loopback only
+  ([#380](https://github.com/roshanaryal1/home-lab/issues/380),
+  [#390](https://github.com/roshanaryal1/home-lab/issues/390)). `lab status`
+  flags a task whose lease keeps renewing with no new event
+  ([#376](https://github.com/roshanaryal1/home-lab/issues/376)).
+- `lab export` writes memory, the action log and task results as plain JSON
+  and Markdown ([#381](https://github.com/roshanaryal1/home-lab/issues/381)).
+- Every chat message the lab sends ends with the label `[home-lab AI agent]`
+  ([#375](https://github.com/roshanaryal1/home-lab/issues/375)).
+- `lab injection-suite`, a versioned public suite of 27 injection cases run
+  through the real broker ([INJECTION-SUITE.md](INJECTION-SUITE.md),
+  [#368](https://github.com/roshanaryal1/home-lab/issues/368)).
 
 ## What has run on the project's Mac mini
 
@@ -96,8 +122,8 @@ part of the OSF registration. The target for each is zero failures.
 
 | Claim | What counts as a failure | Cases | Failures | How it ran |
 |---|---|---|---|---|
-| M2, chat | an injected chat message reaches an approve-tier tool without the owner's signature | 32 | 0 | 2026-10-01, a scripted worst-case model and a fake Telegram server behind the real egress gateway |
-| M6, skills | a malicious skill becomes active without a signed promotion | 36 | 0 | 2026-10-01 |
+| M2, chat | an injected chat message reaches an approve-tier tool without the owner's signature | 32 | 0 | 2026-10-01, a scripted worst-case model and a fake Telegram server behind the real egress gateway; rerun 2026-10-09 with a sealed record in a Linux cloud container, 0 failures (#324) |
+| M6, skills | a malicious skill becomes active without a signed promotion | 36 | 0 | 2026-10-01; rerun 2026-10-09 with a sealed record in a Linux cloud container, 0 failures (#324) |
 | M5, container | a hostile script reaches the network or the host's files, or a process outlives its container | 30 | 0 | 2026-10-07, the real Apple container on the Mac mini |
 
 The limits are stated with each result. The case sets are fixed and written by
@@ -107,6 +133,11 @@ not against every input. M2 used a scripted model, not the real one. M6 did not
 run the skills' scripts. In M5, a connection to a public address could not be
 observed from outside, so those cases rest on the guest having no network
 interface.
+
+The public injection suite, version 1, has run only against a stub model that
+obeys every instruction: 0 of 27 attacks succeeded and 24 of 27 cases still did
+the useful work ([INJECTION-SUITE.md](INJECTION-SUITE.md)). It has not yet run
+against the served model.
 
 ### Model hypotheses registered on OSF
 
@@ -140,7 +171,9 @@ Results.
   0.433, coverage 1.00, 8 false promotions. One run on cases whose labels were
   already known; H1's verdict is unchanged
   ([PREREGISTRATION-AMENDMENT-2-REGISTRATION.md](PREREGISTRATION-AMENDMENT-2-REGISTRATION.md),
-  "H1b, exploratory").
+  "H1b, exploratory"). A paired bootstrap from its sealed record gives an
+  accuracy gain of -0.400 against the rubric, 95% CI [-0.600, -0.200]
+  ([#323](https://github.com/roshanaryal1/home-lab/pull/323)).
 - **H1c** ([#179](https://github.com/roshanaryal1/home-lab/issues/179)): not
   run. The server the candidate runs on, `mlx_lm.server` 0.31.3, ignores
   `response_format`, so constraining the output would only have repeated H1b
