@@ -1,6 +1,6 @@
 # Status and handoff
 
-Last updated 2026-10-11 (NZDT), early morning. Read this first when picking the work up in a new session,
+Last updated 2026-10-13 (NZDT). Read this first when picking the work up in a new session,
 on any account or machine. It says what is done, what is waiting and on whom, and what must not
 be redone. The detail lives in the documents it links; this page only points.
 
@@ -70,7 +70,9 @@ be redone. The detail lives in the documents it links; this page only points.
   same MLX weights, built in #320. The run follows [H1C-RUN-PLAN.md](H1C-RUN-PLAN.md) and is the
   owner's, on the Mac mini.
 - M2, M5 and M6 safety claims: 0 failures ([docs/PREREGISTRATION-SAFETY.md](PREREGISTRATION-SAFETY.md)).
-  M2 and M6 have sealed records (#324).
+  M2 and M6 have sealed records (#324), made in a Linux cloud container at commit `4c236d7`.
+  That commit is only on the branch `research/321-sealed-safety-records`: never delete that
+  branch (#399).
 - P3 (the operations paper): the incident catalog holds 27 real incidents ([INCIDENTS.md](INCIDENTS.md)).
   The weekly eval job, the memory budget check and drafts for four A/B tests and an exploratory
   H2 rerun are merged ([P3-AB-DESIGN-DRAFT.md](P3-AB-DESIGN-DRAFT.md),
@@ -121,7 +123,8 @@ In this order:
 12. Delete the branch `research/321-memory-budget`. It was replaced by
     `research/321-memory-budget-check` and only exists because the session's git access cannot
     delete a remote branch. `.gitleaksignore` names one of its commits; that line can go once the
-    branch is deleted.
+    branch is deleted. Do not delete `research/321-sealed-safety-records`: it holds the commit
+    the M2 and M6 records name (#399).
 13. Switch the website on when you want it public: [WEBSITE.md](WEBSITE.md) (GitHub Pages from
     Actions, and the repository variable `PAGES_ENABLED` set to `true`), then run the pages
     workflow once by hand. Until then the Pages workflow does nothing.
