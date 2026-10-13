@@ -253,3 +253,20 @@ def test_cli_resume_signs_with_the_operator_key(tmp_path: Path,
     capsys.readouterr()
     with TaskQueue(db, owner="t") as q:
         assert control.effective(q._conn, op.load_public(public_path)).mode == "running"
+
+
+def test_cli_resume_reads_the_operator_key_from_standard_input(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    import io
+
+    from lab import operator as op
+    private_path, public_path = op.generate(tmp_path / "keys")
+    db = tmp_path / "lab.db"
+    TaskQueue(db, owner="t").close()
+    main(["--db", str(db), "control", "pause", "--by", "roshan"])
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(private_path.read_bytes())))
+    assert main(["--db", str(db), "control", "resume", "--by", "roshan", "--key", "-"]) == 0
+    assert "UNSIGNED" not in capsys.readouterr().err
+    with TaskQueue(db, owner="t") as q:
+        assert control.effective(q._conn, op.load_public(public_path)).mode == "running"

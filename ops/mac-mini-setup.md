@@ -842,8 +842,13 @@ never the alert bot and never the old shell bot. Press Start on it once.
       Mac, at the keyboard or over SSH on the tailnet, with the operator key.
       There is no way to sign from the phone yet.
 - [ ] `/stop` from the phone, then `lab control show` on the Mac says
-      `stopped` and `set by chat:<id>`. Resume with
-      `lab control resume --key ~/.lab-operator/operator.key`; the chat cannot.
+      `stopped` and `set by chat:<id>`. Resume on the Mac with
+      `sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db control resume --by <you> --key - < ~/.lab-operator/operator.key`;
+      the chat cannot. The command runs as `lab`, which owns the database, and
+      `--key -` reads the key from standard input, which your shell opens as you,
+      so `lab` never gets a key file it can read (#408). `lab approve` takes the
+      key the same way. Done 2026-10-13: `/stop` from the phone stopped the lab
+      and `control show` said `stopped`, `set by chat`.
 - [x] Retire the raw-shell bot (#184). Done 2026-10-07: bot deleted in BotFather
       (its token is dead), its LaunchAgent `com.homelab.telegram-bot` stopped and
       its plist removed from `~/Library/LaunchAgents`, its token and TOTP secret

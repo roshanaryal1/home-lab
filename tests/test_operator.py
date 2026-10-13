@@ -382,3 +382,17 @@ def test_by_is_a_label_and_the_key_is_the_identity(tmp_path: Path, keys, monkeyp
 def test_escape_keeps_ordinary_text() -> None:
     assert _escape("plain text, unicode é") == "plain text, unicode é"
     assert _escape("a\nb") == "a\\u000ab"
+
+
+def test_a_private_key_streamed_on_standard_input_loads(keys, monkeypatch) -> None:
+    import io
+    private, _ = keys
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(private.read_bytes())))
+    assert op.load_private(Path("-")).public_key() is not None
+
+
+def test_standard_input_that_is_not_a_key_is_refused(monkeypatch) -> None:
+    import io
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"not a key")))
+    with pytest.raises(op.OperatorKeyError, match="not a private key"):
+        op.load_private(Path("-"))

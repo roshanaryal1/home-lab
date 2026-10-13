@@ -341,7 +341,8 @@ class ChatChannel:
         elif mode == "stopped":
             return Outcome(update_id, chat_id, Action.REFUSED, command, reply=(
                 "The lab is stopped, so nothing was queued. Resume it on the Mac with "
-                f"the operator key: {self.cli} control resume --by <you> --key <operator.key>"))
+                f"the operator key: {self.cli} control resume --by <you> --key -"
+                " < ~/.lab-operator/operator.key"))
         else:
             evidence = extract_evidence(text, source_type=SourceType.CHAT.value,
                                         source_id=origin_id, limit=MAX_MESSAGE_CHARS)
@@ -439,7 +440,7 @@ class ChatChannel:
         if command == "resume":
             return out(Action.REFUSED, (
                 "Resuming adds authority, so it needs the operator's signature. On the Mac: "
-                f"{self.cli} control resume --by <you> --key <operator.key>"))
+                f"{self.cli} control resume --by <you> --key - < ~/.lab-operator/operator.key"))
         return out(Action.REFUSED, "Unknown command; nothing was done.\n" + HELP)
 
     def approval_prompt(self, approval: sqlite3.Row) -> str:
@@ -460,7 +461,8 @@ class ChatChannel:
             f"Hash {digest}\n"
             "A chat message cannot approve. On the Mac, as the operator:\n"
             f"{self.cli} show {short}\n"
-            f"{self.cli} approve {short} --by <you> --key <operator.key> --expect-hash {digest}\n"
+            f"{self.cli} approve {short} --by <you> --key - --expect-hash {digest}"
+            " < ~/.lab-operator/operator.key\n"
             f"Or refuse it here with /deny {short}")
 
     def _status(self, arg: str) -> str:
@@ -520,7 +522,7 @@ class ChatChannel:
                  if target == "stopped" else " Work in flight finishes; nothing new starts.")
         return Outcome(update_id, chat_id, Action.CONTROL, command, reply=(
             f"The lab is {target}.{extra} Resuming needs the operator key on the Mac: "
-            f"{self.cli} control resume --by <you> --key <operator.key>"))
+            f"{self.cli} control resume --by <you> --key - < ~/.lab-operator/operator.key"))
 
     # ---------------------------------------------------------- replies
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -63,12 +64,21 @@ def generate(directory: Path) -> tuple[Path, Path]:
 
 
 def load_private(path: Path) -> Ed25519PrivateKey:
+    """Load the operator's private key from ``path``, or from standard input when ``path`` is
+    ``-``. Standard input lets the operator's shell open the key as the operator and stream it
+    to a command that runs as ``lab`` (which owns the database but must never be able to read
+    the key file), for example ``sudo -u lab ... --key - < ~/.lab-operator/operator.key``. The
+    group/other mode check applies to a key file, not to a stream."""
     path = Path(path)
-    try:
-        mode = path.stat().st_mode & 0o077
-        data = path.read_bytes()
-    except OSError as exc:
-        raise OperatorKeyError(f"cannot read operator key {path}: {exc.strerror}") from exc
+    if str(path) == "-":
+        data = sys.stdin.buffer.read()
+        mode = 0
+    else:
+        try:
+            mode = path.stat().st_mode & 0o077
+            data = path.read_bytes()
+        except OSError as exc:
+            raise OperatorKeyError(f"cannot read operator key {path}: {exc.strerror}") from exc
     if mode:
         raise OperatorKeyError(
             f"{path} is readable by group or others; chmod 600 it before use")
