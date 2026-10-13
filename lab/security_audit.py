@@ -38,7 +38,9 @@ SERVICE_PLIST = "com.homelab.*.plist"
 OPERATOR_KEY = Path(".lab-operator", "operator.key")
 # Configuration the lab account itself must own: the alert loader refuses a file that is
 # not owned by the account running the lab (runbook section 19 installs it lab-owned, 600).
-LAB_OWNED_CONFIG = frozenset({"alert.json"})
+# The files the setup guide installs owned by lab, mode 600, because jobs running as lab read
+# them: the alert hook (section 19), its Telegram settings, and the heartbeat URL (section 18).
+LAB_OWNED_CONFIG = frozenset({"alert.json", "telegram-alert.json", "heartbeat-url"})
 GROUP_OR_OTHER_WRITE = 0o022
 ANY_GROUP_OR_OTHER = 0o077
 

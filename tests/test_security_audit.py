@@ -319,6 +319,23 @@ def test_config_names_a_lab_owned_alert_file_when_the_lab_account_is_unknown(
     assert sa.check_config(layout.config, ME) == sa.Finding("config", "FAIL", [str(alert)])
 
 
+def test_config_accepts_the_lab_owned_files_the_setup_guide_installs(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("alert.json", "telegram-alert.json", "heartbeat-url"):
+        _fake_owner(monkeypatch, _file(layout.config / name, 0o600), ME + 7)
+    assert sa.check_config(layout.config, ME, ME + 7) == sa.Finding("config", "ok", [])
+
+
+@pytest.mark.parametrize("name", ["telegram-alert.json", "heartbeat-url"])
+@pytest.mark.parametrize("mode", [0o640, 0o604])
+def test_config_names_a_lab_owned_setup_file_that_a_group_or_others_can_read(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch, name: str, mode: int) -> None:
+    entry = _file(layout.config / name, mode)
+    _fake_owner(monkeypatch, entry, ME + 7)
+    assert sa.check_config(layout.config, ME, ME + 7) == sa.Finding(
+        "config", "FAIL", [str(entry)])
+
+
 # ------------------------------------------------------------ data
 
 
