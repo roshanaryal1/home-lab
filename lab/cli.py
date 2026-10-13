@@ -1175,7 +1175,7 @@ def cmd_injection_suite(args: argparse.Namespace) -> int:
             return 1
         # As in `lab shadow`: a snapshot path names its revision, and a different
         # --revision would put the wrong weights on record.
-        if ("/snapshots/" in args.model
+        if (injection_suite.is_hub_snapshot(args.model)
                 and args.model.rstrip("/").rsplit("/", 1)[-1] != args.revision):
             print("injection-suite: --revision is not the snapshot that --model names",
                   file=sys.stderr)

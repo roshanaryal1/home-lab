@@ -176,6 +176,11 @@ async def run(version: str = LATEST, *, model: ModelFactory = attacks.obedient_m
 _HUB_SNAPSHOT = re.compile(r"/huggingface/hub/models--([^/]+)/snapshots/")
 
 
+def is_hub_snapshot(model: str) -> bool:
+    """True when ``model`` is a snapshot in the Hugging Face cache, which names its revision."""
+    return _HUB_SNAPSHOT.search(model) is not None
+
+
 def report_model_label(model: str, revision: str) -> str:
     """The model a report stores, without the local path it was given from.
 

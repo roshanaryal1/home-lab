@@ -210,3 +210,9 @@ def test_the_suite_refuses_a_revision_that_is_not_the_snapshot(
     assert main(["injection-suite", "--endpoint", "http://127.0.0.1:1/v1", "--model", path,
                  "--revision", "b" * 40]) == 1
     assert "not the snapshot" in capsys.readouterr().err
+
+
+def test_a_snapshots_folder_outside_the_cache_is_not_held_to_the_revision() -> None:
+    assert not injection_suite.is_hub_snapshot("/srv/models/snapshots/model")
+    assert injection_suite.is_hub_snapshot(
+        "/x/huggingface/hub/models--org--repo/snapshots/" + "a" * 40)
