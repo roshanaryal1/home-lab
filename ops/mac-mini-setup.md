@@ -249,6 +249,9 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
       `restore check ok`.
 - [ ] Move the backup's Full Disk Access from the interpreter to the launcher
       (#287): runbook, "Moving the backup's Full Disk Access to its launcher".
+      Moved 2026-10-13: the kickstarted run through the launcher passed and the
+      interpreter is gone from the list. Left: the next 02:47 run on its own
+      schedule, and turning Terminal's Full Disk Access off.
       Afterwards the grant covers only `/opt/homelab-backup/lab-backup` and what
       it starts (the backup, and the alert command when the backup fails), not
       the lab services or the root-run daemons, which run the interpreter
