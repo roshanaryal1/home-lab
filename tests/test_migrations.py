@@ -596,7 +596,7 @@ def test_migration_17_keeps_every_row_and_adds_the_empty_schedule_tables(
     assert [name for name, rows in before.items() if not rows] == []
 
     conn = raw(db)
-    assert migrate(conn) == latest_version() == 17
+    assert migrate(conn, _migrations_up_to(tmp_path, 17)) == 17
     after = _every_table(conn)
     assert {name: after[name] for name in before} == before
     assert after["schedules"] == [] and after["schedule_revocations"] == []
