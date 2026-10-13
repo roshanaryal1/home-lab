@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import pwd
 import stat
 import urllib.parse
 from collections.abc import Iterable, Mapping
@@ -41,6 +42,7 @@ OPERATOR_KEY = Path(".lab-operator", "operator.key")
 # The files the setup guide installs owned by lab, mode 600, because jobs running as lab read
 # them: the alert hook (section 19), its Telegram settings, and the heartbeat URL (section 18).
 LAB_OWNED_CONFIG = frozenset({"alert.json", "telegram-alert.json", "heartbeat-url"})
+LAB_ACCOUNT = "lab"
 GROUP_OR_OTHER_WRITE = 0o022
 ANY_GROUP_OR_OTHER = 0o077
 
@@ -81,6 +83,14 @@ def _is_regular(path: Path) -> bool:
     """True when ``path`` itself is a regular file: the lab-owned config files are read as files."""
     st = _lstat(path)
     return st is not None and stat.S_ISREG(st.st_mode)
+
+
+def _account_uid(name: str) -> int | None:
+    """The uid of the account named ``name``, or None when there is no such account."""
+    try:
+        return pwd.getpwnam(name).pw_uid
+    except KeyError:
+        return None
 
 
 def _result(name: str, bad: Iterable[str]) -> Finding:
@@ -259,14 +269,20 @@ def check_loopback(env: Mapping[str, str]) -> Finding:
 def run(env: Mapping[str, str], *, home: Path | None = None, deploy_root: Path = DEPLOY_ROOT,
         python_root: Path = PYTHON_ROOT,
         launch_daemons: Path = LAUNCH_DAEMONS, config_dir: Path = CONFIG_DIR,
-        data_dir: Path = DATA_DIR, root_uid: int = 0, euid: int | None = None) -> list[Finding]:
+        data_dir: Path = DATA_DIR, root_uid: int = 0, euid: int | None = None,
+        lab_account: str = LAB_ACCOUNT) -> list[Finding]:
     """Every check, in the order they print. Reads ``env`` and the permissions, writes nothing.
 
     ``home`` defaults to this account's home folder and ``euid`` to this process's effective
-    uid. ``root_uid`` is the owner the root-owned paths must have.
+    uid. ``root_uid`` is the owner the root-owned paths must have. ``lab_account`` names the
+    account the lab-owned config files may belong to.
     """
+    # The lab-owned config exception applies only to the named lab account, and only when the
+    # data folder belongs to that same account.
     data_st = _lstat(data_dir)
-    lab_uid = data_st.st_uid if _is_dir(data_st) and data_st is not None else None
+    account_uid = _account_uid(lab_account)
+    lab_uid = (account_uid if account_uid is not None and data_st is not None
+               and _is_dir(data_st) and data_st.st_uid == account_uid else None)
     return [
         check_deploy(deploy_root, root_uid, python_root),
         check_services(launch_daemons, root_uid),
