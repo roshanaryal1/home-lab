@@ -297,3 +297,13 @@ def test_the_plan_keeps_the_runbook_order_and_leaves_only_n_for_the_operator() -
     positions = [text.index(h) for h in headings]
     assert positions == sorted(positions)
     assert [line for line in text.splitlines() if "PASTE_" in line] == ['N="PASTE_N"']
+
+
+def test_the_plan_never_says_to_reinstall_the_keep_awake_definition() -> None:
+    """Moving keep-awake to lab waits on its own checks (#235), so the stale definitions
+    note names it as the exception, as the runbook's diff --stat point does."""
+    assert "keepawake.plist` is listed,** do not reinstall it" in _section()
+    text = update_plan.render(COMMIT, OLD, True, list(update_plan.WRITER_NAMES))
+    note = next(line for line in text.splitlines() if "its installed copy is stale" in line)
+    assert "Not the keep-awake definition" in note
+    assert "Moving keep-awake to the lab account" in note
