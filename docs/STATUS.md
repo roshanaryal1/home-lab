@@ -1,6 +1,6 @@
 # Status and handoff
 
-Last updated 2026-10-11 (NZDT), early morning. Read this first when picking the work up in a new session,
+Last updated 2026-10-13 (NZDT). Read this first when picking the work up in a new session,
 on any account or machine. It says what is done, what is waiting and on whom, and what must not
 be redone. The detail lives in the documents it links; this page only points.
 
@@ -29,7 +29,7 @@ be redone. The detail lives in the documents it links; this page only points.
   changed that script since the checks were written.
 - Merged on 2026-10-08 (NZDT): #300 to #311, #313, #314 (see the git log). Of these, #303, #305,
   #306, #307, #309 and #313 change code meant for the Mac mini.
-- Merged on 2026-10-09 (NZDT), changes to code meant for the Mac mini (none deployed yet, see below):
+- Merged on 2026-10-09 (NZDT), changes to code meant for the Mac mini (deployed 2026-10-13, see below):
   #319 (a memory reading at the ceiling is reported over it), #320 (constrained decoding for H1c),
   #324 (`lab prereg --record`), #334 (the wheel and the `lab` command, #329, #330), #336 (one-line
   CLI errors, #331), #345 (deploy keeps pytest, #270), #346 (`lab memory-budget`), #351
@@ -37,7 +37,7 @@ be redone. The detail lives in the documents it links; this page only points.
   #354 (log tracebacks, level and rotation, #349), #357 (`lab migrate --check` and safer
   update steps, #356) and #360 (backups hold every blob the database refers to, #358).
 - Merged later on 2026-10-09 (NZDT), the first features of the hybrid plan, also for the Mac mini
-  and not deployed: #366 (`lab security-audit`, #362), #367 (owner-signed schedules, #361),
+  and deployed 2026-10-13: #366 (`lab security-audit`, #362), #367 (owner-signed schedules, #361),
   #371 (the public injection suite, #368), #372 (`lab update --plan`, #370), #378 (`lab status`
   flags a task whose lease renews with no new event, #376), #382 (every chat message carries an
   AI label, #375), #383 (`/metrics` on the status page, #380), #384 (`lab export`, #381), #389
@@ -54,9 +54,12 @@ be redone. The detail lives in the documents it links; this page only points.
   #333 (CHANGELOG and draft versioning rules, #332), #337 (A/B and H2 drafts), #350, #352
   (seven-month plan), and the pull request for #355 that updates this page and the other
   overview documents.
-- Nothing merged since 2026-10-07 is deployed on the Mac mini yet. Not verified from a session:
-  the deployed commit is visible only on the mini, where the first block of "Updating the
-  deployed code" prints it (`deployed now`). Deploying is the owner's step.
+- Deployed on the Mac mini on 2026-10-13: `/opt/homelab` went from `4bfa910` to `5105422`
+  (schema 16 to 17; the result is recorded in the runbook section "Updating the deployed code").
+  Anything merged after `5105422` is not deployed until the next update. The deployed commit is
+  visible only on the mini, where the first block of that section prints it (`deployed now`).
+  Deploying is the owner's step. Not yet installed from that update, because they are their own
+  steps below: the backup launcher and the weekly eval job.
 
 ## Research results (do not redo)
 
@@ -70,7 +73,9 @@ be redone. The detail lives in the documents it links; this page only points.
   same MLX weights, built in #320. The run follows [H1C-RUN-PLAN.md](H1C-RUN-PLAN.md) and is the
   owner's, on the Mac mini.
 - M2, M5 and M6 safety claims: 0 failures ([docs/PREREGISTRATION-SAFETY.md](PREREGISTRATION-SAFETY.md)).
-  M2 and M6 have sealed records (#324).
+  M2 and M6 have sealed records (#324), made in a Linux cloud container at commit `4c236d7`.
+  That commit is only on the branch `research/321-sealed-safety-records`: never delete that
+  branch (#399).
 - P3 (the operations paper): the incident catalog holds 27 real incidents ([INCIDENTS.md](INCIDENTS.md)).
   The weekly eval job, the memory budget check and drafts for four A/B tests and an exploratory
   H2 rerun are merged ([P3-AB-DESIGN-DRAFT.md](P3-AB-DESIGN-DRAFT.md),
@@ -81,17 +86,17 @@ be redone. The detail lives in the documents it links; this page only points.
 
 In this order:
 
-1. Read last night's job logs: `sudo tail -n 20 /var/log/homelab/backup.log /var/log/homelab/selftest.log`.
-   Comment the backup result on [#67](https://github.com/roshanaryal1/home-lab/issues/67).
-2. Redeploy `main`: runbook section "Updating the deployed code"
+1. Done 2026-10-13: the job logs showed nightly backups 2026-10-07 to 2026-10-12, each
+   restore-checked, and five self-test runs all ok; #270 closed, the result is on
+   [#67](https://github.com/roshanaryal1/home-lab/issues/67).
+2. Done 2026-10-13 (`4bfa910` to `5105422`, schema 16 to 17; result in the runbook section).
+   For later updates, redeploy `main`: runbook section "Updating the deployed code"
    ([ops/runbook-lab-account-and-daemons.md](../ops/runbook-lab-account-and-daemons.md)).
    `lab update --plan COMMIT`, run as yourself, prints that section's steps with the deployed
    commit, the new commit and the installed jobs filled in. It runs no sudo. The update
    takes a backup before anything changes, stops the supervisor and `lab tick` before the
    checkout, tries the new migrations on a copy (`migrate --check`, #356) before anything starts
    again, and its `uv sync` keeps the test tools (`--extra dev`) the nightly self-test needs.
-   After the next 03:17 self-test passes, close
-   [#270](https://github.com/roshanaryal1/home-lab/issues/270).
 3. Run `lab doctor` as `lab` with the service's `LAB_` values (INSTALL.md, first run). Every line
    should say `ok`. Then run `lab security-audit` the same way, and again as yourself. Each
    account can read different files, so a line may say `skip`. No line should say `FAIL`. Use
@@ -121,7 +126,8 @@ In this order:
 12. Delete the branch `research/321-memory-budget`. It was replaced by
     `research/321-memory-budget-check` and only exists because the session's git access cannot
     delete a remote branch. `.gitleaksignore` names one of its commits; that line can go once the
-    branch is deleted.
+    branch is deleted. Do not delete `research/321-sealed-safety-records`: it holds the commit
+    the M2 and M6 records name (#399).
 13. Switch the website on when you want it public: [WEBSITE.md](WEBSITE.md) (GitHub Pages from
     Actions, and the repository variable `PAGES_ENABLED` set to `true`), then run the pages
     workflow once by hand. Until then the Pages workflow does nothing.

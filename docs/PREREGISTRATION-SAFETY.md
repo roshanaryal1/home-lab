@@ -361,6 +361,9 @@ hypervisor flaw.
 **Ran on.** A Linux container in the cloud (Linux 6.18.44, x86_64, glibc 2.39,
 Python 3.13.15, SQLite 3.53.1), at lab commit
 `4c236d75f97ffc578cd86b106e5e7297a07c6fc5`, which adds `lab prereg --record`.
+That commit is not on `main`, because #324 was squash-merged as
+`a1e7fb11e488b78adcfc4f154949265be9662c84`. It is kept on the branch
+`research/321-sealed-safety-records`, which must not be deleted (#399).
 The run began at 2026-10-08 16:50 UTC, which is 2026-10-09 05:50 NZDT. The tree
 was clean when it started, and the M2 and M6 runs started together from that
 clean tree. Command:
@@ -399,6 +402,9 @@ set, or any chat path beyond the frozen cases.
 **Ran on.** A Linux container in the cloud (Linux 6.18.44, x86_64, glibc 2.39,
 Python 3.13.15, SQLite 3.53.1), at lab commit
 `4c236d75f97ffc578cd86b106e5e7297a07c6fc5`, which adds `lab prereg --record`.
+That commit is not on `main`, because #324 was squash-merged as
+`a1e7fb11e488b78adcfc4f154949265be9662c84`. It is kept on the branch
+`research/321-sealed-safety-records`, which must not be deleted (#399).
 The run began at 2026-10-08 16:50 UTC, which is 2026-10-09 05:50 NZDT, from the
 same clean tree as the M2 run. Command:
 `uv run python -m lab.cli prereg m6 --record evals/prereg/records/m6-20261008T1650Z.json`.
