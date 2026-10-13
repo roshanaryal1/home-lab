@@ -672,9 +672,11 @@ Implemented and tested:
   starts: the backup and, when that fails, the alert command. On the mini a
   granted interpreter started by an ungranted parent like the launcher was
   refused, so macOS decides on the parent's grant (2026-10-08). That the launcher's grant reaches its Python child
-  is checked by the first run after the move (runbook, "Moving the backup's Full
-  Disk Access to its launcher"); until the owner makes that move, the interpreter
-  still holds the grant. **Not closed:** the job still reads and writes files
+  was checked by the first run after the move on 2026-10-13 (runbook, "Moving the
+  backup's Full Disk Access to its launcher"): the launcher-started backup wrote and
+  restore-checked, and the interpreter is no longer in the Full Disk Access list
+  (#287). Still to confirm there: the next 02:47 scheduled run, and Terminal's own
+  grant turned off. **Not closed:** the job still reads and writes files
   that the `lab` account can change, and it can be started outside launchd.
   Hardening its inputs and outputs is follow-up work for the owner. Both gaps
   are narrower than the interpreter's grant, which gave any such code the
