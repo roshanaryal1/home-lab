@@ -175,3 +175,21 @@ def test_the_cli_reports_a_refused_case_file_in_one_line(
     monkeypatch.setattr(injection_suite, "SUITE_DIR", directory)
     assert main(["injection-suite"]) == 1
     assert "is pinned" in capsys.readouterr().err
+
+
+def test_a_hub_snapshot_path_is_reported_as_its_repository_and_revision() -> None:
+    revision = "0123456789abcdef0123456789abcdef01234567"
+    path = ("/Users/alice/.cache/huggingface/hub/"
+            "models--mlx-community--Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ/snapshots/" + revision)
+    label = injection_suite.report_model_label(path, revision)
+    assert label == (f"mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-DWQ "
+                     f"at revision {revision}")
+    assert "alice" not in label and "huggingface" not in label
+
+
+def test_a_plain_path_is_reported_as_its_last_component() -> None:
+    assert injection_suite.report_model_label("/srv/models/Qwen3-Coder", "r1") == "Qwen3-Coder"
+
+
+def test_a_plain_name_is_reported_as_it_is() -> None:
+    assert injection_suite.report_model_label("Qwen3-Coder", "r1") == "Qwen3-Coder"

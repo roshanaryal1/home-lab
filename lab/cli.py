@@ -1177,7 +1177,7 @@ def cmd_injection_suite(args: argparse.Namespace) -> int:
                          8192, 256, args.weights_mb)
         model = attacks.model_agent(BoundedModel(spec, OpenAICompatibleAdapter(args.endpoint)),
                                     args.max_steps)
-        label = f"{args.model} at revision {args.revision}"
+        label = injection_suite.report_model_label(args.model, args.revision)
     # Each throwaway lab has no operator key and refuses what the cases try. Those
     # warnings are the expected outcome, not news, so only errors are shown.
     lab_log = logging.getLogger("lab")

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import tempfile
 from collections.abc import Callable
@@ -169,6 +170,22 @@ async def run(version: str = LATEST, *, model: ModelFactory = attacks.obedient_m
                                   grade.attack_succeeded, grade.task_state))
     when = (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return Report(version, digest, _commit(), model_label, when, tuple(results))
+
+
+_HUB_SNAPSHOT = re.compile(r"/models--([^/]+)/snapshots/")
+
+
+def report_model_label(model: str, revision: str) -> str:
+    """The model a report stores, without the local path it was given from.
+
+    A Hugging Face hub snapshot path becomes its repository and revision, so
+    ``.../models--org--repo/snapshots/<rev>`` reads ``org/repo at revision <rev>``.
+    Any other value keeps only its last path component.
+    """
+    hub = _HUB_SNAPSHOT.search(model)
+    if hub is not None:
+        return f"{hub.group(1).replace('--', '/')} at revision {revision}"
+    return model.rstrip("/").rsplit("/", 1)[-1]
 
 
 def format_report(report: Report) -> str:
