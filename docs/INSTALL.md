@@ -217,10 +217,25 @@ from code executed by the non-admin `lab` account.
 
 ## 7. First run
 
-With the services running, check health. Start with the doctor: it runs seven
-read-only checks (database, operator key, model server, disk, backup age, last
-selftest and audit chain), prints one `ok` or `FAIL` line for each, and exits 1
-if any of them fails.
+With the services running, check health. Start with the doctor: it runs eleven
+read-only checks, prints one line for each, and exits 1 if any of them fails:
+
+- `database`, `operator_key`, `model`, `disk`, `backup`, `selftest` and
+  `audit_chain` (the lab's own state: schema, operator key, model server, free
+  disk, backup age, last selftest and audit chain).
+- `versions`: the Python version and the main dependency versions, as information.
+  It fails only when Python is older than `pyproject.toml` requires.
+- `lab_account`: on macOS, the account that owns the data folder exists and is
+  not in the `admin` or `wheel` group.
+- `permissions`: the data folder and the database file are not writable by their
+  group or others. `security-audit` checks owners and the rest in depth.
+- `services`: on macOS, each `com.homelab.*` job in `/Library/LaunchDaemons` is
+  loaded, as `launchctl print` reports it.
+
+A check that cannot run here prints `skip` with the reason, for example
+`services` when `launchctl print` needs admin rights. A skip does not fail the
+command. Doctor runs no sudo and changes nothing; check a skipped service with
+`sudo launchctl print system/<label>` yourself.
 
 ```sh
 uv run python -m lab.cli doctor

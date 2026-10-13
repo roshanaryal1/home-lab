@@ -1,8 +1,9 @@
 """``lab doctor``: one read-only health check of the lab (#347).
 
 The owner runs it. It is not a broker or agent tool. Each check prints one
-line, ``ok <name>`` or ``FAIL <name>: <how to fix it>``, and the command exits 1
-when any check fails.
+line, ``ok <name>``, ``FAIL <name>: <how to fix it>`` or ``skip <name>: <reason>``
+when the check cannot run here, and the command exits 1 when any check fails. A
+skip does not fail the command.
 
 Doctor never writes to the database. It opens the file read-only and only if it
 exists, so a missing one is reported and never created, and no migration runs.
@@ -14,22 +15,29 @@ token or chat id.
 from __future__ import annotations
 
 import http.client
+import importlib.metadata
 import json
 import os
+import platform
+import pwd
+import re
 import shutil
 import sqlite3
 import stat
+import subprocess
+import sys
 import time
+import tomllib
 import urllib.parse
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.message import Message
 from pathlib import Path
 from typing import IO
 
-from lab import audit, backup
+from lab import accountplan, audit, backup
 from lab import operator as operator_keys
 from lab.db import connect_readonly
 from lab.migrations import latest_version
@@ -44,6 +52,11 @@ SELFTEST_KIND = "selftest"              # the event kind lab.selftest records
 _MODELS_MAX_BYTES = 1024 * 1024
 _MODELS_CHUNK_BYTES = 64 * 1024
 _STAMP_FORMAT = "%Y%m%dT%H%M%SZ"        # the stamp backup.backup puts in a manifest name
+PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
+LAUNCH_DAEMONS = Path(accountplan.LAUNCH_DAEMONS)
+ADMIN_GROUPS = frozenset({"admin", "wheel"})   # on macOS, the groups that can run sudo
+LAUNCHCTL_NOT_FOUND = "Could not find service"  # what launchctl print says for an absent label
+COMMAND_TIMEOUT_SECONDS = 10.0
 
 
 @dataclass(frozen=True)
@@ -52,11 +65,70 @@ class Check:
     ok: bool
     # The fix when the check fails. An ok check says why only when it is off.
     message: str = ""
+    # A check that cannot run here. It prints ``skip`` and, with ok True, does not fail the
+    # command.
+    skipped: bool = False
 
     def line(self) -> str:
+        if self.skipped:
+            return f"skip {self.name}: {self.message}"
         if not self.ok:
             return f"FAIL {self.name}: {self.message}"
         return f"ok {self.name}: {self.message}" if self.message else f"ok {self.name}"
+
+
+def _skip(name: str, reason: str) -> Check:
+    return Check(name, True, reason, skipped=True)
+
+
+@dataclass(frozen=True)
+class Command:
+    returncode: int
+    output: str
+
+
+Runner = Callable[[Sequence[str]], Command]
+
+
+def run_command(argv: Sequence[str]) -> Command:
+    """Run a fixed command with no shell, no input and no sudo, and return its output.
+
+    A program that is missing, hangs or cannot be decoded gives return code -1, so the
+    check that asked for it skips rather than fails.
+    """
+    try:
+        done = subprocess.run(list(argv), capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", stdin=subprocess.DEVNULL,
+                              timeout=COMMAND_TIMEOUT_SECONDS, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return Command(-1, "")
+    return Command(done.returncode, done.stdout + done.stderr)
+
+
+def _owner_name(folder: Path) -> str | None:
+    """The name of the account that owns ``folder``, or None when it has none."""
+    try:
+        uid = os.stat(folder).st_uid
+    except OSError:
+        return None
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return None
+
+
+@dataclass(frozen=True)
+class Host:
+    """Where the checks that look outside the database find things. The defaults are this
+    machine. Tests pass temporary folders and a fake runner."""
+    system: str = sys.platform
+    launch_daemons: Path = LAUNCH_DAEMONS
+    pyproject: Path = PYPROJECT
+    runner: Runner = run_command
+    owner_name: Callable[[Path], str | None] = _owner_name
+
+
+DEFAULT_HOST = Host()
 
 
 def _connect(db: Path) -> sqlite3.Connection:
@@ -301,8 +373,125 @@ def check_audit_chain(db: Path) -> Check:
                  "that verifies")
 
 
-def run(db: Path, env: Mapping[str, str]) -> list[Check]:
-    """Every check, in the order they print. Reads ``env`` and the database, writes nothing."""
+_REQUIRES_PYTHON = re.compile(r">=\s*(\d+)\.(\d+)")
+_PYTHON_VERSION = re.compile(r"(\d+)\.(\d+)")
+_DEPENDENCY_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def _installed_version(name: str) -> str | None:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def check_versions(pyproject: Path, *, python: str = platform.python_version(),
+                   installed: Callable[[str], str | None] = _installed_version) -> Check:
+    """The Python and the main dependencies, as info. Fails only below the Python that
+    pyproject.toml requires."""
+    try:
+        with pyproject.open("rb") as handle:
+            project = tomllib.load(handle).get("project", {})
+    except FileNotFoundError:
+        return _skip("versions", f"no pyproject.toml at {pyproject}, so the Python it requires "
+                     "is unknown")
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        return _skip("versions", f"cannot read {pyproject} ({exc})")
+    current = _PYTHON_VERSION.match(python)
+    if current is None:
+        return _skip("versions", f"cannot read the Python version {python!r}")
+    parts = [f"python {python}"]
+    for requirement in project.get("dependencies", []):
+        name = _DEPENDENCY_NAME.match(str(requirement))
+        if name is None:
+            continue
+        version = installed(name.group(0))
+        parts.append(f"{name.group(0)} {version}" if version else f"{name.group(0)} not installed")
+    minimum = _REQUIRES_PYTHON.search(str(project.get("requires-python", "")))
+    if minimum is not None and (int(current[1]), int(current[2])) < (
+            int(minimum[1]), int(minimum[2])):
+        return Check("versions", False, f"Python {python} is older than the Python "
+                     f"{minimum[1]}.{minimum[2]} that pyproject.toml requires, so run lab with a "
+                     "Python that uv manages")
+    return Check("versions", True, ", ".join(parts))
+
+
+def check_lab_account(db: Path, *, system: str, runner: Runner,
+                      owner_name: Callable[[Path], str | None]) -> Check:
+    """On macOS, the account that owns the data folder exists and is not an admin."""
+    if system != "darwin":
+        return _skip("lab_account", "the lab account is checked on macOS only")
+    folder = db.parent
+    if not folder.is_dir():
+        return _skip("lab_account", f"no data folder at {folder}, so there is no owner to check")
+    name = owner_name(folder)
+    if name is None:
+        return Check("lab_account", False, f"the owner of {folder} has no account, so give the "
+                     "data folder to the lab account")
+    result = runner(["id", "-Gn", name])
+    if result.returncode != 0:
+        return Check("lab_account", False, f"the owner of {folder} is {name}, but id cannot read "
+                     "that account, so check the account exists")
+    admin = sorted(ADMIN_GROUPS & set(result.output.split()))
+    if admin:
+        return Check("lab_account", False, f"the owner of {folder}, {name}, is in the "
+                     f"{' and '.join(admin)} group, so the lab account must not be an admin")
+    return Check("lab_account", True, name)
+
+
+def check_permissions(db: Path) -> Check:
+    """A quick mode check: the data folder and the database file are not writable by their
+    group or others. ``security-audit`` checks owners and the rest in depth."""
+    if not db.is_file():
+        return _skip("permissions", f"no database at {db}, so there is nothing to check")
+    loose: list[str] = []
+    for path, what in ((db.parent, "the data folder"), (db, "the database file")):
+        try:
+            mode = os.stat(path).st_mode
+        except OSError as exc:
+            return _skip("permissions", f"cannot read the mode of {path} ({exc})")
+        if mode & (stat.S_IWGRP | stat.S_IWOTH):
+            loose.append(f"{what} {path} is writable by its group or others")
+    if loose:
+        return Check("permissions", False, "; ".join(loose) + ", so run chmod go-w on them")
+    return Check("permissions", True)
+
+
+def check_services(launch_daemons: Path, *, system: str, runner: Runner) -> Check:
+    """On macOS, each com.homelab job in the launchd folder is loaded. Only print is run, and
+    without sudo, so a job that needs admin rights to be seen is a skip, not a FAIL."""
+    if system != "darwin":
+        return _skip("services", "launchd is checked on macOS only")
+    if not launch_daemons.is_dir():
+        return _skip("services", f"no folder at {launch_daemons}, so there are no jobs to check")
+    labels = sorted(path.stem for path in launch_daemons.glob("com.homelab.*.plist"))
+    if not labels:
+        return _skip("services", f"no com.homelab plist in {launch_daemons}")
+    loaded = 0
+    missing: list[str] = []
+    unknown: list[str] = []
+    for label in labels:
+        result = runner(["launchctl", "print", f"system/{label}"])
+        if result.returncode == 0:
+            loaded += 1
+        elif LAUNCHCTL_NOT_FOUND in result.output:
+            missing.append(label)
+        else:
+            unknown.append(label)
+    if missing:
+        return Check("services", False, f"not loaded: {', '.join(missing)}, so load them as the "
+                     "runbook says")
+    if unknown:
+        return _skip("services", f"{len(unknown)} of {len(labels)} jobs cannot be checked without "
+                     f"admin rights ({', '.join(unknown)}), so run sudo launchctl print "
+                     "system/<label> yourself")
+    return Check("services", True, f"{loaded} com.homelab jobs loaded")
+
+
+def run(db: Path, env: Mapping[str, str], host: Host | None = None) -> list[Check]:
+    """Every check, in the order they print. Reads ``env``, the database and, for the last four
+    checks, the host. Writes nothing."""
+    probe = DEFAULT_HOST if host is None else host
     return [
         check_database(db),
         check_operator_key(env),
@@ -311,4 +500,9 @@ def run(db: Path, env: Mapping[str, str]) -> list[Check]:
         check_backup(env),
         check_selftest(db),
         check_audit_chain(db),
+        check_versions(probe.pyproject),
+        check_lab_account(db, system=probe.system, runner=probe.runner,
+                          owner_name=probe.owner_name),
+        check_permissions(db),
+        check_services(probe.launch_daemons, system=probe.system, runner=probe.runner),
     ]
