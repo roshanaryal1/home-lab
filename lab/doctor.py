@@ -429,6 +429,9 @@ def check_lab_account(db: Path, *, system: str, runner: Runner,
         return Check("lab_account", False, f"the owner of {folder} has no account, so give the "
                      "data folder to the lab account")
     result = runner(["id", "-Gn", name])
+    if result.returncode == -1:
+        return _skip("lab_account", "the id command could not run, so the account was not "
+                     "checked")
     if result.returncode != 0:
         return Check("lab_account", False, f"the owner of {folder} is {name}, but id cannot read "
                      "that account, so check the account exists")
@@ -470,6 +473,8 @@ def check_services(launch_daemons: Path, *, system: str, runner: Runner) -> Chec
     loaded = 0
     missing: list[str] = []
     unknown: list[str] = []
+    denied = False
+    first_error = ""
     for label in labels:
         result = runner(["launchctl", "print", f"system/{label}"])
         if result.returncode == 0:
@@ -478,13 +483,18 @@ def check_services(launch_daemons: Path, *, system: str, runner: Runner) -> Chec
             missing.append(label)
         else:
             unknown.append(label)
+            text = result.output.strip().splitlines()
+            line = text[0] if text else f"exit {result.returncode}"
+            first_error = first_error or line
+            denied = denied or any(w in result.output.lower()
+                                   for w in ("not permitted", "permission", "privilege"))
     if missing:
         return Check("services", False, f"not loaded: {', '.join(missing)}, so load them as the "
                      "runbook says")
     if unknown:
-        return _skip("services", f"{len(unknown)} of {len(labels)} jobs cannot be checked without "
-                     f"admin rights ({', '.join(unknown)}), so run sudo launchctl print "
-                     "system/<label> yourself")
+        advice = (", so run sudo launchctl print system/<label> yourself" if denied else "")
+        return _skip("services", f"{len(unknown)} of {len(labels)} jobs could not be checked "
+                     f"({', '.join(unknown)}): {first_error}{advice}")
     return Check("services", True, f"{loaded} com.homelab jobs loaded")
 
 

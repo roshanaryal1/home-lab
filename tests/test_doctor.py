@@ -553,6 +553,23 @@ def test_services_skips_rather_than_fails_when_launchctl_needs_admin_rights(
     assert check.skipped and check.ok and "sudo launchctl print" in check.message
 
 
+def test_lab_account_skips_when_id_cannot_run(tmp_path: Path) -> None:
+    runner = FakeRunner(returncode=-1, output="")
+    check = doctor.check_lab_account(tmp_path / "lab.db", system="darwin", runner=runner,
+                                     owner_name=lambda _: "lab")
+    assert check.skipped and check.ok and "could not run" in check.message
+
+
+def test_services_skip_names_the_launchctl_error_and_gives_no_sudo_advice_for_other_errors(
+        tmp_path: Path) -> None:
+    folder = tmp_path / "LaunchDaemons"
+    write_plists(folder, "com.homelab.lab")
+    runner = FakeRunner(returncode=1, output="Invalid argument")
+    check = doctor.check_services(folder, system="darwin", runner=runner)
+    assert check.skipped and "Invalid argument" in check.message
+    assert "sudo" not in check.message
+
+
 def test_services_skips_off_macos_without_running_a_command(tmp_path: Path) -> None:
     folder = tmp_path / "LaunchDaemons"
     write_plists(folder, "com.homelab.lab")
