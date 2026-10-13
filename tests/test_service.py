@@ -48,14 +48,40 @@ def test_watchdog_plist_runs_on_an_interval_as_root() -> None:
     assert "watchdog" in data["ProgramArguments"]
 
 
-def test_keepawake_can_run_as_the_lab_account() -> None:
-    """#235: keepawake needs no privilege. The generator can drop root; the
-    committed copy switches once the operator's caffeinate check passes."""
+def test_keepawake_runs_as_the_lab_account() -> None:
+    """#235: keepawake needs no privilege, so it runs as the lab user like the
+    other jobs that are not the watchdog. There is no root variant to generate."""
     args = {"python": "/opt/lab/.venv/bin/python", "workdir": "/opt/lab", "db": "/var/lab/lab.db"}
-    assert "UserName" not in plistlib.loads(service.keepawake_plist(**args))
-    as_lab = plistlib.loads(service.keepawake_plist(**args, user="lab"))
-    assert as_lab["UserName"] == "lab"
-    assert as_lab["KeepAlive"] is True and "keepawake" in as_lab["ProgramArguments"]
+    data = plistlib.loads(service.keepawake_plist(user="lab", **args))
+    assert data["Label"] == service.KEEPAWAKE_LABEL
+    assert data["UserName"] == "lab"
+    assert data["RunAtLoad"] is True and data["KeepAlive"] is True
+    assert data["ThrottleInterval"] >= 10, "a crash loop must be throttled"
+    assert data["ProgramArguments"][-1] == "keepawake"
+    with pytest.raises(TypeError):
+        service.keepawake_plist(**args)  # type: ignore[call-arg]
+
+
+def test_only_the_watchdog_runs_as_root() -> None:
+    """SECURITY.md, "Which jobs run as root, and why" (#235): the watchdog signals a
+    supervisor owned by another account, so it is the one committed job without
+    ``UserName``. A new job without it fails here until that section says why."""
+    root = Path(__file__).resolve().parent.parent / "ops" / "launchd"
+    as_root = sorted(p.name for p in root.glob("*.plist")
+                     if "UserName" not in plistlib.loads(p.read_bytes()))
+    assert as_root == ["com.homelab.watchdog.plist"]
+
+
+def test_the_keepawake_check_daemon_only_runs_caffeinate_as_lab_once() -> None:
+    """The runbook's check before #235's change merges (step 1): caffeinate as lab
+    from launchd, with no log file and no restart, and the committed copy is current."""
+    data = plistlib.loads(service.keepawake_check_plist(user="lab"))
+    assert data == {"Label": "com.homelab.keepawake-check", "UserName": "lab",
+                    "RunAtLoad": True,
+                    "ProgramArguments": ["/usr/bin/caffeinate", "-i", "-t", "60"]}
+    committed = (Path(__file__).resolve().parent.parent / "ops" / "checks"
+                 / "com.homelab.keepawake-check.plist")
+    assert committed.read_bytes() == service.keepawake_check_plist(user="lab")
 
 
 def test_ops_copies_of_the_plists_are_current(tmp_path: Path) -> None:
@@ -66,7 +92,7 @@ def test_ops_copies_of_the_plists_are_current(tmp_path: Path) -> None:
     assert (root / "com.homelab.watchdog.plist").read_bytes() == service.watchdog_plist(
         python=py, workdir=wd, db=db)
     assert (root / "com.homelab.keepawake.plist").read_bytes() == service.keepawake_plist(
-        python=py, workdir=wd, db=db)
+        user="lab", python=py, workdir=wd, db=db)
     assert (root / "com.homelab.tick.plist").read_bytes() == service.tick_plist(
         user="lab", python=py, workdir=wd, db=db)
     assert (root / "com.homelab.chat.plist").read_bytes() == service.chat_plist(

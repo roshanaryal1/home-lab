@@ -67,8 +67,15 @@ esac''',
     "vm_stat": 'echo "Pages free: 1000."',
     "memory_pressure": "echo 'System-wide memory free percentage: 60%'",
     "sw_vers": 'echo "ProductVersion: 26.0"',
-    "pgrep": 'n=$(cat "$STUB_DIR/pid" 2>/dev/null || echo 100); n=$((n + 1)); '
-             'echo "$n" >"$STUB_DIR/pid"; echo "$n"',
+    # The caffeinate step asks for caffeinate processes that run as lab; by default
+    # that is pid 123, the one the pmset stub lists. Other calls count up.
+    "pgrep": r'''
+case "$*" in
+  *caffeinate*) [ -n "${STUB_LAB_CAFFEINATE-123}" ] || exit 1
+                echo "${STUB_LAB_CAFFEINATE-123}"; exit 0 ;;
+esac
+n=$(cat "$STUB_DIR/pid" 2>/dev/null || echo 100); n=$((n + 1))
+echo "$n" >"$STUB_DIR/pid"; echo "$n"''',
     "ps": "exit 1",
     "sleep": "exit 0",
     "chmod": 'touch "$STUB_DIR/home-locked"',
@@ -175,6 +182,38 @@ def test_a_yes_runs_chmod_and_checks_again(tmp_path: Path) -> None:
     assert any(c.startswith("chmod 700 ") for c in calls)
     assert sum("/bin/ls" in c for c in calls) == 4
     assert result_of(report, 1) == "PASS"
+
+
+CAFFEINATE_LINE = ("echo '   pid {}(caffeinate): [0x1] 00:00:02 PreventUserIdleSystemSleep "
+                   "named: \"caffeinate command-line tool\"'")
+
+
+def test_the_caffeinate_step_counts_only_an_assertion_held_as_lab(tmp_path: Path) -> None:
+    """#235: the root keep-awake daemon starts its own caffeinate when work is
+    pending, and other sessions run theirs, so a caffeinate line in pmset proves
+    nothing about lab. Only an assertion whose pid is a caffeinate running as lab
+    passes (2026-10-08: two caffeinate assertions of the operator were listed)."""
+    other_only = {"pmset": CAFFEINATE_LINE.format(123)}
+    both = {"pmset": CAFFEINATE_LINE.format(123) + "; " + CAFFEINATE_LINE.format(456)}
+    cases = (
+        ("", other_only, "FAIL", "not by a caffeinate that runs as lab"),
+        ("456", other_only, "FAIL", "not by a caffeinate that runs as lab"),
+        ("45", both, "FAIL", "not by a caffeinate that runs as lab"),
+        ("456", {"pmset": "exit 0"}, "FAIL", "no caffeinate line"),
+        ("456", both, "PASS", "caffeinate pid 456 runs as lab"),
+        ("789 456", both, "PASS", "caffeinate pid 456 runs as lab"),
+    )
+    for n, (lab_pids, stubs, expected, note) in enumerate(cases):
+        case = tmp_path / str(n)
+        case.mkdir()
+        result, report, calls = run(case, "--only", "caffeinate", stubs=stubs,
+                                    extra_env={"STUB_LAB_CAFFEINATE": lab_pids})
+        assert result.returncode == (0 if expected == "PASS" else 1), (lab_pids, report)
+        assert result_of(report, 1) == expected, (lab_pids, report)
+        assert note in report, (lab_pids, report)
+        assert any(c.startswith("pgrep ") and c.endswith("-u lab -x caffeinate")
+                   for c in calls), calls
+        assert any(c.startswith("sudo -u lab /usr/bin/caffeinate -i -t 15") for c in calls)
 
 
 def test_the_concurrency_step_records_timing_memory_and_swap(tmp_path: Path) -> None:
