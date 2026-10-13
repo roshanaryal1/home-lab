@@ -382,3 +382,125 @@ def test_by_is_a_label_and_the_key_is_the_identity(tmp_path: Path, keys, monkeyp
 def test_escape_keeps_ordinary_text() -> None:
     assert _escape("plain text, unicode é") == "plain text, unicode é"
     assert _escape("a\nb") == "a\\u000ab"
+
+
+# ------------------------------------------------- signing outside the lab process (#408)
+
+
+def _signed(capsys, *argv: str) -> str:
+    """Run an `operator sign-*` command and return the signature it printed."""
+    capsys.readouterr()
+    assert main(["operator", *argv]) == 0
+    return capsys.readouterr().out.strip()
+
+
+def _request(db: Path, approval: str, capsys) -> dict[str, str]:
+    capsys.readouterr()
+    assert run(db, "approve", approval[:8], "--by", "roshan", "--request") == 0
+    return dict(line.split(None, 1) for line in capsys.readouterr().out.splitlines())
+
+
+def test_split_approval_is_signed_by_the_operator_and_stored_by_the_lab(
+        tmp_path: Path, keys, capsys) -> None:
+    db = tmp_path / "lab.db"
+    (approval,) = make_pending(db)
+    req = _request(db, approval, capsys)
+    conn = sqlite3.connect(db)
+    assert conn.execute("SELECT state FROM approvals").fetchone() == ("pending",)
+    conn.close()
+    sig = _signed(capsys, "sign-approval", "--id", req["approval"], "--action-hash",
+                  req["hash"], "--expires-at", req["expires_at"], "--by", "roshan",
+                  "--key", str(keys[0]))
+    assert run(db, "approve", approval[:8], "--by", "roshan", "--signature", sig,
+               "--expires-at", req["expires_at"], "--operator-pubkey", str(keys[1])) == 0
+    with TaskQueue(db) as queue:
+        row = queue._conn.execute("SELECT * FROM approvals").fetchone()
+    assert row["state"] == "granted" and row["expires_at"] == req["expires_at"]
+    assert op.verify(op.load_public(keys[1]), row["signature"], row["id"], row["action_hash"],
+                     row["expires_at"], "roshan")
+
+
+def test_operator_signing_opens_no_database(tmp_path: Path, keys, capsys) -> None:
+    db = tmp_path / "never" / "lab.db"
+    assert main(["--db", str(db), "operator", "sign-resume", "--generation", "3",
+                 "--key", str(keys[0])]) == 0
+    assert not db.parent.exists()
+    assert "resume the lab at generation 3" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("change", ["other key", "other window", "other label"])
+def test_a_split_approval_signature_that_does_not_match_is_refused(
+        tmp_path: Path, keys, capsys, change: str) -> None:
+    db = tmp_path / "lab.db"
+    (approval,) = make_pending(db)
+    req = _request(db, approval, capsys)
+    key = str(keys[0])
+    if change == "other key":
+        key = str(op.generate(tmp_path / "other")[0])
+    sig = _signed(capsys, "sign-approval", "--id", req["approval"], "--action-hash",
+                  req["hash"], "--expires-at", req["expires_at"],
+                  "--by", "someone" if change == "other label" else "roshan", "--key", key)
+    expires = req["expires_at"]
+    if change == "other window":
+        expires = expires[:-3] + ("001" if expires[-3:] != "001" else "002")
+    assert run(db, "approve", approval[:8], "--by", "roshan", "--signature", sig,
+               "--expires-at", expires, "--operator-pubkey", str(keys[1])) == 1
+    assert "nothing was granted" in capsys.readouterr().err
+    conn = sqlite3.connect(db)
+    assert conn.execute("SELECT state FROM approvals").fetchone() == ("pending",)
+    conn.close()
+
+
+def test_a_split_approval_with_an_ended_or_long_window_is_refused(
+        tmp_path: Path, keys, capsys) -> None:
+    from datetime import UTC, datetime
+    db = tmp_path / "lab.db"
+    (approval,) = make_pending(db)
+    req = _request(db, approval, capsys)
+    for moment in (datetime.now(UTC) - timedelta(minutes=1),
+                   datetime.now(UTC) + timedelta(minutes=90)):
+        expires = moment.strftime("%Y-%m-%d %H:%M:%S.000")
+        sig = _signed(capsys, "sign-approval", "--id", req["approval"], "--action-hash",
+                      req["hash"], "--expires-at", expires, "--by", "roshan",
+                      "--key", str(keys[0]))
+        assert run(db, "approve", approval[:8], "--by", "roshan", "--signature", sig,
+                   "--expires-at", expires, "--operator-pubkey", str(keys[1])) == 1
+        assert "window" in capsys.readouterr().err
+
+
+def test_an_approval_decided_elsewhere_during_the_command_is_reported_as_a_failure(
+        tmp_path: Path, keys, capsys, monkeypatch) -> None:
+    db = tmp_path / "lab.db"
+    (approval,) = make_pending(db)
+    req = _request(db, approval, capsys)
+    sig = _signed(capsys, "sign-approval", "--id", req["approval"], "--action-hash",
+                  req["hash"], "--expires-at", req["expires_at"], "--by", "roshan",
+                  "--key", str(keys[0]))
+
+    def denied_meanwhile(self, approval_id, *args, **kwargs):
+        PolicyEngine.deny(self, approval_id, decided_by="someone else")
+        return None
+
+    monkeypatch.setattr(PolicyEngine, "grant", denied_meanwhile)
+    assert run(db, "approve", approval[:8], "--by", "roshan", "--signature", sig,
+               "--expires-at", req["expires_at"], "--operator-pubkey", str(keys[1])) == 1
+    assert "Not granted by this command: the approval is now denied" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad", ["short id", "short hash", "bad window", "odd label"])
+def test_operator_sign_approval_refuses_values_the_lab_would_not_accept(
+        tmp_path: Path, keys, capsys, bad: str) -> None:
+    args = {"--id": "a" * 32, "--action-hash": "b" * 64,
+            "--expires-at": "2026-10-14 01:00:00.000", "--by": "roshan"}
+    if bad == "short id":
+        args["--id"] = "a" * 12
+    elif bad == "short hash":
+        args["--action-hash"] = "b" * 16
+    elif bad == "bad window":
+        args["--expires-at"] = "tomorrow"
+    else:
+        args["--by"] = "ros\x1bhan"
+    argv = [x for pair in args.items() for x in pair]
+    assert main(["operator", "sign-approval", *argv, "--key", str(keys[0])]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and "operator:" in captured.err

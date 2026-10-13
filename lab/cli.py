@@ -112,7 +112,7 @@ from lab.ledger import Ledger, LedgerError
 from lab.memory import Memory, MemoryRefused
 from lab.migrations import MigrationError
 from lab.policy import ApprovalChanged, PolicyEngine, intent_hash, task_intent
-from lab.queue import Task, TaskQueue
+from lab.queue import Task, TaskQueue, _ts, _utcnow
 from lab.sealed import write_new
 from lab.skillstore import SkillStore, SkillStoreError
 from lab.vault import Vault
@@ -297,6 +297,17 @@ def cmd_approve(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace
     task = queue.get(row["task_id"])
     if _bound_intent(row, task) is None:
         return _refuse_unbound(row)
+    by = _escape(args.by)
+    if args.request:
+        # What the operator signs: nothing is written here (#408).
+        expires = _ts(_utcnow() + timedelta(minutes=args.minutes))
+        print(f"approval   {row['id']}")
+        print(f"hash       {row['action_hash']}")
+        print(f"expires_at {expires}")
+        print(f"by         {by}")
+        return 0
+    if args.signature is not None:
+        return _approve_with_signature(policy, row, args, by)
 
     key = None
     key_path = args.key or os.environ.get("LAB_OPERATOR_KEY")
@@ -321,8 +332,78 @@ def cmd_approve(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace
         print("Refusing: the approval changed after it was read; nothing was granted or "
               "signed. Run `show` again.", file=sys.stderr)
         return 1
+    if not _granted_by(policy, row["id"], by):
+        return 1
     print(f"Granted {_escape(row['id'][:12])} for {args.minutes} minutes, "
           f"label {_escape(args.by)!r}{', signed' if key else ', UNSIGNED'}")
+    if released:
+        print(f"Task {_escape(released[:12])} returned to the queue and will run.")
+    else:
+        print("No parked task released; the approval is stored and will be "
+              "consumed when the task reaches the gate.")
+    return 0
+
+
+# The longest window a signature made elsewhere may name; `--minutes` defaults to 15.
+MAX_SIGNED_WINDOW = timedelta(minutes=60)
+
+
+def _granted_by(policy: PolicyEngine, approval_id: str, by: str) -> bool:
+    """True if this command's grant is the one stored. A decision made elsewhere while this
+    command ran (a lost race) leaves another state or label, and is reported as a failure."""
+    now = policy._conn.execute(
+        "SELECT state, decided_by FROM approvals WHERE id = ?", (approval_id,)).fetchone()
+    if now is None or now["state"] != "granted" or now["decided_by"] != by:
+        state = _escape(now["state"]) if now else "missing"
+        who = (f", decided by {_escape(now['decided_by'])!r}"
+               if now and now["decided_by"] else "")
+        print(f"Not granted by this command: the approval is now {state}{who}.",
+              file=sys.stderr)
+        return False
+    return True
+
+
+def _approve_with_signature(policy: PolicyEngine, row: sqlite3.Row, args: argparse.Namespace,
+                            by: str) -> int:
+    """Store a grant the operator signed in their own process (#408)."""
+    if args.expires_at is None:
+        print("approve: --signature needs --expires-at, as `--request` printed it",
+              file=sys.stderr)
+        return 1
+    if by != args.by:
+        print("approve: --by must be plain printable text to be signed", file=sys.stderr)
+        return 1
+    try:
+        expires = datetime.strptime(args.expires_at, "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=UTC)
+    except ValueError:
+        print("approve: --expires-at is not in the form `--request` prints", file=sys.stderr)
+        return 1
+    now = _utcnow()
+    if not now < expires <= now + MAX_SIGNED_WINDOW:
+        print("approve: the signed window has ended or is longer than 60 minutes; ask for a "
+              "new request", file=sys.stderr)
+        return 1
+    try:
+        public = _operator_public_key(args.operator_pubkey)
+    except operator_keys.OperatorKeyError as exc:
+        print(f"approve: {exc}", file=sys.stderr)
+        return 1
+    if not operator_keys.verify(public, args.signature, row["id"], row["action_hash"],
+                                args.expires_at, by):
+        print("approve: the signature does not verify for this approval, hash, window and "
+              "label; nothing was granted", file=sys.stderr)
+        return 1
+    try:
+        released = policy.grant(row["id"], decided_by=by, action_hash=row["action_hash"],
+                                signature=args.signature, expires_at=args.expires_at)
+    except ApprovalChanged:
+        print("Refusing: the approval changed after it was read; nothing was granted. "
+              "Run `show` again.", file=sys.stderr)
+        return 1
+    if not _granted_by(policy, row["id"], by):
+        return 1
+    print(f"Granted {_escape(row['id'][:12])} until {_escape(args.expires_at)} UTC, "
+          f"label {by!r}, signed")
     if released:
         print(f"Task {_escape(released[:12])} returned to the queue and will run.")
     else:
@@ -487,6 +568,17 @@ def build_parser() -> argparse.ArgumentParser:
                          help="action hash prefix you reviewed in `show`; refuse if it differs")
     approve.add_argument("--minutes", type=int, default=15,
                          help="how long the grant is valid (default 15)")
+    approve.add_argument("--request", action="store_true",
+                         help="print what the operator signs (id, hash, window) and change "
+                              "nothing; sign it with `operator sign-approval`")
+    approve.add_argument("--signature", default=None,
+                         help="a signature made by `operator sign-approval`")
+    approve.add_argument("--expires-at", default=None,
+                         help="with --signature: the window end `--request` printed")
+    approve.add_argument("--operator-pubkey", type=Path,
+                         default=(Path(os.environ["LAB_OPERATOR_PUBKEY"])
+                                  if os.environ.get("LAB_OPERATOR_PUBKEY") else None),
+                         help="the key a --signature is checked with")
 
     deny = sub.add_parser("deny", help="refuse an approval")
     deny.add_argument("id")
@@ -569,6 +661,18 @@ def build_parser() -> argparse.ArgumentParser:
     op_init = op_sub.add_parser("init", help="write operator.key (0600) and operator.pub")
     op_init.add_argument("--dir", type=Path, required=True,
                          help="a directory the agent's OS account cannot read")
+    op_sr = op_sub.add_parser("sign-resume",
+                              help="sign a resume as the operator; opens no database")
+    op_sr.add_argument("--generation", type=int, required=True,
+                       help="the generation `control resume-request` printed")
+    op_sr.add_argument("--key", type=Path, required=True, help="the operator's private key")
+    op_sa = op_sub.add_parser("sign-approval",
+                              help="sign an approval as the operator; opens no database")
+    op_sa.add_argument("--id", required=True, help="the full approval id `--request` printed")
+    op_sa.add_argument("--action-hash", required=True)
+    op_sa.add_argument("--expires-at", required=True)
+    op_sa.add_argument("--by", required=True)
+    op_sa.add_argument("--key", type=Path, required=True, help="the operator's private key")
 
     mc = sub.add_parser("mcp", help="operator-signed MCP servers: snapshot what to sign, list")
     mc.add_argument("--servers", type=Path,
@@ -805,11 +909,23 @@ def build_parser() -> argparse.ArgumentParser:
     s_rm.add_argument("--by", required=True, help="an audit label")
 
     ctl = sub.add_parser("control", help="pause, resume, drain or stop the whole lab")
-    ctl.add_argument("action", choices=["show", "pause", "resume", "drain", "stop"])
+    ctl.add_argument("action",
+                     choices=["show", "pause", "resume", "drain", "stop", "resume-request"])
     ctl.add_argument("--by", default="operator", help="an audit label")
     ctl.add_argument("--reason", default=None)
     ctl.add_argument("--key", default=None,
-                     help="operator private key; signs a resume (or LAB_OPERATOR_KEY)")
+                     help="operator private key; signs a resume here (or LAB_OPERATOR_KEY). "
+                          "On a deployed Mac use resume-request, `operator sign-resume` and "
+                          "--signature instead, so the key never enters a lab process")
+    ctl.add_argument("--generation", type=int, default=None,
+                     help="with --signature: the generation `resume-request` printed")
+    ctl.add_argument("--signature", default=None,
+                     help="a resume signature made by `operator sign-resume`")
+    ctl.add_argument("--operator-pubkey", type=Path,
+                     default=(Path(os.environ["LAB_OPERATOR_PUBKEY"])
+                              if os.environ.get("LAB_OPERATOR_PUBKEY") else None),
+                     help="the key a --signature is checked with (default: the deployed key, "
+                          "or $LAB_OPERATOR_PUBKEY)")
 
     cn = sub.add_parser("cancel", help="cancel a task that has not started running")
     cn.add_argument("task_id")
@@ -1045,7 +1161,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
                     queue.record_event(None, kind, detail)
 
             channel = chat.ChatChannel(queue, int(raw),
-                                       cli=f"python -m lab.cli --db {args.db}")
+                                       cli=f"{sys.executable} -m lab.cli --db {args.db}")
             transport = chat.TelegramTransport(token, EgressGateway(), audit=audit_denials)
             poller = chat.ChatPoller(channel, transport)
             while True:
@@ -1409,6 +1525,8 @@ def cmd_drill(args: argparse.Namespace) -> int:
 
 
 def cmd_operator(args: argparse.Namespace) -> int:
+    if args.operator_command in ("sign-resume", "sign-approval"):
+        return _operator_sign(args)
     try:
         private, public = operator_keys.generate(args.dir)
     except operator_keys.OperatorKeyError as exc:
@@ -1416,6 +1534,46 @@ def cmd_operator(args: argparse.Namespace) -> int:
         return 1
     print(f"private key {private} (keep it where the agent's account cannot read it)")
     print(f"public key  {public} (give this to the supervisor: LAB_OPERATOR_PUBKEY)")
+    return 0
+
+
+def _operator_sign(args: argparse.Namespace) -> int:
+    """Sign as the operator, in the operator's own process: it opens no database, so the key
+    never enters a process running as the lab account (#408). It says what it signs on
+    stderr and prints only the signature on stdout."""
+    try:
+        key = operator_keys.load_private(args.key)
+    except operator_keys.OperatorKeyError as exc:
+        print(f"operator: {exc}", file=sys.stderr)
+        return 1
+    if args.operator_command == "sign-resume":
+        if args.generation < 1:
+            print("operator: --generation must be at least 1", file=sys.stderr)
+            return 1
+        print(f"signing: resume the lab at generation {args.generation}", file=sys.stderr)
+        print(operator_keys.sign_action(key, "control", generation=args.generation,
+                                        mode="running"))
+        return 0
+    if not re.fullmatch(r"[0-9a-f]{32}", args.id):
+        print("operator: --id must be the full 32-character approval id that `approve "
+              "--request` printed, not a prefix", file=sys.stderr)
+        return 1
+    if not re.fullmatch(r"[0-9a-f]{64}", args.action_hash):
+        print("operator: --action-hash must be the full 64-character hash", file=sys.stderr)
+        return 1
+    try:
+        datetime.strptime(args.expires_at, "%Y-%m-%d %H:%M:%S.%f")
+    except ValueError:
+        print("operator: --expires-at is not in the form `approve --request` prints",
+              file=sys.stderr)
+        return 1
+    if _escape(args.by) != args.by:
+        print("operator: --by must be plain printable text", file=sys.stderr)
+        return 1
+    print(f"signing: grant approval {_escape(args.id)} for action hash "
+          f"{_escape(args.action_hash)} until {_escape(args.expires_at)} UTC, label "
+          f"{_escape(args.by)!r}", file=sys.stderr)
+    print(operator_keys.sign(key, args.id, args.action_hash, args.expires_at, args.by))
     return 0
 
 
@@ -1862,6 +2020,12 @@ _CONTROL_MODES = {"pause": "paused", "resume": "running", "drain": "draining",
 
 
 def cmd_control(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
+    if args.action == "resume-request":
+        # What the operator signs for the next resume; nothing changes here.
+        print(control.next_generation(queue._conn))
+        return 0
+    if args.action == "resume" and args.signature is not None:
+        return _resume_with_signature(queue, args)
     signer = None
     if args.action == "resume":
         key_path = args.key or os.environ.get("LAB_OPERATOR_KEY")
@@ -1883,6 +2047,35 @@ def cmd_control(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace
           + (", resume signed" if state.signature else ""))
     if state.reason:
         print(f"reason {_escape(state.reason)}")
+    return 0
+
+
+def _resume_with_signature(queue: TaskQueue, args: argparse.Namespace) -> int:
+    """Store a resume the operator signed in their own process (#408)."""
+    if args.generation is None:
+        print("control: --signature needs --generation, as `resume-request` printed it",
+              file=sys.stderr)
+        return 1
+    try:
+        public = _operator_public_key(args.operator_pubkey)
+    except operator_keys.OperatorKeyError as exc:
+        print(f"control: {exc}", file=sys.stderr)
+        return 1
+    if not operator_keys.verify_action(public, args.signature, "control",
+                                       generation=args.generation, mode="running"):
+        print("control: the signature does not verify for that generation with the "
+              "operator's public key; nothing changed", file=sys.stderr)
+        return 1
+    try:
+        control.set_mode(queue._conn, "running", by=_escape(args.by),
+                         reason=_escape(args.reason) if args.reason else None,
+                         signature=args.signature, expect_generation=args.generation)
+    except control.ControlError as exc:
+        print(f"control: {exc}; nothing changed", file=sys.stderr)
+        return 1
+    state = control.get(queue._conn)
+    print(f"mode {state.mode}   set by {_escape(state.set_by or '')} at {state.set_at}"
+          + (", resume signed" if state.signature else ""))
     return 0
 
 
