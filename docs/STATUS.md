@@ -83,17 +83,17 @@ be redone. The detail lives in the documents it links; this page only points.
 
 In this order:
 
-1. Read last night's job logs: `sudo tail -n 20 /var/log/homelab/backup.log /var/log/homelab/selftest.log`.
-   Comment the backup result on [#67](https://github.com/roshanaryal1/home-lab/issues/67).
-2. Redeploy `main`: runbook section "Updating the deployed code"
+1. Done 2026-10-13: the job logs showed nightly backups 2026-10-07 to 2026-10-12, each
+   restore-checked, and five self-test runs all ok; #270 closed, the result is on
+   [#67](https://github.com/roshanaryal1/home-lab/issues/67).
+2. Done 2026-10-13 (`4bfa910` to `5105422`, schema 16 to 17; result in the runbook section).
+   For later updates, redeploy `main`: runbook section "Updating the deployed code"
    ([ops/runbook-lab-account-and-daemons.md](../ops/runbook-lab-account-and-daemons.md)).
    `lab update --plan COMMIT`, run as yourself, prints that section's steps with the deployed
    commit, the new commit and the installed jobs filled in. It runs no sudo. The update
    takes a backup before anything changes, stops the supervisor and `lab tick` before the
    checkout, tries the new migrations on a copy (`migrate --check`, #356) before anything starts
    again, and its `uv sync` keeps the test tools (`--extra dev`) the nightly self-test needs.
-   After the next 03:17 self-test passes, close
-   [#270](https://github.com/roshanaryal1/home-lab/issues/270).
 3. Run `lab doctor` as `lab` with the service's `LAB_` values (INSTALL.md, first run). Every line
    should say `ok`. Then run `lab security-audit` the same way, and again as yourself. Each
    account can read different files, so a line may say `skip`. No line should say `FAIL`. Use
