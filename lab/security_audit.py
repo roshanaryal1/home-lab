@@ -77,6 +77,12 @@ def _trusted(path: Path, uid: int, mask: int) -> bool:
             and (st.st_mode & mask) == 0)
 
 
+def _is_regular(path: Path) -> bool:
+    """True when ``path`` itself is a regular file: the lab-owned config files are read as files."""
+    st = _lstat(path)
+    return st is not None and stat.S_ISREG(st.st_mode)
+
+
 def _result(name: str, bad: Iterable[str]) -> Finding:
     paths = sorted(set(bad))
     status: Status = "FAIL" if paths else "ok"
@@ -152,8 +158,8 @@ def check_services(launch_daemons: Path, root_uid: int) -> Finding:
 def check_config(config_dir: Path, root_uid: int, lab_uid: int | None = None) -> Finding:
     """``config_dir`` and each entry directly in it are owned by ``root_uid`` with no group or
     other write bit. The entries in LAB_OWNED_CONFIG may instead be owned by ``lab_uid``, the
-    lab account, when closed to any group or other. An entry that is a symlink fails,
-    because its target would be read unchecked."""
+    lab account, when they are regular files closed to any group or other. An entry that is a
+    symlink fails, because its target would be read unchecked."""
     if not _is_dir(_lstat(config_dir)):
         return Finding("config", "FAIL", [str(config_dir)])
     bad: set[str] = set()
@@ -169,7 +175,7 @@ def check_config(config_dir: Path, root_uid: int, lab_uid: int | None = None) ->
         if _trusted(child, root_uid, GROUP_OR_OTHER_WRITE):
             continue
         if (child.name in LAB_OWNED_CONFIG and lab_uid is not None
-                and _trusted(child, lab_uid, ANY_GROUP_OR_OTHER)):
+                and _trusted(child, lab_uid, ANY_GROUP_OR_OTHER) and _is_regular(child)):
             continue
         bad.add(str(child))
     return _result("config", bad)

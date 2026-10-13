@@ -336,6 +336,17 @@ def test_config_names_a_lab_owned_setup_file_that_a_group_or_others_can_read(
         "config", "FAIL", [str(entry)])
 
 
+@pytest.mark.parametrize("name", ["alert.json", "telegram-alert.json", "heartbeat-url"])
+def test_config_names_a_lab_owned_setup_name_that_is_not_a_regular_file(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    entry = layout.config / name
+    entry.mkdir(mode=0o700)
+    os.chmod(entry, 0o700)
+    _fake_owner(monkeypatch, entry, ME + 7)
+    assert sa.check_config(layout.config, ME, ME + 7) == sa.Finding(
+        "config", "FAIL", [str(entry)])
+
+
 # ------------------------------------------------------------ data
 
 
