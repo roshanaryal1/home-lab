@@ -80,18 +80,36 @@ def effective(conn: sqlite3.Connection, public_key: Ed25519PublicKey | None) -> 
                    reason="resume is not signed by the operator; still paused")
 
 
+def next_generation(conn: sqlite3.Connection) -> int:
+    """The generation the next mode change gets: what an operator signs for a resume."""
+    return get(conn).generation + 1
+
+
 def set_mode(conn: sqlite3.Connection, mode: str, *, by: str,
-             reason: str | None = None, signer: Ed25519PrivateKey | None = None) -> ControlState:
+             reason: str | None = None, signer: Ed25519PrivateKey | None = None,
+             signature: str | None = None,
+             expect_generation: int | None = None) -> ControlState:
+    """Change the mode. A resume is signed either here with ``signer`` or, when the key must
+    stay out of this process, by the operator elsewhere: then ``signature`` is that signature
+    and ``expect_generation`` the generation it was made for, checked in the same transaction
+    as the write, so a signature made for an older state is never stored (#408)."""
     if mode not in MODES:
         raise ControlError(f"unknown mode {mode!r}; expected one of {', '.join(MODES)}")
-    before = get(conn)
-    generation = before.generation + 1
-    signature = (sign_action(signer, "control", generation=generation, mode="running")
-                 if signer is not None and mode == "running" else None)
+    if signer is not None and signature is not None:
+        raise ControlError("give a signer or a signature, not both")
+    if signature is not None and (mode != "running" or expect_generation is None):
+        raise ControlError("a given signature needs mode running and its generation")
     own = not conn.in_transaction
     if own:
         conn.execute("BEGIN IMMEDIATE")
     try:
+        before = get(conn)
+        generation = before.generation + 1
+        if expect_generation is not None and expect_generation != generation:
+            raise ControlError(f"the signature is for generation {expect_generation}, but the "
+                               f"next generation is {generation}; ask for a new one")
+        if signer is not None and mode == "running":
+            signature = sign_action(signer, "control", generation=generation, mode="running")
         conn.execute(
             "UPDATE control SET mode = ?, reason = ?, set_by = ?, generation = ?, "
             "signature = ?, set_at = strftime('%Y-%m-%d %H:%M:%S', 'now') WHERE id = 1",

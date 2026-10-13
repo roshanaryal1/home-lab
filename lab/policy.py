@@ -401,6 +401,8 @@ class PolicyEngine:
         valid_for: timedelta = timedelta(minutes=15),
         signer: Ed25519PrivateKey | None = None,
         action_hash: str | None = None,
+        signature: str | None = None,
+        expires_at: str | None = None,
     ) -> str | None:
         """Approve a pending request, for a bounded window.
 
@@ -423,10 +425,17 @@ class PolicyEngine:
                 return None
             if action_hash is not None and row["action_hash"] != action_hash:
                 raise ApprovalChanged("the approval's action hash changed after it was reviewed")
-            expires = _ts(_utcnow() + valid_for)
-            signature = (operator_keys.sign(signer, approval_id, row["action_hash"],
-                                            expires, decided_by)
-                         if signer is not None else None)
+            if signature is not None:
+                # Signed by the operator in another process (#408): the window is the one
+                # that was signed, and it was checked against the public key by the caller.
+                if signer is not None or expires_at is None:
+                    raise ValueError("a given signature needs its expires_at and no signer")
+                expires = expires_at
+            else:
+                expires = _ts(_utcnow() + valid_for)
+                signature = (operator_keys.sign(signer, approval_id, row["action_hash"],
+                                                expires, decided_by)
+                             if signer is not None else None)
             cur = self._conn.execute(
                 "UPDATE approvals SET state = 'granted', decided_by = ?, "
                 f"decided_at = {NOW_MS}, expires_at = ?, signature = ? "

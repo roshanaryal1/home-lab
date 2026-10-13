@@ -253,3 +253,44 @@ def test_cli_resume_signs_with_the_operator_key(tmp_path: Path,
     capsys.readouterr()
     with TaskQueue(db, owner="t") as q:
         assert control.effective(q._conn, op.load_public(public_path)).mode == "running"
+
+
+def _resume_split(db: Path, private_path: Path, public_path: Path, capsys,
+                  generation: int | None = None, key: Path | None = None) -> int:
+    capsys.readouterr()
+    assert main(["--db", str(db), "control", "resume-request"]) == 0
+    n = int(capsys.readouterr().out.strip())
+    assert main(["operator", "sign-resume", "--generation", str(generation or n),
+                 "--key", str(key or private_path)]) == 0
+    sig = capsys.readouterr().out.strip()
+    return main(["--db", str(db), "control", "resume", "--by", "roshan", "--signature", sig,
+                 "--generation", str(generation or n), "--operator-pubkey", str(public_path)])
+
+
+def test_a_resume_signed_outside_the_lab_process_is_stored_and_obeyed(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from lab import operator as op
+    private_path, public_path = op.generate(tmp_path / "keys")
+    db = tmp_path / "lab.db"
+    TaskQueue(db, owner="t").close()
+    main(["--db", str(db), "control", "stop", "--by", "chat"])
+    assert _resume_split(db, private_path, public_path, capsys) == 0
+    assert "resume signed" in capsys.readouterr().out
+    with TaskQueue(db, owner="t") as q:
+        assert control.effective(q._conn, op.load_public(public_path)).mode == "running"
+
+
+def test_a_resume_signature_for_another_generation_or_key_changes_nothing(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from lab import operator as op
+    private_path, public_path = op.generate(tmp_path / "keys")
+    other_path, _ = op.generate(tmp_path / "other")
+    db = tmp_path / "lab.db"
+    TaskQueue(db, owner="t").close()
+    main(["--db", str(db), "control", "stop", "--by", "chat"])
+    with TaskQueue(db, owner="t") as q:
+        stale = control.next_generation(q._conn) - 1
+    assert _resume_split(db, private_path, public_path, capsys, generation=stale) == 1
+    assert _resume_split(db, private_path, public_path, capsys, key=other_path) == 1
+    with TaskQueue(db, owner="t") as q:
+        assert control.get(q._conn).mode == "stopped"

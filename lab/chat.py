@@ -340,8 +340,7 @@ class ChatChannel:
             task_id = str(row[0])         # created just before a crash; not twice
         elif mode == "stopped":
             return Outcome(update_id, chat_id, Action.REFUSED, command, reply=(
-                "The lab is stopped, so nothing was queued. Resume it on the Mac with "
-                f"the operator key: {self.cli} control resume --by <you> --key <operator.key>"))
+                "The lab is stopped, so nothing was queued. " + self._resume_steps()))
         else:
             evidence = extract_evidence(text, source_type=SourceType.CHAT.value,
                                         source_id=origin_id, limit=MAX_MESSAGE_CHARS)
@@ -438,8 +437,8 @@ class ChatChannel:
             return self._control(update_id, chat_id, command)
         if command == "resume":
             return out(Action.REFUSED, (
-                "Resuming adds authority, so it needs the operator's signature. On the Mac: "
-                f"{self.cli} control resume --by <you> --key <operator.key>"))
+                "Resuming adds authority, so it needs the operator's signature. "
+                + self._resume_steps()))
         return out(Action.REFUSED, "Unknown command; nothing was done.\n" + HELP)
 
     def approval_prompt(self, approval: sqlite3.Row) -> str:
@@ -458,10 +457,30 @@ class ChatChannel:
             f"Approval {short} waits for the operator's signature.\n"
             f"Task {approval['task_id'][:12]}. It would authorise exactly:\n{shown}\n"
             f"Hash {digest}\n"
-            "A chat message cannot approve. On the Mac, as the operator:\n"
-            f"{self.cli} show {short}\n"
-            f"{self.cli} approve {short} --by <you> --key <operator.key> --expect-hash {digest}\n"
+            "A chat message cannot approve. On the Mac, in three steps, so the key stays in "
+            "your own process:\n"
+            f"sudo -u lab {self.cli} approve {short} --by <you> --expect-hash {digest} "
+            "--request\n"
+            f"{self._operator_cli()} operator sign-approval --id {approval['id']} "
+            f"--action-hash {approval['action_hash']} --expires-at '<expires_at>' --by <you> "
+            "--key ~/.lab-operator/operator.key\n"
+            f"sudo -u lab {self.cli} approve {short} --by <you> --signature <signature> "
+            "--expires-at '<expires_at>'\n"
             f"Or refuse it here with /deny {short}")
+
+    def _operator_cli(self) -> str:
+        """The command without the database: signing runs as the operator and opens none."""
+        return self.cli.split(" --db ")[0]
+
+    def _resume_steps(self) -> str:
+        """How to resume on the Mac: the lab account asks, the operator signs in their own
+        process with the key, the lab account stores the signature (#408)."""
+        return ("Resume it on the Mac in three steps, so the key stays in your own process:\n"
+                f"N=$(sudo -u lab {self.cli} control resume-request)\n"
+                f"S=$({self._operator_cli()} operator sign-resume --generation $N "
+                "--key ~/.lab-operator/operator.key)\n"
+                f"sudo -u lab {self.cli} control resume --by <you> --generation $N "
+                "--signature $S")
 
     def _status(self, arg: str) -> str:
         if arg:
@@ -519,8 +538,7 @@ class ChatChannel:
         extra = (" Running work is being ended and broker authority revoked."
                  if target == "stopped" else " Work in flight finishes; nothing new starts.")
         return Outcome(update_id, chat_id, Action.CONTROL, command, reply=(
-            f"The lab is {target}.{extra} Resuming needs the operator key on the Mac: "
-            f"{self.cli} control resume --by <you> --key <operator.key>"))
+            f"The lab is {target}.{extra} " + self._resume_steps()))
 
     # ---------------------------------------------------------- replies
 
