@@ -1547,6 +1547,22 @@ def _operator_sign(args: argparse.Namespace) -> int:
         print(operator_keys.sign_action(key, "control", generation=args.generation,
                                         mode="running"))
         return 0
+    if not re.fullmatch(r"[0-9a-f]{32}", args.id):
+        print("operator: --id must be the full 32-character approval id that `approve "
+              "--request` printed, not a prefix", file=sys.stderr)
+        return 1
+    if not re.fullmatch(r"[0-9a-f]{64}", args.action_hash):
+        print("operator: --action-hash must be the full 64-character hash", file=sys.stderr)
+        return 1
+    try:
+        datetime.strptime(args.expires_at, "%Y-%m-%d %H:%M:%S.%f")
+    except ValueError:
+        print("operator: --expires-at is not in the form `approve --request` prints",
+              file=sys.stderr)
+        return 1
+    if _escape(args.by) != args.by:
+        print("operator: --by must be plain printable text", file=sys.stderr)
+        return 1
     print(f"signing: grant approval {_escape(args.id)} for action hash "
           f"{_escape(args.action_hash)} until {_escape(args.expires_at)} UTC, label "
           f"{_escape(args.by)!r}", file=sys.stderr)

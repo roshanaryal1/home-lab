@@ -485,3 +485,22 @@ def test_an_approval_decided_elsewhere_during_the_command_is_reported_as_a_failu
     assert run(db, "approve", approval[:8], "--by", "roshan", "--signature", sig,
                "--expires-at", req["expires_at"], "--operator-pubkey", str(keys[1])) == 1
     assert "Not granted by this command: the approval is now denied" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad", ["short id", "short hash", "bad window", "odd label"])
+def test_operator_sign_approval_refuses_values_the_lab_would_not_accept(
+        tmp_path: Path, keys, capsys, bad: str) -> None:
+    args = {"--id": "a" * 32, "--action-hash": "b" * 64,
+            "--expires-at": "2026-10-14 01:00:00.000", "--by": "roshan"}
+    if bad == "short id":
+        args["--id"] = "a" * 12
+    elif bad == "short hash":
+        args["--action-hash"] = "b" * 16
+    elif bad == "bad window":
+        args["--expires-at"] = "tomorrow"
+    else:
+        args["--by"] = "ros\x1bhan"
+    argv = [x for pair in args.items() for x in pair]
+    assert main(["operator", "sign-approval", *argv, "--key", str(keys[0])]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and "operator:" in captured.err

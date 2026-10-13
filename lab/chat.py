@@ -461,8 +461,9 @@ class ChatChannel:
             "your own process:\n"
             f"sudo -u lab {self.cli} approve {short} --by <you> --expect-hash {digest} "
             "--request\n"
-            f"{self._operator_cli()} operator sign-approval --id <approval> --action-hash "
-            "<hash> --expires-at '<expires_at>' --by <you> --key ~/.lab-operator/operator.key\n"
+            f"{self._operator_cli()} operator sign-approval --id {approval['id']} "
+            f"--action-hash {approval['action_hash']} --expires-at '<expires_at>' --by <you> "
+            "--key ~/.lab-operator/operator.key\n"
             f"sudo -u lab {self.cli} approve {short} --by <you> --signature <signature> "
             "--expires-at '<expires_at>'\n"
             f"Or refuse it here with /deny {short}")
