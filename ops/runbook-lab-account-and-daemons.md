@@ -362,8 +362,9 @@ done
   Every line must say `ok` or `skip`: `private_key` is skipped in the `lab` run, and
   `data` in yours. On a `FAIL`, run it again with `--details` to see the paths. It
   only reads file owners and modes and changes nothing. Everything in `/etc/homelab`
-  must be root-owned except `alert.json`, which stays owned by `lab`, mode 600, as
-  section 19 installs it. A link in the deployed code that leads outside
+  must be root-owned except `alert.json`, `telegram-alert.json` and `heartbeat-url`,
+  which stay regular files owned by `lab`, mode 600, as setup sections 18 and 19
+  install them. A link in the deployed code that leads outside
   `/opt/homelab` and `/opt/homelab-python` fails.
 - Undo one service: `sudo launchctl bootout system/com.homelab.<name>`.
 - Closes: 5 "launchd job ... for the supervisor", "watchdog or heartbeat",
