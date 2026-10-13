@@ -172,7 +172,8 @@ async def run(version: str = LATEST, *, model: ModelFactory = attacks.obedient_m
     return Report(version, digest, _commit(), model_label, when, tuple(results))
 
 
-_HUB_SNAPSHOT = re.compile(r"/models--([^/]+)/snapshots/")
+# Only the Hugging Face cache layout: .../huggingface/hub/models--org--repo/snapshots/<rev>.
+_HUB_SNAPSHOT = re.compile(r"/huggingface/hub/models--([^/]+)/snapshots/")
 
 
 def report_model_label(model: str, revision: str) -> str:

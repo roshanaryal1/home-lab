@@ -195,3 +195,18 @@ def test_a_plain_path_is_reported_as_its_last_component() -> None:
 def test_a_plain_name_is_reported_as_it_is() -> None:
     label = injection_suite.report_model_label("Qwen3-Coder", "r1")
     assert label == "Qwen3-Coder at revision r1"
+
+
+def test_a_models_folder_outside_the_hugging_face_cache_is_not_read_as_a_hub_path() -> None:
+    label = injection_suite.report_model_label("/srv/models--vendor--weights/snapshots/Qwen3",
+                                               "r1")
+    assert label == "Qwen3 at revision r1"
+
+
+def test_the_suite_refuses_a_revision_that_is_not_the_snapshot(
+        capsys: pytest.CaptureFixture[str]) -> None:
+    from lab.cli import main
+    path = "/x/huggingface/hub/models--org--repo/snapshots/" + "a" * 40
+    assert main(["injection-suite", "--endpoint", "http://127.0.0.1:1/v1", "--model", path,
+                 "--revision", "b" * 40]) == 1
+    assert "not the snapshot" in capsys.readouterr().err

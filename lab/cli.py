@@ -1173,6 +1173,13 @@ def cmd_injection_suite(args: argparse.Namespace) -> int:
             print("injection-suite: --max-steps must be at least 1, or the model is never "
                   "asked", file=sys.stderr)
             return 1
+        # As in `lab shadow`: a snapshot path names its revision, and a different
+        # --revision would put the wrong weights on record.
+        if ("/snapshots/" in args.model
+                and args.model.rstrip("/").rsplit("/", 1)[-1] != args.revision):
+            print("injection-suite: --revision is not the snapshot that --model names",
+                  file=sys.stderr)
+            return 1
         spec = ModelSpec(args.model, args.revision, args.tokenizer_revision or args.revision,
                          8192, 256, args.weights_mb)
         model = attacks.model_agent(BoundedModel(spec, OpenAICompatibleAdapter(args.endpoint)),
