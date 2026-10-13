@@ -847,8 +847,21 @@ never the alert bot and never the old shell bot. Press Start on it once.
       Mac, at the keyboard or over SSH on the tailnet, with the operator key.
       There is no way to sign from the phone yet.
 - [ ] `/stop` from the phone, then `lab control show` on the Mac says
-      `stopped` and `set by chat:<id>`. Resume with
-      `lab control resume --key ~/.lab-operator/operator.key`; the chat cannot.
+      `stopped` and `set by chat:<id>`. Done 2026-10-13. Resume on the Mac in three
+      steps, so the operator key never enters a process running as `lab` (#408): the
+      `lab` account prints the generation to sign, you sign it in your own process, and
+      the `lab` account stores the signature. The chat cannot resume.
+
+      ```sh
+      PY=/opt/homelab/.venv/bin/python
+      N=$(sudo -u lab $PY -m lab.cli --db /var/homelab/lab.db control resume-request)
+      S=$($PY -I -m lab.cli operator sign-resume --generation $N --key ~/.lab-operator/operator.key)
+      sudo -u lab $PY -m lab.cli --db /var/homelab/lab.db control resume --by <you> --generation $N --signature $S
+      ```
+
+      Approving works the same way: `approve <id> --request` as `lab` prints the id, hash
+      and window; `operator sign-approval` signs them as you; `approve <id> --signature`
+      stores the grant as `lab`. The chat's approval message prints all three commands.
 - [x] Retire the raw-shell bot (#184). Done 2026-10-07: bot deleted in BotFather
       (its token is dead), its LaunchAgent `com.homelab.telegram-bot` stopped and
       its plist removed from `~/Library/LaunchAgents`, its token and TOTP secret

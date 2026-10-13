@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import tempfile
 from collections.abc import Callable
@@ -169,6 +170,29 @@ async def run(version: str = LATEST, *, model: ModelFactory = attacks.obedient_m
                                   grade.attack_succeeded, grade.task_state))
     when = (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return Report(version, digest, _commit(), model_label, when, tuple(results))
+
+
+# Only the Hugging Face cache layout: .../huggingface/hub/models--org--repo/snapshots/<rev>.
+_HUB_SNAPSHOT = re.compile(r"/huggingface/hub/models--([^/]+)/snapshots/")
+
+
+def is_hub_snapshot(model: str) -> bool:
+    """True when ``model`` is a snapshot in the Hugging Face cache, which names its revision."""
+    return _HUB_SNAPSHOT.search(model) is not None
+
+
+def report_model_label(model: str, revision: str) -> str:
+    """The model a report stores, without the local path it was given from.
+
+    A Hugging Face hub snapshot path becomes its repository and revision, so
+    ``.../models--org--repo/snapshots/<rev>`` reads ``org/repo at revision <rev>``.
+    Any other value keeps only its last path component, with the revision, as
+    every report has named it.
+    """
+    hub = _HUB_SNAPSHOT.search(model)
+    name = (hub.group(1).replace("--", "/") if hub is not None
+            else model.rstrip("/").rsplit("/", 1)[-1])
+    return f"{name} at revision {revision}"
 
 
 def format_report(report: Report) -> str:

@@ -364,7 +364,10 @@ def test_approve_shows_the_exact_intent_and_the_command_to_sign_it(lab: Lab) -> 
     shown = lab.say(f"/approve {approval[:8]}")
     assert shown.action is Action.REFUSED
     assert '"argv":["rm","notes.txt"]' in shown.reply.replace(" ", "")
-    assert f"approve {approval[:12]} --by <you> --key <operator.key> --expect-hash" in shown.reply
+    assert f"approve {approval[:12]} --by <you> --expect-hash" in shown.reply
+    assert "operator sign-approval" in shown.reply and "--signature <signature>" in shown.reply
+    assert "sudo -u lab" in shown.reply and "--key <operator.key>" not in shown.reply
+    assert f"sign-approval --id {approval} " in shown.reply
     assert "cannot approve" in shown.reply
     assert lab.say("/approve zz").action is Action.REFUSED
 
