@@ -459,8 +459,15 @@ line, `backup.err` must be empty, and the folder must hold a new
 
 ## Updating the deployed code
 
-Do this when a merged change has to reach the Mac mini (#204). It has not been
-tried yet: the first run is the owner's, and its result belongs in this section.
+Do this when a merged change has to reach the Mac mini (#204). First run by the
+owner on 2026-10-13, from `4bfa910` to `5105422`: the backup before the update wrote
+and restore-checked (73 audit events), the writers stopped with the queue idle,
+`migrate --check` took a copy from schema version 16 to 17 and checked clean, and
+after the restart the supervisor ran as `lab` on the new commit with `status`
+IDLE and running, the tick job loaded, and `lab` refused a write to
+`/opt/homelab`. The `diff --stat` listed the backup plist, the backup launcher
+source and the new weekly eval plist; none was reinstalled in that update,
+because the launcher move and the weekly eval job are their own steps below.
 
 `lab update --plan COMMIT` prints the blocks in this section with the values for this install filled in. It is read-only: it runs no sudo and writes no file.
 
