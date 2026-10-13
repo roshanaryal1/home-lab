@@ -29,7 +29,7 @@ be redone. The detail lives in the documents it links; this page only points.
   changed that script since the checks were written.
 - Merged on 2026-10-08 (NZDT): #300 to #311, #313, #314 (see the git log). Of these, #303, #305,
   #306, #307, #309 and #313 change code meant for the Mac mini.
-- Merged on 2026-10-09 (NZDT), changes to code meant for the Mac mini (none deployed yet, see below):
+- Merged on 2026-10-09 (NZDT), changes to code meant for the Mac mini (deployed 2026-10-13, see below):
   #319 (a memory reading at the ceiling is reported over it), #320 (constrained decoding for H1c),
   #324 (`lab prereg --record`), #334 (the wheel and the `lab` command, #329, #330), #336 (one-line
   CLI errors, #331), #345 (deploy keeps pytest, #270), #346 (`lab memory-budget`), #351
@@ -37,7 +37,7 @@ be redone. The detail lives in the documents it links; this page only points.
   #354 (log tracebacks, level and rotation, #349), #357 (`lab migrate --check` and safer
   update steps, #356) and #360 (backups hold every blob the database refers to, #358).
 - Merged later on 2026-10-09 (NZDT), the first features of the hybrid plan, also for the Mac mini
-  and not deployed: #366 (`lab security-audit`, #362), #367 (owner-signed schedules, #361),
+  and deployed 2026-10-13: #366 (`lab security-audit`, #362), #367 (owner-signed schedules, #361),
   #371 (the public injection suite, #368), #372 (`lab update --plan`, #370), #378 (`lab status`
   flags a task whose lease renews with no new event, #376), #382 (every chat message carries an
   AI label, #375), #383 (`/metrics` on the status page, #380), #384 (`lab export`, #381), #389
@@ -54,9 +54,12 @@ be redone. The detail lives in the documents it links; this page only points.
   #333 (CHANGELOG and draft versioning rules, #332), #337 (A/B and H2 drafts), #350, #352
   (seven-month plan), and the pull request for #355 that updates this page and the other
   overview documents.
-- Nothing merged since 2026-10-07 is deployed on the Mac mini yet. Not verified from a session:
-  the deployed commit is visible only on the mini, where the first block of "Updating the
-  deployed code" prints it (`deployed now`). Deploying is the owner's step.
+- Deployed on the Mac mini on 2026-10-13: `/opt/homelab` went from `4bfa910` to `5105422`
+  (schema 16 to 17; the result is recorded in the runbook section "Updating the deployed code").
+  Anything merged after `5105422` is not deployed until the next update. The deployed commit is
+  visible only on the mini, where the first block of that section prints it (`deployed now`).
+  Deploying is the owner's step. Not yet installed from that update, because they are their own
+  steps below: the backup launcher and the weekly eval job.
 
 ## Research results (do not redo)
 
