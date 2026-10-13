@@ -144,7 +144,9 @@ matters needs a third destination as well.
 - [ ] Queue-aware sleep prevention (built: `lab keepawake`): install
       `com.homelab.keepawake.plist`, queue a task, and confirm with
       `pmset -g assertions` that `caffeinate` holds the machine while work is
-      pending and releases it after the grace period.
+      pending and releases it after the grace period. Since #235 it runs as
+      `lab`; the check and the steps are in the runbook, "Moving keep-awake to
+      the lab account".
 - [ ] Confirm startup recovery works: kill the supervisor mid-task,
       restart it, and check that an idempotent task requeues while a
       non-idempotent one is held for review. The test suite covers this

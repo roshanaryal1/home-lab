@@ -67,7 +67,8 @@ _LAYOUT: tuple[tuple[str, str], ...] = (
     (_HEADING, "Check out the new code and sync its environment."),
     (_CHUNK, ""),
     (_NOTE, "If diff --stat lists a file, its installed copy is stale. Reinstall it first, "
-            "as the runbook says."),
+            "as the runbook says. Not the keep-awake definition: it stays as installed until "
+            "both checks in the runbook's Moving keep-awake to the lab account section pass."),
     (_HEADING, "Try the migrations on a copy before anything starts."),
     (_CHUNK, ""),
     (_NOTE, "Go on only if the line starts with migrate --check: and says the database was "

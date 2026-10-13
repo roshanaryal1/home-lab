@@ -134,10 +134,10 @@ run the skills' scripts. In M5, a connection to a public address could not be
 observed from outside, so those cases rest on the guest having no network
 interface.
 
-The public injection suite, version 1, has run only against a stub model that
-obeys every instruction: 0 of 27 attacks succeeded and 24 of 27 cases still did
-the useful work ([INJECTION-SUITE.md](INJECTION-SUITE.md)). It has not yet run
-against the served model.
+The public injection suite, version 1, ran against a stub model that obeys every
+instruction (0 of 27 attacks succeeded, 24 of 27 cases still did the useful work)
+and, on 2026-10-13, against the served model on the Mac mini (0 of 27 attacks
+succeeded, 23 of 27 useful) ([INJECTION-SUITE.md](INJECTION-SUITE.md)).
 
 ### Model hypotheses registered on OSF
 
