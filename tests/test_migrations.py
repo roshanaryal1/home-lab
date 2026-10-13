@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 import lab.migrations as migrations_mod
+from lab.audit import append_event
 from lab.migrations import (
     AFTER,
     MIGRATIONS_DIR,
@@ -495,6 +496,147 @@ def test_migration_16_adds_a_provenance_table_that_refuses_a_partial_record(
                 q._conn.execute(insert, tuple(row))
         assert q._conn.execute(
             "SELECT acquired_at FROM workspace_acquisitions").fetchone()[0]
+
+
+# ----------------------------------- migration 17: owner-signed schedules (#361)
+
+
+def _every_table(conn: sqlite3.Connection) -> dict[str, list[tuple[object, ...]]]:
+    names = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")]
+    # Sorted by repr, not by rowid: some FTS shadow tables are WITHOUT ROWID.
+    return {name: sorted((tuple(r) for r in conn.execute(
+        f"SELECT * FROM {name}")), key=repr)  # nosemgrep
+        for name in names}
+
+
+def _rows_at_version_16(conn: sqlite3.Connection) -> None:
+    """Representative rows in every table that exists at version 16."""
+    conn.execute("INSERT INTO agents (id, name, kind, capability_tier, notes) "
+                 "VALUES ('agent-a', 'writer a', 'writer', 'notify', 'kept')")
+    conn.execute("INSERT INTO tasks (id, title, payload, state, agent_kind, weight, "
+                 "capability_tier, origin_type, origin_id, sensitivity, tainted) "
+                 "VALUES ('parent', 'root task', '{\"k\": 1}', 'queued', 'writer', 'light', "
+                 "'autonomous', 'operator', 'op-1', 'internal', 0)")
+    conn.execute("INSERT INTO tasks (id, parent_id, title, payload, state, agent_kind, weight, "
+                 "capability_tier, origin_type, origin_id, sensitivity, tainted) "
+                 "VALUES ('child', 'parent', 'child task', '{}', 'queued', 'writer', 'heavy', "
+                 "'approve', 'chat', 'chat-7', 'secret', 1)")
+    conn.execute("INSERT INTO leases (id, task_id, owner, holder, generation, acquired_at, "
+                 "expires_at) VALUES ('lease-1', 'child', 'worker-1', 'holder-1', 2, "
+                 "'2026-10-01 09:00:00', '2026-10-01 09:05:00')")
+    conn.execute("INSERT INTO approvals (id, task_id, reason, state, action_hash, intent, "
+                 "expires_at) VALUES ('appr-1', 'child', 'needs a yes', 'pending', 'h1', "
+                 "'publish', '2026-10-02 09:00:00')")
+    conn.execute("INSERT INTO operations (id, task_id, tool, params_sha256, seq, state, "
+                 "result, resolved_by, finished_at) VALUES ('op-1', 'child', 'mail.send', ?, 1, "
+                 "'confirmed', '{\"ok\": true}', 'roshan', '2026-10-01 09:01:00')", ("d" * 64,))
+    append_event(conn, "parent", "created", None, "queued", {"title": "root task"})
+    append_event(conn, "child", "leased", "queued", "leased", None)
+    conn.execute("INSERT INTO artifacts (task_id, attempt, path, sha256, size, media_type, "
+                 "tool_version, lineage) VALUES ('child', 0, 'out/report.txt', ?, 12, "
+                 "'text/plain', '1.0.0', '[]')", ("b" * 64,))
+    conn.execute("INSERT OR REPLACE INTO control (id, mode, reason, set_by, set_at, generation, "
+                 "signature) VALUES (1, 'paused', 'drill', 'roshan', '2026-10-01 08:00:00', 3, "
+                 "'sig-control')")
+    conn.execute("INSERT OR REPLACE INTO chat_state (id, next_update_id) VALUES (1, 5)")
+    conn.execute("INSERT INTO chat_updates (update_id, chat_id, action, task_id, notified_state) "
+                 "VALUES (4, 111, 'task_created', 'child', 'queued')")
+    conn.execute("INSERT INTO research_tasks (task_id, question, protocol_version, data_ids, "
+                 "code_ids, outputs, validation_checks) VALUES ('child', 'does X help Y', 'v1', "
+                 "'[\"d1\"]', '{\"c1\": \"x\"}', '[]', '[\"range\"]')")
+    snapshot_id = conn.execute(
+        "INSERT INTO evidence_snapshots (task_id, source_id, source_type, sha256, size) "
+        "VALUES ('child', 'src-1', 'web', ?, 100)", ("c" * 64,)).lastrowid
+    claim_id = conn.execute(
+        "INSERT INTO claims (task_id, text, status, status_by, kind) VALUES ('child', "
+        "'X helps Y', 'supported', 'roshan', 'measurement')").lastrowid
+    conn.execute("INSERT INTO claim_evidence (claim_id, snapshot_id, relation, quote) "
+                 "VALUES (?, ?, 'supports', 'X helps Y by 12%')", (claim_id, snapshot_id))
+    conn.execute("INSERT INTO review_passes (task_id, ran_by, last_change_id, claims_seen, "
+                 "missing_evidence, contradictions) VALUES ('child', 'reviewer', 1, 1, '[]', '[]')")
+    memory_id = conn.execute(
+        "INSERT INTO memories (kind, text, text_sha256, source_id, source_sha256, trust, state, "
+        "created_by) VALUES ('curated', 'kept fact', ?, 'src-m', ?, 'trusted', 'active', "
+        "'roshan')", ("e" * 64, "f" * 64)).lastrowid
+    conn.execute("INSERT INTO memories (kind, text, text_sha256, source_id, trust, state, "
+                 "created_by) VALUES ('evidence', 'retired fact', ?, 'src-r', 'untrusted', "
+                 "'revoked', 'roshan')", ("9" * 64,))
+    conn.execute("INSERT INTO memory_uses (memory_id, task_id) VALUES (?, 'child')", (memory_id,))
+    conn.execute("INSERT INTO memory_proposals (task_id, text, text_sha256, source_id, reason, "
+                 "tainted, state) VALUES ('child', 'proposed text', ?, 'src-p', 'why', 1, "
+                 "'pending')", ("8" * 64,))
+    conn.execute("INSERT INTO memory_proposals (task_id, text, text_sha256, source_id, reason, "
+                 "tainted, state, signature, decided_by, memory_id) VALUES ('child', "
+                 "'accepted text', ?, 'src-a', 'why', 0, 'accepted', 'sig-p', 'roshan', ?)",
+                 ("7" * 64, memory_id))
+    conn.execute("INSERT INTO publications (task_id, connector, host, method, path, body_sha256, "
+                 "params_sha256, idempotency_key, state, status_code, provider_id, "
+                 "response_sha256, confirmed_via) VALUES ('child', 'mail', 'mail.example.test', "
+                 "'POST', '/v1/send', ?, ?, 'idem-1', 'confirmed', 200, 'prov-1', ?, 'response')",
+                 ("a" * 64, "b" * 64, "c" * 64))
+    conn.execute("INSERT INTO skill_versions (name, version, state, tier, content_sha256, "
+                 "manifest, has_scripts, submitted_by, promoted_by, promoted_at, known_good, "
+                 "known_good_by, known_good_evidence) VALUES ('summarize', 1, 'active', "
+                 "'autonomous', ?, '{\"SKILL.md\": [\"abc\", \"0644\"]}', 0, 'roshan', "
+                 "'roshan', '2026-10-01 07:00:00', 1, 'roshan', 'eval-1')", ("d" * 64,))
+    conn.execute("INSERT INTO workspace_acquisitions (task_id, source, source_path, "
+                 "source_sha256, signed_by, revision, tree, directory, workspace) VALUES "
+                 "('child', 'project', '/srv/project', ?, 'roshan', ?, ?, 'repo', 'task-child-1')",
+                 ("a" * 64, "b" * 40, "c" * 40))
+
+
+def test_migration_17_keeps_every_row_and_adds_the_empty_schedule_tables(
+        tmp_path: Path) -> None:
+    db = _at_version(tmp_path, 16)
+    conn = raw(db)
+    _rows_at_version_16(conn)
+    before = _every_table(conn)
+    conn.close()
+    assert [name for name, rows in before.items() if not rows] == []
+
+    conn = raw(db)
+    assert migrate(conn) == latest_version() == 17
+    after = _every_table(conn)
+    assert {name: after[name] for name in before} == before
+    assert after["schedules"] == [] and after["schedule_revocations"] == []
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+    assert [r["name"] for r in conn.execute("PRAGMA table_info(schedules)")] == [
+        "id", "name", "rule", "tz", "agent_kind", "title", "payload", "weight",
+        "capability_tier", "created_by", "created_at", "nonce", "signature", "removed_at",
+        "removed_by", "last_fired_at", "last_task_id", "next_due_at"]
+    assert {r["name"] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'schedules' "
+        "AND sql IS NOT NULL")} == {"idx_schedules_live_name", "idx_schedules_due"}
+    assert {r["name"] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = "
+        "'schedule_revocations'")} == {"schedule_revocations_no_update",
+                                       "schedule_revocations_no_delete"}
+
+    schedule = ("INSERT INTO schedules (name, rule, tz, agent_kind, title, payload, weight, "
+                "capability_tier, created_by, created_at, nonce, signature, next_due_at) "
+                "VALUES (?, 'daily 02:00', 'Pacific/Auckland', 'writer', 'nightly digest', "
+                "'{}', ?, ?, 'roshan', '2026-10-13 02:00:00', ?, 'sig', '2026-10-14 02:00:00')")
+    conn.execute(schedule, ("nightly", "light", "notify", "1" * 32))
+    with pytest.raises(sqlite3.IntegrityError):  # one live schedule per name
+        conn.execute(schedule, ("nightly", "light", "notify", "2" * 32))
+    with pytest.raises(sqlite3.IntegrityError):  # weight is heavy or light
+        conn.execute(schedule, ("other", "medium", "notify", "3" * 32))
+    with pytest.raises(sqlite3.IntegrityError):  # a schedule cannot be 'never'
+        conn.execute(schedule, ("other", "light", "never", "4" * 32))
+
+    conn.execute("UPDATE schedules SET removed_at = '2026-10-13 03:00:00', "
+                 "removed_by = 'roshan' WHERE name = 'nightly'")
+    conn.execute(schedule, ("nightly", "light", "notify", "5" * 32))  # removal frees the name
+    conn.execute("INSERT INTO schedule_revocations (nonce, revoked_at, revoked_by) "
+                 "VALUES (?, '2026-10-13 03:00:00', 'roshan')", ("1" * 32,))
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        conn.execute("UPDATE schedule_revocations SET revoked_by = 'nobody'")
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        conn.execute("DELETE FROM schedule_revocations")
+    conn.close()
 
 
 # ------------------------------------- every step, against a fresh schema (#348)
