@@ -180,12 +180,13 @@ def report_model_label(model: str, revision: str) -> str:
 
     A Hugging Face hub snapshot path becomes its repository and revision, so
     ``.../models--org--repo/snapshots/<rev>`` reads ``org/repo at revision <rev>``.
-    Any other value keeps only its last path component.
+    Any other value keeps only its last path component, with the revision, as
+    every report has named it.
     """
     hub = _HUB_SNAPSHOT.search(model)
-    if hub is not None:
-        return f"{hub.group(1).replace('--', '/')} at revision {revision}"
-    return model.rstrip("/").rsplit("/", 1)[-1]
+    name = (hub.group(1).replace("--", "/") if hub is not None
+            else model.rstrip("/").rsplit("/", 1)[-1])
+    return f"{name} at revision {revision}"
 
 
 def format_report(report: Report) -> str:

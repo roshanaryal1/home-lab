@@ -188,8 +188,10 @@ def test_a_hub_snapshot_path_is_reported_as_its_repository_and_revision() -> Non
 
 
 def test_a_plain_path_is_reported_as_its_last_component() -> None:
-    assert injection_suite.report_model_label("/srv/models/Qwen3-Coder", "r1") == "Qwen3-Coder"
+    label = injection_suite.report_model_label("/srv/models/Qwen3-Coder", "r1")
+    assert label == "Qwen3-Coder at revision r1"
 
 
 def test_a_plain_name_is_reported_as_it_is() -> None:
-    assert injection_suite.report_model_label("Qwen3-Coder", "r1") == "Qwen3-Coder"
+    label = injection_suite.report_model_label("Qwen3-Coder", "r1")
+    assert label == "Qwen3-Coder at revision r1"
