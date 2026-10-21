@@ -76,7 +76,9 @@ Built and tested in CI on Linux ([README](../README.md), Status):
   the database before anything restarts
   ([#356](https://github.com/roshanaryal1/home-lab/issues/356)), and
   `lab update --plan COMMIT` prints the update steps for this install without
-  running sudo ([#370](https://github.com/roshanaryal1/home-lab/issues/370)).
+  running sudo ([#370](https://github.com/roshanaryal1/home-lab/issues/370)), and
+  `lab update --verify COMMIT` checks the install after the update
+  ([#339](https://github.com/roshanaryal1/home-lab/issues/339)).
 - A backup holds every file the database refers to, including evidence
   snapshots and skill-version files, and its restore check verifies them
   ([#358](https://github.com/roshanaryal1/home-lab/issues/358)).

@@ -16,6 +16,12 @@ Then it prints the plan. It never runs sudo and never writes a file. The
 update needs sudo for launchctl and for the ownership changes around the checkout,
 and the lab never runs sudo, so the operator copies these lines into a Terminal
 window and runs them there.
+
+`lab update --verify COMMIT` is the check after the operator's run (#339). It is
+read-only too. It checks that it runs from the deployed code, that the deployed
+checkout is at COMMIT and, given the folder, that a backup was taken there in the
+last day. Then it runs every `lab doctor` check, which covers the schema version,
+the services and the permissions.
 """
 
 from __future__ import annotations
@@ -24,8 +30,12 @@ import os
 import re
 import subprocess
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import NamedTuple
+
+from lab import backup
+from lab.doctor import Check
 
 RUNBOOK = Path(__file__).resolve().parent.parent / "ops" / "runbook-lab-account-and-daemons.md"
 SECTION_HEADING = "## Updating the deployed code"
@@ -33,6 +43,9 @@ DEFAULT_DEPLOY = Path("/opt/homelab")
 DEFAULT_LAUNCH_DAEMONS = Path("/Library/LaunchDaemons")
 WRITER_NAMES = ("supervisor", "tick", "selftest", "weekly-eval", "chat")
 GIT_TIMEOUT_SECONDS = 30
+# The update is done in one sitting, so the backup it took is from the same day.
+BEFORE_UPDATE_MAX_AGE = timedelta(hours=24)
+LAB_PACKAGE = Path(__file__).resolve().parent
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 
@@ -77,7 +90,8 @@ _LAYOUT: tuple[tuple[str, str], ...] = (
     (_CHUNK, ""),
     (_NOTE, "rev-parse must print the new commit, ps must show lab and a new pid, the "
             "bootstrap check prints nothing, status shows health IDLE or OK and mode running, "
-            "and touch is refused with Permission denied."),
+            "touch is refused with Permission denied, and update --verify prints no FAIL "
+            "line."),
     (_HEADING, "Roll back before anything started."),
     (_NOTE, "The database was never opened by the new code, so nothing is restored. Run the "
             "checkout and sync block above with COMMIT set to OLD, then the start again block."),
@@ -254,3 +268,47 @@ def _command_chunks(section: list[str]) -> list[list[str]]:
 
 def _dedent(line: str, indent: int) -> str:
     return line[indent:] if line[:indent].strip() == "" else line
+
+
+def check_code(deploy: Path, package: Path = LAB_PACKAGE) -> Check:
+    """The command runs from the deployed code, so the doctor checks that follow use the
+    deployed build's schema version and dependencies, not those of another checkout."""
+    if package.is_relative_to(Path(os.path.realpath(deploy))):
+        return Check("code", True)
+    return Check("code", False, f"this command runs from {package}, not from {deploy}, so run "
+                 f"it with {deploy}/.venv/bin/python")
+
+
+def check_deployed(commit: str, deploy: Path, run: Runner = subprocess.run) -> Check:
+    """The deployed checkout is at COMMIT."""
+    try:
+        old, _present, _writers = gather(commit, deploy, Path(os.devnull), run)
+    except UpdateError as exc:
+        return Check("deployed", False, f"{exc}, so check {deploy}")
+    if old == commit:
+        return Check("deployed", True)
+    return Check("deployed", False, f"{deploy} is at {old}, not {commit}, so run the checkout "
+                 "block of the update again")
+
+
+def check_before_update_backup(folder: Path | None, now: datetime | None = None) -> Check:
+    """A backup manifest in ``folder`` from the last day. The update's backup is taken
+    while the old code is still in place, so it is the way back if the copy fails."""
+    if folder is None:
+        return Check("before-update backup", True, "no --backup-dir given, so not checked",
+                     skipped=True)
+    try:
+        newest = backup.newest_manifest(folder)
+    except backup.BackupError as exc:
+        return Check("before-update backup", False, f"{exc}, so take the backup the update "
+                     "section starts with")
+    stamp = newest.name.split(".", 1)[0].removeprefix("lab-")
+    try:
+        taken = datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        return Check("before-update backup", False, f"cannot read the time in {newest.name}")
+    age = (now or datetime.now(UTC)) - taken
+    if timedelta(0) <= age < BEFORE_UPDATE_MAX_AGE:
+        return Check("before-update backup", True, newest.name)
+    return Check("before-update backup", False, f"the newest backup there, {newest.name}, is "
+                 "not from the last 24 hours, so take the backup the update section starts with")
