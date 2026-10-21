@@ -848,9 +848,15 @@ def build_parser() -> argparse.ArgumentParser:
     exp.add_argument("--to", type=Path, required=True,
                      help="an existing directory; the export is written to a new folder in it")
     up = sub.add_parser("update", help="--plan COMMIT: print the update steps for this install "
-                        "with the values filled in; read-only, runs no sudo")
-    up.add_argument("--plan", metavar="COMMIT", required=True,
-                    help="the full 40 character commit to update to")
+                        "with the values filled in; --verify COMMIT: check the install after "
+                        "the update; read-only, runs no sudo")
+    up_mode = up.add_mutually_exclusive_group(required=True)
+    up_mode.add_argument("--plan", metavar="COMMIT",
+                         help="the full 40 character commit to update to")
+    up_mode.add_argument("--verify", metavar="COMMIT",
+                         help="the full 40 character commit the install should now run")
+    up.add_argument("--backup-dir", type=Path,
+                    help="with --verify: the folder the update's backup went to")
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
@@ -1380,11 +1386,23 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 def cmd_update(args: argparse.Namespace) -> int:
     """Read-only, and dispatched before the queue opens, like doctor and migrate. It prints
-    the update steps for this install with the values filled in, and runs no sudo."""
-    commit = args.plan
+    the update steps for this install with the values filled in, and runs no sudo. With
+    --verify it checks the install after the update instead."""
+    commit = args.plan if args.verify is None else args.verify
     if not update_plan.is_full_commit(commit):
         print("update: COMMIT must be a full 40 character commit hash", file=sys.stderr)
         return 1
+    if args.backup_dir is not None and args.verify is None:
+        print("update: --backup-dir goes with --verify", file=sys.stderr)
+        return 1
+    if args.verify is not None:
+        checks = [update_plan.check_code(update_plan.DEFAULT_DEPLOY),
+                  update_plan.check_deployed(commit, update_plan.DEFAULT_DEPLOY),
+                  update_plan.check_before_update_backup(args.backup_dir),
+                  *doctor.run(args.db, os.environ)]
+        for check in checks:
+            print(_escape(check.line()))
+        return 0 if all(check.ok for check in checks) else 1
     try:
         # The runbook's commands name /opt/homelab and /Library/LaunchDaemons, so the plan
         # reads those same places and no other, or it could describe one checkout and act
