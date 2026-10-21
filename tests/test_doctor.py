@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import sys
 import threading
 import time
 import urllib.request
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,13 +29,26 @@ from lab.cli import main
 from lab.migrations import latest_version
 from lab.queue import TaskQueue
 
-NAMES = ["database", "operator_key", "model", "disk", "backup", "selftest", "audit_chain"]
+NAMES = ["database", "operator_key", "model", "disk", "backup", "selftest", "audit_chain",
+         "versions", "lab_account", "permissions", "services"]
+
+
+def _no_commands(argv: Sequence[str]) -> doctor.Command:
+    raise AssertionError(f"no command should run in these tests: {list(argv)}")
 
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A machine with the deployed operator key installed must not change these results."""
+    """A machine with the deployed operator key installed must not change these results.
+
+    The default host is Linux with no pyproject.toml, no launchd folder and no commands, so
+    the command tests do not depend on the machine they run on. Nothing is created under
+    tmp_path here, because the command tests list it.
+    """
     monkeypatch.setattr(doctor, "DEPLOYED_OPERATOR_KEY", tmp_path / "deployed" / "operator.pub")
+    monkeypatch.setattr(doctor, "DEFAULT_HOST", doctor.Host(
+        system="linux", launch_daemons=tmp_path / "LaunchDaemons",
+        pyproject=tmp_path / "pyproject.toml", runner=_no_commands, owner_name=lambda _: None))
     for name in ("LAB_MODEL_URL", "LAB_MODEL_NAME", "LAB_BACKUP_DIR", "LAB_OPERATOR_PUBKEY"):
         monkeypatch.delenv(name, raising=False)
 
@@ -371,6 +385,221 @@ def test_audit_chain_fails_when_a_row_was_edited(db: Path) -> None:
     assert not check.ok and "audit chain breaks" in check.message
 
 
+# ------------------------------------------------------------ the host checks
+
+
+@dataclass
+class FakeRunner:
+    """A command runner that answers the same way for every command and records each one."""
+    returncode: int = 0
+    output: str = ""
+    calls: list[list[str]] = field(default_factory=list)
+
+    def __call__(self, argv: Sequence[str]) -> doctor.Command:
+        self.calls.append(list(argv))
+        return doctor.Command(self.returncode, self.output)
+
+
+def launchd_knows(*loaded: str) -> Callable[[Sequence[str]], doctor.Command]:
+    """A runner that answers like launchctl print for the labels in ``loaded``."""
+    def run(argv: Sequence[str]) -> doctor.Command:
+        label = argv[-1].removeprefix("system/")
+        if label in loaded:
+            return doctor.Command(0, f"{label} = {{\n}}\n")
+        return doctor.Command(113, f'Bad request.\nCould not find service "{label}" in domain '
+                              "for system")
+    return run
+
+
+PYPROJECT_TEXT = '[project]\nrequires-python = ">=3.13"\ndependencies = ["cryptography>=45"]\n'
+
+
+def write_pyproject(tmp_path: Path) -> Path:
+    path = tmp_path / "pyproject.toml"
+    path.write_text(PYPROJECT_TEXT)
+    return path
+
+
+def write_plists(folder: Path, *labels: str) -> None:
+    folder.mkdir()
+    for label in labels:
+        (folder / f"{label}.plist").write_text("")
+
+
+def test_versions_reports_python_and_the_dependencies_as_info(tmp_path: Path) -> None:
+    check = doctor.check_versions(write_pyproject(tmp_path), python="3.13.2",
+                                  installed={"cryptography": "45.1.0"}.get)
+    assert check == doctor.Check("versions", True, "python 3.13.2, cryptography 45.1.0")
+
+
+def test_versions_fails_when_python_is_older_than_pyproject_requires(tmp_path: Path) -> None:
+    check = doctor.check_versions(write_pyproject(tmp_path), python="3.12.9",
+                                  installed={"cryptography": "45.1.0"}.get)
+    assert not check.ok and not check.skipped
+    assert check.line().startswith("FAIL versions:") and "3.13" in check.message
+
+
+def test_versions_reports_a_missing_dependency_without_failing(tmp_path: Path) -> None:
+    check = doctor.check_versions(write_pyproject(tmp_path), python="3.13.0",
+                                  installed=lambda _: None)
+    assert check == doctor.Check("versions", True, "python 3.13.0, cryptography not installed")
+
+
+def test_versions_skips_when_pyproject_is_missing(tmp_path: Path) -> None:
+    check = doctor.check_versions(tmp_path / "pyproject.toml", python="3.13.0",
+                                  installed=lambda _: None)
+    assert check.skipped and check.ok
+    assert check.line().startswith("skip versions:") and "no pyproject.toml" in check.message
+
+
+def test_lab_account_passes_when_the_owner_is_not_an_admin(tmp_path: Path) -> None:
+    runner = FakeRunner(output="staff everyone localaccounts")
+    check = doctor.check_lab_account(tmp_path / "lab.db", system="darwin", runner=runner,
+                                     owner_name=lambda _: "lab")
+    assert check == doctor.Check("lab_account", True, "lab")
+    assert runner.calls == [["id", "-Gn", "lab"]]
+
+
+@pytest.mark.parametrize("group", ["admin", "wheel"])
+def test_lab_account_fails_when_the_owner_is_in_an_admin_group(tmp_path: Path,
+                                                               group: str) -> None:
+    runner = FakeRunner(output=f"staff {group} everyone")
+    check = doctor.check_lab_account(tmp_path / "lab.db", system="darwin", runner=runner,
+                                     owner_name=lambda _: "lab")
+    assert not check.ok and not check.skipped
+    assert f"{group} group" in check.message and "must not be an admin" in check.message
+
+
+def test_lab_account_fails_when_the_owner_has_no_account(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    check = doctor.check_lab_account(tmp_path / "lab.db", system="darwin", runner=runner,
+                                     owner_name=lambda _: None)
+    assert check.line().startswith("FAIL lab_account:") and runner.calls == []
+
+
+def test_lab_account_fails_when_id_cannot_read_the_owner(tmp_path: Path) -> None:
+    runner = FakeRunner(returncode=1, output="id: ghost: no such user")
+    check = doctor.check_lab_account(tmp_path / "lab.db", system="darwin", runner=runner,
+                                     owner_name=lambda _: "ghost")
+    assert check.line().startswith("FAIL lab_account:")
+    assert "check the account exists" in check.message
+
+
+def test_lab_account_skips_off_macos_without_running_a_command(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    check = doctor.check_lab_account(tmp_path / "lab.db", system="linux", runner=runner,
+                                     owner_name=lambda _: "lab")
+    assert check.skipped and check.ok and runner.calls == []
+
+
+def test_lab_account_skips_when_the_data_folder_is_missing(tmp_path: Path) -> None:
+    check = doctor.check_lab_account(tmp_path / "missing" / "lab.db", system="darwin",
+                                     runner=FakeRunner(), owner_name=lambda _: "lab")
+    assert check.skipped and check.line().startswith("skip lab_account:")
+
+
+def test_permissions_passes_when_no_one_else_can_write_the_folder_or_the_file(
+        db: Path) -> None:
+    os.chmod(db.parent, 0o755)
+    os.chmod(db, 0o644)
+    assert doctor.check_permissions(db) == doctor.Check("permissions", True)
+
+
+def test_permissions_fails_when_the_group_can_write_the_data_folder(db: Path) -> None:
+    os.chmod(db.parent, 0o775)
+    os.chmod(db, 0o644)
+    check = doctor.check_permissions(db)
+    assert not check.ok and "the data folder" in check.message and "chmod go-w" in check.message
+
+
+def test_permissions_fails_when_others_can_write_the_database_file(db: Path) -> None:
+    os.chmod(db.parent, 0o755)
+    os.chmod(db, 0o646)
+    check = doctor.check_permissions(db)
+    assert check.line().startswith("FAIL permissions:") and "the database file" in check.message
+
+
+def test_permissions_skips_when_there_is_no_database(tmp_path: Path) -> None:
+    check = doctor.check_permissions(tmp_path / "lab.db")
+    assert check.skipped and check.line().startswith("skip permissions:")
+
+
+def test_services_passes_when_every_homelab_job_is_loaded(tmp_path: Path) -> None:
+    folder = tmp_path / "LaunchDaemons"
+    write_plists(folder, "com.homelab.lab", "com.homelab.model")
+    (folder / "com.apple.other.plist").write_text("")
+    runner = FakeRunner(returncode=0)
+    check = doctor.check_services(folder, system="darwin", runner=runner)
+    assert check == doctor.Check("services", True, "2 com.homelab jobs loaded")
+    assert runner.calls == [["launchctl", "print", "system/com.homelab.lab"],
+                            ["launchctl", "print", "system/com.homelab.model"]]
+
+
+def test_services_fails_and_names_a_job_that_is_not_loaded(tmp_path: Path) -> None:
+    folder = tmp_path / "LaunchDaemons"
+    write_plists(folder, "com.homelab.lab", "com.homelab.model")
+    check = doctor.check_services(folder, system="darwin",
+                                  runner=launchd_knows("com.homelab.lab"))
+    assert check.line().startswith("FAIL services:") and "com.homelab.model" in check.message
+    assert "com.homelab.lab" not in check.message
+
+
+def test_services_skips_rather_than_fails_when_launchctl_needs_admin_rights(
+        tmp_path: Path) -> None:
+    folder = tmp_path / "LaunchDaemons"
+    write_plists(folder, "com.homelab.lab")
+    runner = FakeRunner(returncode=1, output="Operation not permitted")
+    check = doctor.check_services(folder, system="darwin", runner=runner)
+    assert check.skipped and check.ok and "sudo launchctl print" in check.message
+
+
+def test_lab_account_skips_when_id_cannot_run(tmp_path: Path) -> None:
+    runner = FakeRunner(returncode=-1, output="")
+    check = doctor.check_lab_account(tmp_path / "lab.db", system="darwin", runner=runner,
+                                     owner_name=lambda _: "lab")
+    assert check.skipped and check.ok and "could not run" in check.message
+
+
+def test_services_skip_names_the_launchctl_error_and_gives_no_sudo_advice_for_other_errors(
+        tmp_path: Path) -> None:
+    folder = tmp_path / "LaunchDaemons"
+    write_plists(folder, "com.homelab.lab")
+    runner = FakeRunner(returncode=1, output="Invalid argument")
+    check = doctor.check_services(folder, system="darwin", runner=runner)
+    assert check.skipped and "Invalid argument" in check.message
+    assert "sudo" not in check.message
+
+
+def test_services_skips_off_macos_without_running_a_command(tmp_path: Path) -> None:
+    folder = tmp_path / "LaunchDaemons"
+    write_plists(folder, "com.homelab.lab")
+    runner = FakeRunner()
+    check = doctor.check_services(folder, system="linux", runner=runner)
+    assert check.skipped and runner.calls == []
+
+
+def test_services_skips_when_no_homelab_plist_is_installed(tmp_path: Path) -> None:
+    folder = tmp_path / "LaunchDaemons"
+    write_plists(folder, "com.apple.other")
+    runner = FakeRunner()
+    check = doctor.check_services(folder, system="darwin", runner=runner)
+    assert check.skipped and "no com.homelab plist" in check.message and runner.calls == []
+
+
+def test_services_skips_when_the_launchd_folder_is_missing(tmp_path: Path) -> None:
+    check = doctor.check_services(tmp_path / "missing", system="darwin", runner=FakeRunner())
+    assert check.skipped and check.line().startswith("skip services:")
+
+
+def test_run_command_returns_the_output_of_a_program() -> None:
+    result = doctor.run_command([sys.executable, "-c", "print('ok')"])
+    assert result == doctor.Command(0, "ok\n")
+
+
+def test_run_command_reports_a_missing_program_instead_of_raising() -> None:
+    assert doctor.run_command(["/nonexistent/lab-doctor-probe"]) == doctor.Command(-1, "")
+
+
 # ------------------------------------------------------------ the command
 
 
@@ -394,12 +623,16 @@ def test_a_fresh_database_with_nothing_configured_fails_and_lists_every_check(
     assert main(["--db", str(db), "doctor"]) == 1
     lines = capsys.readouterr().out.splitlines()
     assert [line.split()[1].rstrip(":") for line in lines] == NAMES
-    assert all(line.startswith(("ok ", "FAIL ")) for line in lines)
+    assert all(line.startswith(("ok ", "FAIL ", "skip ")) for line in lines)
     assert lines[0] == "ok database"
     assert lines[2] == "ok model: not configured"
     assert lines[4] == "ok backup: not configured"
     assert lines[1].startswith("FAIL operator_key:")
     assert lines[5].startswith("FAIL selftest:") and "run lab selftest" in lines[5]
+    assert lines[7].startswith("skip versions:")
+    assert lines[8].startswith("skip lab_account:")
+    assert lines[9] == "ok permissions"
+    assert lines[10].startswith("skip services:")
 
 
 def test_doctor_exits_zero_when_every_check_passes(
@@ -414,6 +647,9 @@ def test_doctor_exits_zero_when_every_check_passes(
     monkeypatch.setenv("LAB_OPERATOR_PUBKEY", str(key))
     monkeypatch.setenv("LAB_BACKUP_DIR", str(backups))
     assert main(["--db", str(db), "doctor"]) == 0
-    assert capsys.readouterr().out.splitlines() == [
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[:7] == [
         "ok database", "ok operator_key", "ok model: not configured", "ok disk", "ok backup",
         "ok selftest", "ok audit_chain"]
+    assert [line.split(":")[0] for line in lines[7:]] == [
+        "skip versions", "skip lab_account", "ok permissions", "skip services"]

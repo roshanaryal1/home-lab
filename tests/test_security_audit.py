@@ -319,6 +319,34 @@ def test_config_names_a_lab_owned_alert_file_when_the_lab_account_is_unknown(
     assert sa.check_config(layout.config, ME) == sa.Finding("config", "FAIL", [str(alert)])
 
 
+def test_config_accepts_the_lab_owned_files_the_setup_guide_installs(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("alert.json", "telegram-alert.json", "heartbeat-url"):
+        _fake_owner(monkeypatch, _file(layout.config / name, 0o600), ME + 7)
+    assert sa.check_config(layout.config, ME, ME + 7) == sa.Finding("config", "ok", [])
+
+
+@pytest.mark.parametrize("name", ["telegram-alert.json", "heartbeat-url"])
+@pytest.mark.parametrize("mode", [0o640, 0o604])
+def test_config_names_a_lab_owned_setup_file_that_a_group_or_others_can_read(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch, name: str, mode: int) -> None:
+    entry = _file(layout.config / name, mode)
+    _fake_owner(monkeypatch, entry, ME + 7)
+    assert sa.check_config(layout.config, ME, ME + 7) == sa.Finding(
+        "config", "FAIL", [str(entry)])
+
+
+@pytest.mark.parametrize("name", ["alert.json", "telegram-alert.json", "heartbeat-url"])
+def test_config_names_a_lab_owned_setup_name_that_is_not_a_regular_file(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    entry = layout.config / name
+    entry.mkdir(mode=0o700)
+    os.chmod(entry, 0o700)
+    _fake_owner(monkeypatch, entry, ME + 7)
+    assert sa.check_config(layout.config, ME, ME + 7) == sa.Finding(
+        "config", "FAIL", [str(entry)])
+
+
 # ------------------------------------------------------------ data
 
 
@@ -496,6 +524,37 @@ def test_the_audit_writes_nothing(layout: Layout, tmp_path: Path) -> None:
     findings = sa.run(env, **layout.run_kwargs())
     assert any(f.status == "FAIL" for f in findings)
     assert _snapshot(layout.base) == before
+
+
+def _config_finding(findings: list[sa.Finding]) -> sa.Finding:
+    return next(f for f in findings if f.name == "config")
+
+
+def test_run_applies_the_lab_owned_exception_for_the_named_lab_account(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sa, "_account_uid", lambda name: ME + 7 if name == "lab" else None)
+    _fake_owner(monkeypatch, layout.data, ME + 7)
+    _fake_owner(monkeypatch, _file(layout.config / "heartbeat-url", 0o600), ME + 7)
+    assert _config_finding(sa.run({}, **layout.run_kwargs())).status == "ok"
+
+
+def test_run_refuses_the_exception_when_the_data_folder_is_not_the_lab_accounts(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sa, "_account_uid", lambda name: ME + 7 if name == "lab" else None)
+    _fake_owner(monkeypatch, layout.data, ME + 9)
+    entry = _file(layout.config / "heartbeat-url", 0o600)
+    _fake_owner(monkeypatch, entry, ME + 9)
+    assert _config_finding(sa.run({}, **layout.run_kwargs())) == sa.Finding(
+        "config", "FAIL", [str(entry)])
+
+
+def test_run_refuses_the_exception_when_there_is_no_lab_account(
+        layout: Layout, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sa, "_account_uid", lambda name: None)
+    _fake_owner(monkeypatch, layout.data, ME + 7)
+    entry = _file(layout.config / "heartbeat-url", 0o600)
+    _fake_owner(monkeypatch, entry, ME + 7)
+    assert _config_finding(sa.run({}, **layout.run_kwargs())).status == "FAIL"
 
 
 def _point_cli_at(monkeypatch: pytest.MonkeyPatch, layout: Layout, home: Path) -> None:

@@ -1,6 +1,6 @@
 # Status and handoff
 
-Last updated 2026-10-11 (NZDT), early morning. Read this first when picking the work up in a new session,
+Last updated 2026-10-13 (NZDT). Read this first when picking the work up in a new session,
 on any account or machine. It says what is done, what is waiting and on whom, and what must not
 be redone. The detail lives in the documents it links; this page only points.
 
@@ -17,19 +17,16 @@ be redone. The detail lives in the documents it links; this page only points.
   not merge it until the owner says so. The hybrid design (#379, [HYBRID-DESIGN.md](HYBRID-DESIGN.md))
   and the installer design (#388, [INSTALLER-DESIGN.md](INSTALLER-DESIGN.md)) were merged on
   2026-10-11 at the owner's request with their questions still open. Nothing in them is built
-  until the owner answers. **#312** (keep-awake as the `lab`
-  account, [#235](https://github.com/roshanaryal1/home-lab/issues/235)): do **not** merge #312 until both checks in step 1 of its runbook section "Moving keep-awake to
-  the lab account" have passed on the Mac mini: `./ops/mac-session.sh --only caffeinate` from
-  that branch, and the same check from launchd with a throwaway daemon.
-- #312 must also be up to date with `main` before it merges. It was last brought up to date on
-  2026-10-11 with a merge commit, and every later merge to `main` puts it behind again. Merge
-  `main` into it (a merge commit, never a rebase or force-push) and wait for green checks. If
-  that merge changed `ops/mac-session.sh`, run both checks again on the updated branch before
-  merging: a pass from before the merge does not cover the new script. No merge so far has
-  changed that script since the checks were written.
+  until the owner answers.
+- Merged on 2026-10-13 (NZDT): **#312** (keep-awake runs as the `lab` account,
+  [#235](https://github.com/roshanaryal1/home-lab/issues/235)), after both of its checks in step 1
+  of the runbook section "Moving keep-awake to the lab account" passed on the Mac mini (comment on
+  #235). The installed keep-awake definition on the Mac mini still runs as root until that section's
+  steps 2 to 4 are done. #404 (the security-audit fix for #403), #405 (the injection suite result)
+  and #407 (the first monthly restore drill, closes #67) were merged the same day.
 - Merged on 2026-10-08 (NZDT): #300 to #311, #313, #314 (see the git log). Of these, #303, #305,
   #306, #307, #309 and #313 change code meant for the Mac mini.
-- Merged on 2026-10-09 (NZDT), changes to code meant for the Mac mini (none deployed yet, see below):
+- Merged on 2026-10-09 (NZDT), changes to code meant for the Mac mini (deployed 2026-10-13, see below):
   #319 (a memory reading at the ceiling is reported over it), #320 (constrained decoding for H1c),
   #324 (`lab prereg --record`), #334 (the wheel and the `lab` command, #329, #330), #336 (one-line
   CLI errors, #331), #345 (deploy keeps pytest, #270), #346 (`lab memory-budget`), #351
@@ -37,7 +34,7 @@ be redone. The detail lives in the documents it links; this page only points.
   #354 (log tracebacks, level and rotation, #349), #357 (`lab migrate --check` and safer
   update steps, #356) and #360 (backups hold every blob the database refers to, #358).
 - Merged later on 2026-10-09 (NZDT), the first features of the hybrid plan, also for the Mac mini
-  and not deployed: #366 (`lab security-audit`, #362), #367 (owner-signed schedules, #361),
+  and deployed 2026-10-13: #366 (`lab security-audit`, #362), #367 (owner-signed schedules, #361),
   #371 (the public injection suite, #368), #372 (`lab update --plan`, #370), #378 (`lab status`
   flags a task whose lease renews with no new event, #376), #382 (every chat message carries an
   AI label, #375), #383 (`/metrics` on the status page, #380), #384 (`lab export`, #381), #389
@@ -54,9 +51,13 @@ be redone. The detail lives in the documents it links; this page only points.
   #333 (CHANGELOG and draft versioning rules, #332), #337 (A/B and H2 drafts), #350, #352
   (seven-month plan), and the pull request for #355 that updates this page and the other
   overview documents.
-- Nothing merged since 2026-10-07 is deployed on the Mac mini yet. Not verified from a session:
-  the deployed commit is visible only on the mini, where the first block of "Updating the
-  deployed code" prints it (`deployed now`). Deploying is the owner's step.
+- Deployed on the Mac mini on 2026-10-13: `/opt/homelab` went from `4bfa910` to `5105422`
+  (schema 16 to 17; the result is recorded in the runbook section "Updating the deployed code").
+  Anything merged after `5105422` is not deployed until the next update. The deployed commit is
+  visible only on the mini, where the first block of that section prints it (`deployed now`).
+  Deploying is the owner's step. Commits after `5105422` that are not deployed include #404 (the
+  security-audit fix) and #312 (keep-awake). The backup launcher was installed on 2026-10-13 (step 6
+  below). The weekly eval job (step 5) and the keep-awake definition (step 7) are not installed yet.
 
 ## Research results (do not redo)
 
@@ -70,7 +71,9 @@ be redone. The detail lives in the documents it links; this page only points.
   same MLX weights, built in #320. The run follows [H1C-RUN-PLAN.md](H1C-RUN-PLAN.md) and is the
   owner's, on the Mac mini.
 - M2, M5 and M6 safety claims: 0 failures ([docs/PREREGISTRATION-SAFETY.md](PREREGISTRATION-SAFETY.md)).
-  M2 and M6 have sealed records (#324).
+  M2 and M6 have sealed records (#324), made in a Linux cloud container at commit `4c236d7`.
+  That commit is only on the branch `research/321-sealed-safety-records`: never delete that
+  branch (#399).
 - P3 (the operations paper): the incident catalog holds 27 real incidents ([INCIDENTS.md](INCIDENTS.md)).
   The weekly eval job, the memory budget check and drafts for four A/B tests and an exploratory
   H2 rerun are merged ([P3-AB-DESIGN-DRAFT.md](P3-AB-DESIGN-DRAFT.md),
@@ -81,22 +84,28 @@ be redone. The detail lives in the documents it links; this page only points.
 
 In this order:
 
-1. Read last night's job logs: `sudo tail -n 20 /var/log/homelab/backup.log /var/log/homelab/selftest.log`.
-   Comment the backup result on [#67](https://github.com/roshanaryal1/home-lab/issues/67).
-2. Redeploy `main`: runbook section "Updating the deployed code"
+1. Done 2026-10-13: the job logs showed nightly backups 2026-10-07 to 2026-10-12, each
+   restore-checked, and five self-test runs all ok; #270 closed, the result is on
+   [#67](https://github.com/roshanaryal1/home-lab/issues/67).
+2. Done 2026-10-13 (`4bfa910` to `5105422`, schema 16 to 17; result in the runbook section).
+   For later updates, redeploy `main`: runbook section "Updating the deployed code"
    ([ops/runbook-lab-account-and-daemons.md](../ops/runbook-lab-account-and-daemons.md)).
    `lab update --plan COMMIT`, run as yourself, prints that section's steps with the deployed
    commit, the new commit and the installed jobs filled in. It runs no sudo. The update
    takes a backup before anything changes, stops the supervisor and `lab tick` before the
    checkout, tries the new migrations on a copy (`migrate --check`, #356) before anything starts
    again, and its `uv sync` keeps the test tools (`--extra dev`) the nightly self-test needs.
-   After the next 03:17 self-test passes, close
-   [#270](https://github.com/roshanaryal1/home-lab/issues/270).
 3. Run `lab doctor` as `lab` with the service's `LAB_` values (INSTALL.md, first run). Every line
    should say `ok`. Then run `lab security-audit` the same way, and again as yourself. Each
    account can read different files, so a line may say `skip`. No line should say `FAIL`. Use
-   `--details` only in your own Terminal: it names the paths that failed.
-4. Run the injection suite against the served model, as yourself from a checkout of `main`,
+   `--details` only in your own Terminal: it names the paths that failed. On 2026-10-13 the audit
+   reported `config: FAIL` for two files that setup installs as `lab` (the heartbeat URL and the
+   Telegram alert config). That was a bug in the audit, fixed in
+   [#404](https://github.com/roshanaryal1/home-lab/pull/404) (issue
+   [#403](https://github.com/roshanaryal1/home-lab/issues/403)). The fix is not on the Mac mini until
+   the next update, so run the audit again after that update.
+4. Done 2026-10-13: 0 of 27 attacks succeeded, utility 23 of 27 ([INJECTION-SUITE.md](INJECTION-SUITE.md)).
+   To repeat it, run the injection suite against the served model, as yourself from a checkout of `main`,
    with the model server running on loopback. It never opens the lab's database:
    `uv run lab injection-suite --endpoint http://127.0.0.1:8080/v1 --model NAME --revision HASH --weights-mb N`
    ([INJECTION-SUITE.md](INJECTION-SUITE.md)). Add the result to that page's table. If any case
@@ -104,24 +113,37 @@ In this order:
 5. Install the weekly eval job and fill its four `PASTE_` values (same runbook section), so P3's
    six weekly runs start. Install the log rotation rules and dry-run them (runbook, "Log
    rotation for the launchd logs").
-6. Move the backup's Full Disk Access to its launcher: runbook section "Moving the backup's Full
-   Disk Access to its launcher" ([#287](https://github.com/roshanaryal1/home-lab/issues/287)). It ends
-   by turning Terminal's Full Disk Access off.
-7. The two #312 checks above, then merge and follow its runbook section.
+6. Done 2026-10-13: the backup's Full Disk Access is granted to its launcher, and python3.13 was
+   removed from Full Disk Access; a scheduled-style kickstart passed (comment on
+   [#287](https://github.com/roshanaryal1/home-lab/issues/287), runbook section "Moving the backup's
+   Full Disk Access to its launcher"). Still open: turn Terminal's Full Disk Access off, then confirm
+   that the 02:47 run on 2026-10-14 passes through the launcher. #287 stays open until both are done.
+7. Done 2026-10-13: both #312 checks passed (comment on
+   [#235](https://github.com/roshanaryal1/home-lab/issues/235)) and #312 is merged. Its keep-awake
+   definition is not reinstalled on the Mac mini yet. Follow the runbook section "Moving keep-awake
+   to the lab account", steps 2 to 4 (deploy, reinstall and reload, then check with a task active).
+   #235 stays open until that check is recorded there.
 8. Replace the outside heartbeat check. The heartbeat job and its outside check were set up on
    2026-10-07 and the job pinged it. Make a new check and rerun the heartbeat URL step; the reason
    is in the owner's private notes. Also turn off browser Apple Events and Accessibility
    permissions used for the OSF work.
 9. Run H1c on the Mac mini ([H1C-RUN-PLAN.md](H1C-RUN-PLAN.md)).
-10. Drills: interrupted task with a power pull (`lab drill interrupted`, [#91](https://github.com/roshanaryal1/home-lab/issues/91), [#77](https://github.com/roshanaryal1/home-lab/issues/77)),
-    network unplug ([#79](https://github.com/roshanaryal1/home-lab/issues/79)), `/stop` from the chat bot,
-    monthly restore drill (setup section 10).
+10. Drills still open: interrupted task with a power pull (`lab drill interrupted`, [#91](https://github.com/roshanaryal1/home-lab/issues/91), [#77](https://github.com/roshanaryal1/home-lab/issues/77)),
+    and network unplug ([#79](https://github.com/roshanaryal1/home-lab/issues/79)). `/stop` from the
+    chat bot stopped the lab on the Mac mini on 2026-10-13 (comment on #79). Resuming after a stop
+    needs the operator key and the database together, which is open as
+    [#408](https://github.com/roshanaryal1/home-lab/issues/408). Read the comments there before
+    resuming by hand.
+    The monthly restore drill for the database passed on 2026-10-13 (PR
+    [#407](https://github.com/roshanaryal1/home-lab/pull/407), closes #67). Artifact recovery is not
+    demonstrated, because that database holds no artifacts. The monthly repeat continues (setup
+    section 10).
 11. Fresh-account install test on another Mac ([#188](https://github.com/roshanaryal1/home-lab/issues/188),
     [ops/install-validation.md](../ops/install-validation.md)).
-12. Delete the branch `research/321-memory-budget`. It was replaced by
-    `research/321-memory-budget-check` and only exists because the session's git access cannot
-    delete a remote branch. `.gitleaksignore` names one of its commits; that line can go once the
-    branch is deleted.
+12. Done 2026-10-13: the remote branch `research/321-memory-budget` is deleted. It was replaced by
+    `research/321-memory-budget-check`. `.gitleaksignore` still names one of its commits; that line
+    can go in a separate change. Keep `research/321-sealed-safety-records`: it holds the commit
+    the M2 and M6 records name (#399).
 13. Switch the website on when you want it public: [WEBSITE.md](WEBSITE.md) (GitHub Pages from
     Actions, and the repository variable `PAGES_ENABLED` set to `true`), then run the pages
     workflow once by hand. Until then the Pages workflow does nothing.

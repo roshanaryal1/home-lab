@@ -144,7 +144,9 @@ matters needs a third destination as well.
 - [ ] Queue-aware sleep prevention (built: `lab keepawake`): install
       `com.homelab.keepawake.plist`, queue a task, and confirm with
       `pmset -g assertions` that `caffeinate` holds the machine while work is
-      pending and releases it after the grace period.
+      pending and releases it after the grace period. Since #235 it runs as
+      `lab`; the check and the steps are in the runbook, "Moving keep-awake to
+      the lab account".
 - [ ] Confirm startup recovery works: kill the supervisor mid-task,
       restart it, and check that an idempotent task requeues while a
       non-idempotent one is held for review. The test suite covers this
@@ -247,6 +249,9 @@ on the mini. Export `LAB_TARGET=mac-mini` so the record says so.
       `restore check ok`.
 - [ ] Move the backup's Full Disk Access from the interpreter to the launcher
       (#287): runbook, "Moving the backup's Full Disk Access to its launcher".
+      Moved 2026-10-13: the kickstarted run through the launcher passed and the
+      interpreter is gone from the list. Left: the next 02:47 run on its own
+      schedule, and turning Terminal's Full Disk Access off.
       Afterwards the grant covers only `/opt/homelab-backup/lab-backup` and what
       it starts (the backup, and the alert command when the backup fails), not
       the lab services or the root-run daemons, which run the interpreter
@@ -842,8 +847,21 @@ never the alert bot and never the old shell bot. Press Start on it once.
       Mac, at the keyboard or over SSH on the tailnet, with the operator key.
       There is no way to sign from the phone yet.
 - [ ] `/stop` from the phone, then `lab control show` on the Mac says
-      `stopped` and `set by chat:<id>`. Resume with
-      `lab control resume --key ~/.lab-operator/operator.key`; the chat cannot.
+      `stopped` and `set by chat:<id>`. Done 2026-10-13. Resume on the Mac in three
+      steps, so the operator key never enters a process running as `lab` (#408): the
+      `lab` account prints the generation to sign, you sign it in your own process, and
+      the `lab` account stores the signature. The chat cannot resume.
+
+      ```sh
+      PY=/opt/homelab/.venv/bin/python
+      N=$(sudo -u lab $PY -m lab.cli --db /var/homelab/lab.db control resume-request)
+      S=$($PY -I -m lab.cli operator sign-resume --generation $N --key ~/.lab-operator/operator.key)
+      sudo -u lab $PY -m lab.cli --db /var/homelab/lab.db control resume --by <you> --generation $N --signature $S
+      ```
+
+      Approving works the same way: `approve <id> --request` as `lab` prints the id, hash
+      and window; `operator sign-approval` signs them as you; `approve <id> --signature`
+      stores the grant as `lab`. The chat's approval message prints all three commands.
 - [x] Retire the raw-shell bot (#184). Done 2026-10-07: bot deleted in BotFather
       (its token is dead), its LaunchAgent `com.homelab.telegram-bot` stopped and
       its plist removed from `~/Library/LaunchAgents`, its token and TOTP secret
