@@ -26,8 +26,10 @@ the services and the permissions.
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import stat
 import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -280,15 +282,25 @@ def check_code(deploy: Path, package: Path = LAB_PACKAGE) -> Check:
 
 
 def check_deployed(commit: str, deploy: Path, run: Runner = subprocess.run) -> Check:
-    """The deployed checkout is at COMMIT."""
+    """The deployed checkout is at COMMIT, with no changed or new file in it. Ignored files,
+    such as the environment in .venv, do not count."""
     try:
         old, _present, _writers = gather(commit, deploy, Path(os.devnull), run)
     except UpdateError as exc:
         return Check("deployed", False, f"{exc}, so check {deploy}")
-    if old == commit:
-        return Check("deployed", True)
-    return Check("deployed", False, f"{deploy} is at {old}, not {commit}, so run the checkout "
-                 "block of the update again")
+    if old != commit:
+        return Check("deployed", False, f"{deploy} is at {old}, not {commit}, so run the "
+                     "checkout block of the update again")
+    # --no-optional-locks: git status must not try to write the index of a checkout the
+    # account running this cannot write.
+    status = _git(run, deploy, "--no-optional-locks", "status", "--porcelain")
+    if status.returncode != 0:
+        return Check("deployed", False, f"cannot read the state of the files in {deploy}")
+    if status.stdout.strip():
+        changed = len(status.stdout.splitlines())
+        return Check("deployed", False, f"{deploy} is at {commit} but {changed} files differ "
+                     "from it, so run the checkout block of the update again")
+    return Check("deployed", True)
 
 
 def check_before_update_backup(folder: Path | None, now: datetime | None = None) -> Check:
@@ -309,6 +321,31 @@ def check_before_update_backup(folder: Path | None, now: datetime | None = None)
         return Check("before-update backup", False, f"cannot read the time in {newest.name}")
     age = (now or datetime.now(UTC)) - taken
     if timedelta(0) <= age < BEFORE_UPDATE_MAX_AGE:
+        problem = _backup_problem(newest)
+        if problem:
+            return Check("before-update backup", False, f"{newest.name}: {problem}, so take "
+                         "the backup the update section starts with again")
         return Check("before-update backup", True, newest.name)
     return Check("before-update backup", False, f"the newest backup there, {newest.name}, is "
                  "not from the last 24 hours, so take the backup the update section starts with")
+
+
+def _backup_problem(manifest: Path) -> str | None:
+    """Why the backup a manifest describes is not usable, or None. A light check: the
+    manifest reads, and its database file is there with the size it records. The backup
+    command restore-checked it in full when it wrote it."""
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        database = manifest.parent / data["database"]
+        size = int(data["database_bytes"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return "the manifest cannot be read"
+    if Path(data["database"]).name != data["database"]:
+        return "the manifest names a database outside its folder"
+    try:
+        actual = os.lstat(database)
+    except OSError:
+        return "its database file is missing"
+    if not stat.S_ISREG(actual.st_mode) or actual.st_size != size:
+        return "its database file is not the one the manifest records"
+    return None

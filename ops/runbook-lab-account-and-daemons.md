@@ -637,8 +637,9 @@ sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db up
 - `launchctl print` shows the tick job's details, not an error.
 - `touch` is refused with `Permission denied`.
 - `update --verify` (#339) prints one line per check and no `FAIL` line. It checks
-  that it runs from `/opt/homelab`, that the checkout is at `COMMIT` and that the
-  backup folder holds a backup from the last 24 hours, then runs every `lab doctor`
+  that it runs from `/opt/homelab`, that the checkout is at `COMMIT` with no
+  changed file, and that the backup folder holds a backup from the last 24 hours
+  whose database file is there, then runs every `lab doctor`
   check: the schema version, the operator key, the services and the permissions
   among them. A `skip` line names a check it could not run here. `sudo -u lab`
   starts without the services' `LAB_` settings, so the model and nightly backup

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from collections.abc import Iterator
@@ -339,8 +340,11 @@ def test_check_deployed_fails_when_git_cannot_read_the_folder(tmp_path: Path) ->
 
 
 def _manifest(folder: Path, stamp: str) -> None:
+    """A manifest and the database file it names, as lab backup writes them."""
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / f"lab-{stamp}.manifest.json").write_text("{}\n", encoding="utf-8")
+    (folder / f"lab-{stamp}.db").write_bytes(b"x" * 10)
+    (folder / f"lab-{stamp}.manifest.json").write_text(
+        json.dumps({"database": f"lab-{stamp}.db", "database_bytes": 10}), encoding="utf-8")
 
 
 NOW = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
@@ -402,3 +406,49 @@ def test_backup_dir_without_verify_is_refused(
 def test_verify_refuses_a_short_commit(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["update", "--verify", "abc123"]) == 1
     assert capsys.readouterr().err == REFUSED
+
+
+def test_check_deployed_fails_for_a_changed_or_new_file(deploy: Path) -> None:
+    head = _git(deploy, "rev-parse", "HEAD")
+    (deploy / "README.md").write_text("changed\n", encoding="utf-8")
+    check = update_plan.check_deployed(head, deploy)
+    assert not check.ok
+    assert "1 files differ from it" in check.message
+    _git(deploy, "checkout", "--", "README.md")
+    (deploy / "extra.py").write_text("x = 1\n", encoding="utf-8")
+    assert not update_plan.check_deployed(head, deploy).ok
+
+
+def test_check_deployed_ignores_ignored_files(deploy: Path) -> None:
+    (deploy / ".gitignore").write_text(".venv/\n", encoding="utf-8")
+    _git(deploy, "add", ".gitignore")
+    _git(deploy, "-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-q",
+         "-m", "ignore")
+    (deploy / ".venv").mkdir()
+    (deploy / ".venv" / "python").write_text("", encoding="utf-8")
+    assert update_plan.check_deployed(_git(deploy, "rev-parse", "HEAD"), deploy).ok
+
+
+@pytest.mark.parametrize(("change", "problem"), [
+    ("unreadable", "the manifest cannot be read"),
+    ("no database", "its database file is missing"),
+    ("wrong size", "its database file is not the one the manifest records"),
+    ("outside", "the manifest names a database outside its folder"),
+])
+def test_a_recent_backup_that_is_not_usable_fails(
+        change: str, problem: str, tmp_path: Path) -> None:
+    stamp = "20261022T110000Z"
+    _manifest(tmp_path, stamp)
+    manifest = tmp_path / f"lab-{stamp}.manifest.json"
+    if change == "unreadable":
+        manifest.write_text("{", encoding="utf-8")
+    elif change == "no database":
+        (tmp_path / f"lab-{stamp}.db").unlink()
+    elif change == "wrong size":
+        (tmp_path / f"lab-{stamp}.db").write_bytes(b"x")
+    else:
+        manifest.write_text(json.dumps({"database": "../lab.db", "database_bytes": 10}),
+                            encoding="utf-8")
+    check = update_plan.check_before_update_backup(tmp_path, NOW)
+    assert not check.ok
+    assert check.message.startswith(f"lab-{stamp}.manifest.json: {problem}, so ")
