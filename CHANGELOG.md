@@ -15,6 +15,11 @@ They are a draft until the owner approves them.
   `lab restore --plan MANIFEST` prints the runbook's new steps for putting a
   backup back into service, without running sudo
   ([#339](https://github.com/roshanaryal1/home-lab/issues/339)).
+- `lab update --verify COMMIT [--backup-dir DIR]`: a read-only check after the
+  owner's update run. It checks that it runs from the deployed code, that the
+  checkout is at `COMMIT` and that the update's backup is from the last 24 hours,
+  then runs every `lab doctor` check. The runbook's start-again block ends with it
+  ([#339](https://github.com/roshanaryal1/home-lab/issues/339)).
 - A read-only `/today` page on the status page, and `/today.json` with the same
   data. It lists the local day's tasks created, finished, waiting for approval and
   refused by policy, the approvals decided, the schedules fired and the egress and

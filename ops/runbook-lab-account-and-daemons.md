@@ -471,7 +471,7 @@ IDLE and running, the tick job loaded, and `lab` refused a write to
 source and the new weekly eval plist; none was reinstalled in that update,
 because the launcher move and the weekly eval job are their own steps below.
 
-`lab update --plan COMMIT` prints the blocks in this section with the values for this install filled in. It is read-only: it runs no sudo and writes no file.
+`lab update --plan COMMIT` prints the blocks in this section with the values for this install filled in. It is read-only: it runs no sudo and writes no file. `lab update --verify COMMIT`, the last line of the start-again block, checks the install afterwards; it is read-only too.
 
 The weekly eval job (`com.homelab.weekly-eval`, #321) is new, so the owner
 installs it as in this section: it shows in the `diff --stat` as a new file.
@@ -625,6 +625,7 @@ ps -o user=,pid= -p $(pgrep -f lab.supervisor)
 sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db status | head -3
 sudo launchctl print system/com.homelab.tick | head -3
 sudo -u lab /usr/bin/touch /opt/homelab/x
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db update --verify "$COMMIT" --backup-dir "$BACKUP_VOLUME/home-lab-backups/before-update"
 ```
 
 - `rev-parse` prints the commit you asked for.
@@ -635,6 +636,14 @@ sudo -u lab /usr/bin/touch /opt/homelab/x
   bootstrap again.
 - `launchctl print` shows the tick job's details, not an error.
 - `touch` is refused with `Permission denied`.
+- `update --verify` (#339) prints one line per check and no `FAIL` line. It checks
+  that it runs from `/opt/homelab`, that the checkout is at `COMMIT` with no
+  changed file, and that the backup folder holds a backup from the last 24 hours
+  whose database file is there, then runs every `lab doctor`
+  check: the schema version, the operator key, the services and the permissions
+  among them. A `skip` line names a check it could not run here. `sudo -u lab`
+  starts without the services' `LAB_` settings, so the model and nightly backup
+  checks use their defaults. In a rollback, verify with `OLD` in place of `COMMIT`.
 
 If the supervisor does not start, its reason is in
 `/var/log/homelab/supervisor.err`.
