@@ -570,3 +570,59 @@ def test_a_manifest_from_before_settings_restores_with_none(tmp_path: Path, live
     report = backup.restore_check(manifest, tmp_path / "restored")
     assert report.ok, report.problems
     assert report.config_restored == 0
+
+
+def test_the_chat_definition_and_a_definition_with_a_secret_stay_out(
+        tmp_path: Path, live) -> None:
+    _q, db, store = live
+    pub, daemons = _settings(tmp_path)
+    (daemons / "com.homelab.chat.plist").write_text("<plist>token</plist>\n", encoding="utf-8")
+    (daemons / "com.homelab.tick.plist").write_text(
+        "<key>LAB_SECRET_X</key><string>s</string>\n", encoding="utf-8")
+    paths = backup.installed_config(pub, daemons)
+    assert daemons / "com.homelab.chat.plist" not in paths
+    with pytest.raises(backup.BackupError, match="not a settings file"):
+        backup.backup(db, tmp_path / "bk0", store.root,
+                      config=[daemons / "com.homelab.chat.plist"])
+    manifest = backup.backup(db, tmp_path / "bk", store.root, config=paths)
+    data = json.loads(manifest.read_text())
+    assert {Path(e["path"]).name: e["reason"] for e in data["config_skipped"]} == {
+        "com.homelab.tick.plist": "names a secret"}
+    assert "LAB_SECRET_" not in manifest.read_text()
+
+
+def test_a_fifo_with_a_settings_name_is_skipped_without_hanging(tmp_path: Path, live) -> None:
+    _q, db, store = live
+    fifo = tmp_path / "com.homelab.tick.plist"
+    os.mkfifo(fifo)
+    manifest = backup.backup(db, tmp_path / "bk", store.root, config=[fifo])
+    data = json.loads(manifest.read_text())
+    assert data["config_skipped"] == [{"path": str(fifo), "reason": "not a regular file"}]
+
+
+def test_restore_reports_skipped_settings_without_failing(
+        tmp_path: Path, live, capsys: pytest.CaptureFixture[str]) -> None:
+    _q, db, store = live
+    fifo = tmp_path / "com.homelab.tick.plist"
+    os.mkfifo(fifo)
+    manifest = backup.backup(db, tmp_path / "bk", store.root, config=[fifo])
+    assert main(["restore-check", str(manifest), "--into", str(tmp_path / "r")]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-2] == "note: the backup has no copy of com.homelab.tick.plist " \
+        "(not a regular file)"
+    assert lines[-1].startswith("ok: ")
+
+
+@pytest.mark.parametrize("text", ["x" * (backup.CONFIG_MAX_BYTES + 1), "\ud800"])
+def test_an_oversized_or_unencodable_settings_entry_fails_the_restore(
+        text: str, tmp_path: Path, live) -> None:
+    _q, db, store = live
+    pub, _daemons = _settings(tmp_path)
+    manifest = backup.backup(db, tmp_path / "bk", store.root, config=[pub])
+    data = json.loads(manifest.read_text())
+    data["config"][0]["text"] = text
+    data["config"][0]["sha256"] = "0" * 64
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    report = backup.restore_check(manifest, tmp_path / "restored")
+    assert not report.ok
+    assert not (tmp_path / "restored" / "config" / "operator.pub").exists()

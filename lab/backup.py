@@ -30,8 +30,11 @@ definitions into the manifest as text, with a hash each, and ``restore_check``
 writes them into ``config/`` beside the restored database after checking each
 hash. Only those names are taken, so the alert settings, the heartbeat URL and
 every other secret stay out of the backup; they are recreated as the setup
-guide says. A file that is missing is left out, and one that cannot be read is
-named in the manifest with the reason.
+guide says. The chat definition is never taken, because setup puts the bot
+token in it, and any definition that names a ``LAB_SECRET_`` value is skipped. A
+file that is missing is left out, and one that cannot be read is named in the
+manifest with the reason. The restored copies are for reading the values back,
+never for installing: they sit in a folder the lab account can write.
 """
 
 from __future__ import annotations
@@ -59,8 +62,10 @@ _CHUNK = 1024 * 1024
 OPERATOR_PUB = Path("/etc/homelab/operator.pub")
 LAUNCH_DAEMONS = Path("/Library/LaunchDaemons")
 CONFIG_MAX_BYTES = 64 * 1024
-# The only names a backup takes as settings. None of them holds a secret.
+# The only names a backup takes as settings. The chat definition holds the bot token.
 _CONFIG_NAME = re.compile(r"^(operator\.pub|com\.homelab\.[a-z][a-z-]*\.plist)$")
+_SECRET_CONFIG = frozenset({"com.homelab.chat.plist"})
+_SECRET_MARK = b"LAB_SECRET_"
 
 
 class BackupError(RuntimeError):
@@ -131,7 +136,8 @@ def installed_config(operator_pub: Path = OPERATOR_PUB,
     each installed ``com.homelab.*`` service definition, in name order."""
     try:
         plists = sorted(entry.name for entry in os.scandir(launch_daemons)
-                        if _CONFIG_NAME.match(entry.name) and entry.name != "operator.pub")
+                        if _CONFIG_NAME.match(entry.name) and entry.name != "operator.pub"
+                        and entry.name not in _SECRET_CONFIG)
     except OSError:
         plists = []
     return [operator_pub, *(launch_daemons / name for name in plists)]
@@ -143,10 +149,12 @@ def _read_config(paths: list[Path]) -> tuple[list[dict[str, Any]], list[dict[str
     taken: list[dict[str, Any]] = []
     skipped: list[dict[str, str]] = []
     for path in paths:
-        if not _CONFIG_NAME.match(path.name):
+        if not _CONFIG_NAME.match(path.name) or path.name in _SECRET_CONFIG:
             raise BackupError(f"{path.name} is not a settings file a backup takes")
         try:
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            # O_NONBLOCK: a FIFO with that name must not hang the backup. A regular
+            # file reads the same either way.
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
         except FileNotFoundError:
             continue
         except OSError as exc:
@@ -159,6 +167,9 @@ def _read_config(paths: list[Path]) -> tuple[list[dict[str, Any]], list[dict[str
             data = stream.read(CONFIG_MAX_BYTES + 1)
         if len(data) > CONFIG_MAX_BYTES:
             skipped.append({"path": str(path), "reason": "larger than 64 KiB"})
+            continue
+        if _SECRET_MARK in data:
+            skipped.append({"path": str(path), "reason": "names a secret"})
             continue
         try:
             text = data.decode("utf-8")
@@ -275,6 +286,9 @@ class RestoreReport:
     events: int = 0
     artifacts_checked: int = 0
     config_restored: int = 0
+    # Settings files the backup could not take, from the manifest. Reported, not a failure:
+    # the database and artifacts still restore.
+    config_skipped: list[str] = field(default_factory=list)
 
     def fail(self, message: str) -> None:
         self.ok = False
@@ -387,6 +401,10 @@ def restore_check(manifest_path: Path, into: Path) -> RestoreReport:
     finally:
         conn.close()
     _restore_config(manifest.get("config", []), into / "config", report)
+    skipped = manifest.get("config_skipped", [])
+    if isinstance(skipped, list):
+        report.config_skipped = [f"{Path(str(e.get('path', '?'))).name} ({e.get('reason', '?')})"
+                                 for e in skipped if isinstance(e, dict)]
     return report
 
 
@@ -401,10 +419,13 @@ def _restore_config(entries: Any, folder: Path, report: RestoreReport) -> None:
             name = Path(entry["path"]).name
             data = entry["text"].encode("utf-8")
             expected = entry["sha256"]
-        except (KeyError, TypeError, AttributeError):
+        except (KeyError, TypeError, AttributeError, UnicodeError):
             report.fail("a config entry in the manifest is not readable")
             continue
-        if not _CONFIG_NAME.match(name):
+        if len(data) > CONFIG_MAX_BYTES:
+            report.fail(f"config file {name} is larger than 64 KiB")
+            continue
+        if not _CONFIG_NAME.match(name) or name in _SECRET_CONFIG:
             report.fail(f"config entry {name!r} is not a settings file a backup takes")
             continue
         if hashlib.sha256(data).hexdigest() != expected:

@@ -3,6 +3,7 @@ into service (#339)."""
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -56,3 +57,16 @@ def test_the_command_does_not_open_the_database(tmp_path: Path) -> None:
     db = tmp_path / "absent.db"
     assert main(["--db", str(db), "restore", "--plan", MANIFEST]) == 0
     assert not db.exists()
+
+
+def test_an_existing_database_is_not_opened(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = tmp_path / "lab.db"
+    db.write_bytes(b"not a database")
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("the plan opened a database")
+
+    monkeypatch.setattr(sqlite3, "connect", refuse)
+    assert main(["--db", str(db), "restore", "--plan", MANIFEST]) == 0
+    assert db.read_bytes() == b"not a database"

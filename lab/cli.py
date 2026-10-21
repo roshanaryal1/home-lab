@@ -1495,6 +1495,8 @@ def cmd_backup(args: argparse.Namespace) -> int:
         return 1
     for problem in report.problems:
         print(f"FAILED: {problem}")
+    for note in report.config_skipped:
+        print(f"note: the backup has no copy of {_escape(note)}")
     print(f"{'ok' if report.ok else 'RESTORE FAILED'}: {report.events} audit events, "
           f"{report.artifacts_checked} artifact blobs checked, {report.config_restored} "
           f"settings files, restored to {report.database}")
