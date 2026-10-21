@@ -88,6 +88,7 @@ from lab import (
     mcp,
     metrics,
     publish,
+    restore_plan,
     rubric,
     security_audit,
     selftest,
@@ -851,6 +852,10 @@ def build_parser() -> argparse.ArgumentParser:
                         "with the values filled in; read-only, runs no sudo")
     up.add_argument("--plan", metavar="COMMIT", required=True,
                     help="the full 40 character commit to update to")
+    rs = sub.add_parser("restore", help="--plan MANIFEST: print the steps that put a backup "
+                        "back into service; read-only, runs no sudo")
+    rs.add_argument("--plan", metavar="MANIFEST", required=True,
+                    help="the absolute path of the backup's lab-<stamp>.manifest.json")
     sp = sub.add_parser("setup-plan", help="print (or, as root on macOS, apply) the lab-account "
                         "setup")
     sp.add_argument("--user", default="lab")
@@ -1399,6 +1404,18 @@ def cmd_update(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_restore(args: argparse.Namespace) -> int:
+    """Read-only, and dispatched before the queue opens. It prints the runbook's steps
+    for putting a backup back into service, with the manifest filled in."""
+    try:
+        text = restore_plan.render(args.plan)
+    except restore_plan.RestorePlanError as exc:
+        print(f"restore: {_escape(exc)}", file=sys.stderr)
+        return 1
+    sys.stdout.write(text)
+    return 0
+
+
 def _backup_destination(args: argparse.Namespace) -> Path:
     if args.to is not None:
         return Path(args.to)
@@ -1427,7 +1444,8 @@ def cmd_scheduled_backup(args: argparse.Namespace) -> int:
             # Rotation deletes files, so it only works in the folder it was given.
             return failed(f"{dest} is a symlink; give the real directory")
         store = args.artifacts if args.artifacts is not None else args.db.parent / "artifacts"
-        path = backup.backup(args.db, dest, store if store.exists() else None)
+        path = backup.backup(args.db, dest, store if store.exists() else None,
+                             config=backup.installed_config())
         print(f"wrote {path}")
         if args.keep is None:
             return 0
@@ -1460,7 +1478,8 @@ def cmd_backup(args: argparse.Namespace) -> int:
     for problem in report.problems:
         print(f"FAILED: {problem}")
     print(f"{'ok' if report.ok else 'RESTORE FAILED'}: {report.events} audit events, "
-          f"{report.artifacts_checked} artifact blobs checked, restored to {report.database}")
+          f"{report.artifacts_checked} artifact blobs checked, {report.config_restored} "
+          f"settings files, restored to {report.database}")
     return 0 if report.ok else 1
 
 
@@ -2389,6 +2408,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         return cmd_export(args)
     if args.command == "update":
         return cmd_update(args)
+    if args.command == "restore":
+        return cmd_restore(args)
     if args.command == "keepawake":
         return cmd_keepawake(args)
     if args.command == "shadow":

@@ -23,6 +23,15 @@ name ``backup`` writes, that parses and names its own database file, that
 database, and blobs that only the deleted backups referenced.
 Anything else in the folder is left alone, and no symlink is followed,
 not even one that has a backup's name.
+
+A restore also needs the install's public settings (#339). ``backup`` copies
+the operator's public key and the installed ``com.homelab.*`` service
+definitions into the manifest as text, with a hash each, and ``restore_check``
+writes them into ``config/`` beside the restored database after checking each
+hash. Only those names are taken, so the alert settings, the heartbeat URL and
+every other secret stay out of the backup; they are recreated as the setup
+guide says. A file that is missing is left out, and one that cannot be read is
+named in the manifest with the reason.
 """
 
 from __future__ import annotations
@@ -47,6 +56,11 @@ from lab.migrations import latest_version, online_copy
 
 MANIFEST_VERSION = 1
 _CHUNK = 1024 * 1024
+OPERATOR_PUB = Path("/etc/homelab/operator.pub")
+LAUNCH_DAEMONS = Path("/Library/LaunchDaemons")
+CONFIG_MAX_BYTES = 64 * 1024
+# The only names a backup takes as settings. None of them holds a secret.
+_CONFIG_NAME = re.compile(r"^(operator\.pub|com\.homelab\.[a-z][a-z-]*\.plist)$")
 
 
 class BackupError(RuntimeError):
@@ -111,11 +125,58 @@ def _referenced_blobs(conn: sqlite3.Connection, version: int) -> list[str]:
     return [str(row[0]) for row in rows]
 
 
+def installed_config(operator_pub: Path = OPERATOR_PUB,
+                     launch_daemons: Path = LAUNCH_DAEMONS) -> list[Path]:
+    """The settings files a backup takes on this machine: the operator's public key and
+    each installed ``com.homelab.*`` service definition, in name order."""
+    try:
+        plists = sorted(entry.name for entry in os.scandir(launch_daemons)
+                        if _CONFIG_NAME.match(entry.name) and entry.name != "operator.pub")
+    except OSError:
+        plists = []
+    return [operator_pub, *(launch_daemons / name for name in plists)]
+
+
+def _read_config(paths: list[Path]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Each settings file as text with its hash, and each one that could not be read.
+    A missing file is left out. A name outside the list is refused, not read."""
+    taken: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    for path in paths:
+        if not _CONFIG_NAME.match(path.name):
+            raise BackupError(f"{path.name} is not a settings file a backup takes")
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            skipped.append({"path": str(path), "reason": exc.strerror or type(exc).__name__})
+            continue
+        with os.fdopen(fd, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                skipped.append({"path": str(path), "reason": "not a regular file"})
+                continue
+            data = stream.read(CONFIG_MAX_BYTES + 1)
+        if len(data) > CONFIG_MAX_BYTES:
+            skipped.append({"path": str(path), "reason": "larger than 64 KiB"})
+            continue
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            skipped.append({"path": str(path), "reason": "not UTF-8 text"})
+            continue
+        taken.append({"path": str(path), "sha256": hashlib.sha256(data).hexdigest(),
+                      "text": text})
+    return taken, skipped
+
+
 def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
-           now: datetime | None = None) -> Path:
-    """Snapshot ``db_path`` and its artifacts into ``dest``; return the manifest path."""
+           now: datetime | None = None, config: list[Path] | None = None) -> Path:
+    """Snapshot ``db_path`` and its artifacts into ``dest``; return the manifest path.
+    ``config`` names the settings files to take as well (see ``installed_config``)."""
     db_path = Path(db_path)
     _check_database_path(db_path)
+    config_taken, config_skipped = _read_config(config or [])
     dest = Path(dest)
     dest.mkdir(mode=0o700, parents=True, exist_ok=True)
     stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
@@ -194,6 +255,8 @@ def backup(db_path: Path, dest: Path, artifacts_dir: Path | None = None, *,
         "artifact_blobs_copied": artifacts_copied,
         "blobs": len(blob_digests),
         "blobs_copied": copied,
+        "config": config_taken,
+        "config_skipped": config_skipped,
     }
     manifest_path = dest / f"{name}.manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -211,6 +274,7 @@ class RestoreReport:
     database: Path | None = None
     events: int = 0
     artifacts_checked: int = 0
+    config_restored: int = 0
 
     def fail(self, message: str) -> None:
         self.ok = False
@@ -322,7 +386,40 @@ def restore_check(manifest_path: Path, into: Path) -> RestoreReport:
         report.fail(f"database cannot be read: {exc}")
     finally:
         conn.close()
+    _restore_config(manifest.get("config", []), into / "config", report)
     return report
+
+
+def _restore_config(entries: Any, folder: Path, report: RestoreReport) -> None:
+    """Write each settings file of the manifest into ``folder`` after checking its hash.
+    A manifest from before #339 has none, which is not a failure."""
+    if not isinstance(entries, list):
+        report.fail("the manifest's config list is not a list")
+        return
+    for entry in entries:
+        try:
+            name = Path(entry["path"]).name
+            data = entry["text"].encode("utf-8")
+            expected = entry["sha256"]
+        except (KeyError, TypeError, AttributeError):
+            report.fail("a config entry in the manifest is not readable")
+            continue
+        if not _CONFIG_NAME.match(name):
+            report.fail(f"config entry {name!r} is not a settings file a backup takes")
+            continue
+        if hashlib.sha256(data).hexdigest() != expected:
+            report.fail(f"config file {name} does not match its hash in the manifest")
+            continue
+        try:
+            folder.mkdir(mode=0o700, exist_ok=True)
+            fd = os.open(folder / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                         | os.O_CLOEXEC, 0o600)
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
+        except OSError as exc:
+            report.fail(f"config file {name} cannot be written ({type(exc).__name__})")
+            continue
+        report.config_restored += 1
 
 
 _MANIFEST_NAME = re.compile(r"^lab-(\d{8}T\d{6}Z)\.manifest\.json$")

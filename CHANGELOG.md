@@ -9,6 +9,12 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- A backup also holds the operator's public key and the installed
+  `com.homelab.*` service definitions, with a hash each, and its restore check
+  writes them into `config/` beside the restored database. Secrets stay out.
+  `lab restore --plan MANIFEST` prints the runbook's new steps for putting a
+  backup back into service, without running sudo
+  ([#339](https://github.com/roshanaryal1/home-lab/issues/339)).
 - A read-only `/today` page on the status page, and `/today.json` with the same
   data. It lists the local day's tasks created, finished, waiting for approval and
   refused by policy, the approvals decided, the schedules fired and the egress and
