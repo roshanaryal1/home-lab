@@ -9,6 +9,12 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- A backup also holds the operator's public key and the installed
+  `com.homelab.*` service definitions, with a hash each, and its restore check
+  writes them into `config/` beside the restored database. Secrets stay out.
+  `lab restore --plan MANIFEST` prints the runbook's new steps for putting a
+  backup back into service, without running sudo
+  ([#339](https://github.com/roshanaryal1/home-lab/issues/339)).
 - `lab update --verify COMMIT [--backup-dir DIR]`: a read-only check after the
   owner's update run. It checks that it runs from the deployed code, that the
   checkout is at `COMMIT` and that the update's backup is from the last 24 hours,

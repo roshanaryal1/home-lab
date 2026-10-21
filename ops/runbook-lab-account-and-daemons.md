@@ -686,6 +686,100 @@ backup taken at the start of this section instead:
 writes a checked `lab.db` there, which goes in place the same way as the copy in
 step 2.
 
+## Putting a backup back into service
+
+Do this when the live database is lost or damaged, or to move the lab to another
+Mac that already has the lab account and `/opt/homelab` from steps 2 and 3 (#339).
+It puts a backup's database and artifacts in place of the live ones, and leaves the
+live ones in a dated folder, so nothing is deleted. Not yet drilled on the Mac mini:
+the first run is recorded in `ops/drills/log/` and the drills README.
+
+`lab restore --plan MANIFEST` prints this section with the manifest filled in. It is
+read-only: it runs no sudo and writes no file.
+
+What a backup holds: the database, every artifact and file the database refers to,
+the operator's public key and the installed `com.homelab.*` service definitions
+except the chat one. It does not hold the alert settings, the Telegram settings,
+the chat definition (setup puts the bot token in it) or the heartbeat URL,
+because those are secrets. On a new Mac, recreate
+them as step 4 of this runbook and sections 19 and 23 of `ops/mac-mini-setup.md`
+say.
+
+Do the whole section in one Terminal window. Pick the backup first:
+`sudo ls "$BACKUP_VOLUME/home-lab-backups"` lists the nightly ones, newest last by
+name, and `before-update/` holds the ones taken before each update.
+
+```sh
+MANIFEST="PASTE_THE_MANIFEST"
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db restore-check "$MANIFEST" --into /var/homelab/restore-$STAMP
+```
+
+The last line must start with `ok:`. It names the audit events, the artifact blobs
+and the settings files it checked. A `note:` line names a settings file the backup
+has no copy of; the database still restores. A line that starts `RESTORE FAILED` means this
+backup cannot be used: pick an older one and run the block again. The check needs
+free space for one more copy of the database and its artifacts.
+
+Stop every job that opens the database, and check that none is left:
+
+```sh
+JOBS=(supervisor tick selftest weekly-eval chat keepawake statuscheck heartbeat watchdog backup)
+for s in "${JOBS[@]}"; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootout system/com.homelab.$s; fi; done
+for s in "${JOBS[@]}"; do if sudo launchctl print system/com.homelab.$s >/dev/null 2>&1; then echo "STILL LOADED: $s"; fi; done
+```
+
+The second loop prints nothing when every job is stopped. Do not go on while it
+prints `STILL LOADED`.
+
+Move the live files aside and put the restored ones in their place:
+
+```sh
+sudo -u lab sh -c "set -e; cd /var/homelab; mkdir -m 700 replaced-$STAMP; for f in lab.db lab.db-wal lab.db-shm artifacts; do if [ -e \$f ]; then mv \$f replaced-$STAMP/; fi; done; test ! -e lab.db; mv restore-$STAMP/lab.db lab.db; if [ -e restore-$STAMP/artifacts ]; then mv restore-$STAMP/artifacts artifacts; fi; chmod 600 lab.db; ls -ld lab.db artifacts"
+```
+
+`set -e` stops at the first move that fails, before anything is put in place. The
+listing must show `lab.db` owned by `lab` with `-rw-------`, and `artifacts`
+owned by `lab`. If it stops early, nothing was replaced: put back whatever went
+into `replaced-$STAMP` and start the jobs again.
+
+Compare the backup's settings with the installed ones:
+
+```sh
+sudo sh -c "cd /var/homelab/restore-$STAMP/config 2>/dev/null || { echo 'no settings in this backup'; exit 0; }; for f in *; do case \$f in operator.pub) t=/etc/homelab/operator.pub ;; *) t=/Library/LaunchDaemons/\$f ;; esac; if [ ! -e \$t ]; then echo \"NOT INSTALLED: \$f\"; elif ! cmp -s \$f \$t; then echo \"DIFFERS: \$f\"; fi; done"
+```
+
+- On the same Mac it normally prints nothing. `DIFFERS` means a setting changed
+  after the backup was taken: keep the installed file unless you know the
+  backup's one is right. A backup from before #339 prints `no settings in this
+  backup`.
+- `NOT INSTALLED` names a file to install on a new Mac. Never install it from the
+  restore folder: the lab account can write there. Install it from the repo, as
+  steps 2 and 4 of this runbook and section 23 of the setup guide say (the backup
+  launcher's section below for `com.homelab.backup`, which also needs this Mac's
+  backup volume path). Read the backup's copy only for the values to fill in,
+  such as the model revision of the weekly eval.
+
+Start the jobs again and check the install:
+
+```sh
+for s in "${JOBS[@]}"; do if [ -e /Library/LaunchDaemons/com.homelab.$s.plist ]; then sudo launchctl bootstrap system /Library/LaunchDaemons/com.homelab.$s.plist; fi; done
+sleep 10
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db status | head -3
+sudo -u lab /opt/homelab/.venv/bin/python -m lab.cli --db /var/homelab/lab.db update --verify "$(sudo git -C /opt/homelab rev-parse HEAD)"
+```
+
+- `status` shows `health` as `IDLE` or `OK` and `mode` as `running`. If the
+  backup's schema version is older than the code's, the supervisor upgrades it when
+  it starts, and keeps the old file as `lab.db.pre-vN.bak` beside it.
+- `update --verify` prints no `FAIL` line.
+
+**To undo,** stop the jobs as above, then put the live files back:
+`sudo -u lab sh -c "set -e; cd /var/homelab; mkdir -m 700 undone-$STAMP; for f in lab.db lab.db-wal lab.db-shm artifacts; do if [ -e \$f ]; then mv \$f undone-$STAMP/; fi; done; mv replaced-$STAMP/* .; ls -ld lab.db artifacts"`,
+and start the jobs. When the restored lab has run for a week, the
+`replaced-$STAMP` and `restore-$STAMP` folders can go, after a backup that
+restore-checks.
+
 ## Moving the backup's Full Disk Access to its launcher (#287, once)
 
 Do this once, the first time the deployed code has `ops/backup-launcher/`. Until
