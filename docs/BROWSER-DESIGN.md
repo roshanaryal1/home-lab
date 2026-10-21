@@ -19,9 +19,9 @@ Facts marked (unverified) were not checked against a primary source. Sources are
 ## 3. Where it runs and how
 
 - **Image.** A browser image of its own, separate from the `skill.run` image. It is pinned by digest. `check_image` in [lab/container.py](../lab/container.py) already refuses any other form. The digest does not exist yet. It is recorded when the image is built.
-- **Browser and library.** Chromium, driven by Playwright for Python, version 1.63.0. PyPI lists it as the latest release, dated 2026-09-15 (source 5). It needs Python 3.10 or later (source 5).
-- **Base image.** Playwright publishes images named `mcr.microsoft.com/playwright/python:v<version>-<ubuntu codename>`, such as `-noble` (source 6). The tag `v1.63.0-noble` is not checked against the registry (unverified).
-- **Image size.** Unverified. Playwright's Docker page does not state it (source 6). The lab measures the built image before it pins the digest.
+- **Browser and library.** Chromium, driven by Playwright for Python. On 2026-10-22 PyPI lists 1.64.0 as the latest release, uploaded 2026-10-13 (source 5). It needs Python 3.10 or later (source 5). The GitHub release of 1.64.0 is dated 2026-10-07 and names its bundled browser as Chromium 156.0.8078.4 (source 14). The version the image pins is chosen when the image is built, and both numbers are recorded with its digest.
+- **Base image.** Playwright publishes images named `mcr.microsoft.com/playwright/python:v<version>-<ubuntu codename>`, such as `-noble` (source 6). On 2026-10-22 the registry lists `v1.64.0-noble`, with `-amd64` and `-arm64` variants (source 15).
+- **Image size.** Playwright's Docker page does not state it (source 6). The registry manifest of the base image `v1.64.0-noble-arm64` lists 4 layers totalling 1,002,817,729 bytes compressed, about 0.93 GiB, read on 2026-10-22 (source 15). That is the download size of the base. The unpacked size on disk is larger and is not measured yet. The lab image adds only the entry script, so the lab measures the unpacked image when it builds it, before it pins the digest.
 - **Guest size.** The container tier defaults to 2 CPUs and 1024 MB, with ceilings of 4 CPUs and 2048 MB (`lab/container.py`). The design starts the browser at the 2048 MB ceiling. ADR 0007 measured about 2 GiB of host memory for a busy 1024 MB guest. Browser memory is not measured yet (see section 6).
 - **Entry point.** A reviewed script inside the image, for example `/opt/lab/browse`. The URL is its one argument. It prints the rendered text and the status. The task never supplies the script.
 - **Profile.** A new profile directory for each run, under `/tmp`. In the guest, `/tmp` is a tmpfs, so the profile lives in guest memory and ends with the VM. The browser never writes to `/work`. The container builder sets `HOME=/work` for `skill.run`, so the browser builder sets its own `HOME` under `/tmp`. Otherwise the browser cache would land in the workspace and outlive the task.
@@ -82,7 +82,7 @@ After a CONNECT succeeds, the gateway sees only the host and the port. The metho
 - **Schema.** One required parameter, `url`, a string. It has the same shape as `net.fetch` in `TOOL_SCHEMAS`. Any other parameter is refused.
 - **Tier.** `Tier.NOTIFY`, like `net.fetch` and `net.summarize`. It goes in `TOOL_TIERS`.
 - **Legs.** `UNTRUSTED_INPUT` and `EXTERNAL_ACTION`, the same as `net.fetch`, in `TOOL_LEGS`. A tool with no entry is treated as external, which fails closed, so the entry is required (`lab/authority.py`). Under the Rule of Two, a task that holds these two legs cannot also hold sensitive data.
-- **Effect.** `IDEMPOTENT` in `TOOL_EFFECTS`. A retry loads the page again. The result's hash records what was read.
+- **Effect.** `NON_IDEMPOTENT` in `TOOL_EFFECTS`, which the broker journals and never retries blindly. Loading a page is a read, but the page's own scripts can send requests to an allowed host, and the tunnel cannot see their method (section 4). A retry could repeat such a request. The effect can move to `IDEMPOTENT` only if version 1 turns JavaScript off (question 3), or blocks requests that change state (question 4), and a test shows it. The result's hash records what was read.
 - **Handler.** A worker-process handler, `lab/handlers/browse.py`, that holds only `browser.fetch`. `lab/handlers/web.py` works the same way with `net.summarize`. The handler never sees raw HTML.
 - **Result shape.**
 
@@ -130,6 +130,7 @@ Every cap that protects the lab sits on the host side of the boundary. The guest
 6. **Redirects.** A redirect to the metadata address, and a redirect to an off-list host, each stop at the tunnel. `tests/test_egress.py` covers the same cases for `net.fetch`.
 7. **Logs.** The audit never contains a path or a query string.
 8. **Limits.** A page that never finishes loading stops at the time cap. A page that opens more tunnels than the cap stops at the tunnel cap.
+9. **No blind retry.** `TOOL_EFFECTS` lists `browser.fetch` as `NON_IDEMPOTENT`, and a failed call is not retried by the broker. The test follows the existing check for `skill.run`.
 
 ## 8. Threat model
 
@@ -156,7 +157,7 @@ Every cap that protects the lab sits on the host side of the boundary. The guest
 4. Method and path control: accept host-only control in version 1, or add TLS interception with a per-task certificate authority? Interception puts a root certificate in the guest, and a signing key that must be protected.
 5. Screenshot hash only, as proposed, or no screenshot at all in version 1?
 6. The limits in section 6. The owner approves them after the M6 measures a real page load.
-7. Who builds and pins the browser image, and how often it moves with Playwright's releases? The current latest release is 1.63.0 (source 5).
+7. Who builds and pins the browser image, and how often it moves with Playwright's releases? The latest release on 2026-10-22 is 1.64.0 (source 5), three to four weeks after 1.63.0.
 8. Pages per task: 5, as proposed. The owner decides.
 
 ## 10. Sources
@@ -165,7 +166,7 @@ Every cap that protects the lab sits on the host side of the boundary. The guest
 2. Apple, `container` command reference (main branch), https://raw.githubusercontent.com/apple/container/main/docs/command-reference.md, read 2026-10-09. It covers `--network`, `--publish-socket`, `--read-only` and `--tmpfs`. It does not name a version.
 3. Apple, `container` how-to (main branch), https://raw.githubusercontent.com/apple/container/main/docs/how-to.md, read 2026-10-09. It has no text on `--network none` or custom networks.
 4. Third-party summaries of `container network create` on macOS 26 (instagit.com pages), found by search on 2026-10-09 and not read in full. Unverified against Apple's documentation.
-5. Playwright for Python, PyPI, https://pypi.org/project/playwright/, read 2026-10-09. The latest version is 1.63.0, released 2026-09-15. It requires Python 3.10 or later.
+5. Playwright for Python, PyPI, https://pypi.org/project/playwright/, read 2026-10-09 (latest 1.63.0, released 2026-09-15) and again on 2026-10-22 through the JSON API (latest 1.64.0, uploaded 2026-10-13). It requires Python 3.10 or later.
 6. Playwright, Docker, https://raw.githubusercontent.com/microsoft/playwright/main/docs/src/docker.md, read 2026-10-09. It gives the image name pattern and tag format. It states no image size.
 7. Playwright, API parameters, https://raw.githubusercontent.com/microsoft/playwright/main/docs/src/api/params.md, read 2026-10-09. It covers the `proxy` fields, `acceptDownloads` (default true) and `downloadsPath`.
 8. Playwright, `browserType.launchPersistentContext`, https://raw.githubusercontent.com/microsoft/playwright/main/docs/src/api/class-browsertype.md, read 2026-10-09. An empty `userDataDir` creates a temporary directory.
@@ -174,3 +175,5 @@ Every cap that protects the lab sits on the host side of the boundary. The guest
 11. Anthropic, "Piloting Claude in Chrome", 2025-08-25, https://claude.com/blog/claude-for-chrome (the earlier address redirects to it), read 2026-10-09. The post says browser-using AIs face prompt injection, where attackers hide instructions in websites, emails or documents.
 12. Anthropic, "Mitigating the risk of prompt injections in browser use", 2025-11-24, https://www.anthropic.com/research/prompt-injection-defenses, read 2026-10-09. The post says browser use widens the risk. Any page, document, advertisement or script can carry instructions, and each action the agent can take becomes a target.
 13. Brave, "Unseeable prompt injections in screenshots: more vulnerabilities in Comet and other AI browsers", October 2025, https://brave.com/blog/unseeable-prompt-injections/. Not read directly, because the site did not resolve from the research environment. The date and content come from search results on 2026-10-09 and from a 2025-10-21 post by Simon Willison that links to it (unverified).
+14. Playwright, release v1.64.0, https://github.com/microsoft/playwright/releases/tag/v1.64.0, read 2026-10-22. Published 2026-10-07. Its "Browser Versions" list names Chromium 156.0.8078.4.
+15. Microsoft Artifact Registry, `playwright/python` tag list and the manifest of `v1.64.0-noble-arm64`, https://mcr.microsoft.com/v2/playwright/python/tags/list, read 2026-10-22. The manifest's layer sizes sum to 1,002,817,729 bytes.
