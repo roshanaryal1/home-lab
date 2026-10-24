@@ -2,7 +2,8 @@
 
 **Draft, not published.** On 2026-10-13 this repository has no tag, no GitHub
 release and no DOI (`gh release list` and `git ls-remote --tags origin` return
-nothing). `pyproject.toml` and `CITATION.cff` both say version 0.1.0. The owner
+nothing). `pyproject.toml` and `CITATION.cff` both say version 0.1.0, but
+`CITATION.cff` intentionally has no `date-released` until publication. The owner
 picks the version and the date; the steps are at the end of this file and in
 [ops/release.md](../ops/release.md). Tracked in
 [#83](https://github.com/roshanaryal1/home-lab/issues/83).
