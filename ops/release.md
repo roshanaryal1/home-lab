@@ -1,8 +1,10 @@
 # Releasing a citable version (item 8.2, #83)
 
 `CITATION.cff` at the repo root is validated in CI (`tests/test_citation.py`)
-and kept in step with `pyproject.toml`. A DOI needs one thing only the
-repository owner can do.
+and kept in step with `pyproject.toml` and the release status in `CHANGELOG.md`.
+An unreleased version must not have a `date-released` field. The date is added
+when the owner publishes the version, and must match the dated changelog heading.
+A DOI needs one thing only the repository owner can do.
 
 ## Once, by the owner
 
@@ -13,8 +15,10 @@ repository owner can do.
 
 ## Per paper, or per version worth citing
 
-- [ ] Bump `version` in `pyproject.toml` and in `CITATION.cff` together, and
-      set `date-released`. The test fails if they differ.
+- [ ] Bump `version` in `pyproject.toml` and in `CITATION.cff` together.
+      Leave `date-released` absent while the version is unreleased. When
+      publishing it, set the release date to the matching changelog date.
+      The test fails on a version mismatch or an inconsistent date.
 - [ ] Update CHANGELOG.md: move the Unreleased notes under a
       `## [<version>] - <date>` heading, and leave an empty `## [Unreleased]`
       heading above it for the next notes. `tests/test_changelog.py` fails if
