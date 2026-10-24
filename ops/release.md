@@ -91,7 +91,8 @@ How long a version gets fixes: owner to decide.
 
 **Operator inspection.** `lab config show` (or `lab config show --json`)
 lists a fixed set of documented environment variable names and reports only
-`set` or `unset`. It never prints values, including paths or URLs. Names
+`set` or `unset` based on whether the variable exists, including empty values.
+It never prints values, including paths or URLs. Names
 under `LAB_SECRET_*` are shown as a single group. The command does not open
 the queue, Keychain or a service's environment, and reports presence only,
 not configuration validity. See [INSTALL.md](../docs/INSTALL.md).
