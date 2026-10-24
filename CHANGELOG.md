@@ -77,6 +77,10 @@ They are a draft until the owner approves them.
 
 ### Fixed
 
+- Approval previews now redact credential-named fields within lists and nested
+  arrays as well as dictionaries. Display masking leaves persisted intents and
+  authorization hashes untouched, with CLI regressions for arrays (#437).
+
 - A known database or file error in the CLI prints one line, not a traceback.
   `--debug` keeps the traceback
   ([#331](https://github.com/roshanaryal1/home-lab/issues/331)).
