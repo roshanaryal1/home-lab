@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import tomllib
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -64,9 +65,37 @@ def test_every_author_has_a_name() -> None:
     assert any("given-names: Roshan" in a for a in authors)
 
 
-def test_type_is_software_and_the_date_is_iso() -> None:
+def test_type_is_software_or_dataset() -> None:
     assert DATA["type"] in ("software", "dataset")
-    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(DATA["date-released"]))
+
+
+def _check_release_status(data: dict[str, object], changelog: str) -> None:
+    version = str(data["version"])
+    release = re.search(
+        rf"^## \\[{re.escape(version)}\\] - (unreleased|\\d{{4}}-\\d{{2}}-\\d{{2}})$",
+        changelog,
+        flags=re.MULTILINE,
+    )
+    assert release, f"CHANGELOG.md needs a status for version {version}"
+    heading_date = release.group(1)
+    if heading_date == "unreleased":
+        assert "date-released" not in data, "an unpublished version cannot claim a release date"
+    else:
+        assert date.fromisoformat(heading_date).isoformat() == heading_date
+        assert data.get("date-released") == heading_date, (
+            "the citation release date must match the dated changelog heading"
+        )
+
+
+def test_citation_release_status_matches_changelog() -> None:
+    _check_release_status(DATA, (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
+
+
+def test_released_version_uses_its_actual_release_date() -> None:
+    _check_release_status(
+        {"version": "1.2.3", "date-released": "2026-10-24"},
+        "## [Unreleased]\\n\\n## [1.2.3] - 2026-10-24\\n".replace("\\n", "\n"),
+    )
 
 
 def test_version_and_license_match_the_package() -> None:
