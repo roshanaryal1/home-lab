@@ -9,6 +9,10 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- Safe first-response installation troubleshooting, including health/permission
+  checks, recovery boundaries and a standard fresh-Mac validation record.
+  These docs do not claim a new hardware test passed (#435).
+
 - A backup also holds the operator's public key and the installed
   `com.homelab.*` service definitions, with a hash each, and its restore check
   writes them into `config/` beside the restored database. Secrets stay out.
