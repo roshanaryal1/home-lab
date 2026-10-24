@@ -385,8 +385,9 @@ Last, delete your clone, the folder `REPO` names.
 
 `lab config show` reports whether each documented `LAB_*` setting is
 `set` or `unset` in the current process environment, without revealing any
-value. The `LAB_SECRET_*` group is shown once, without secret names. For a
-machine-readable version, use `lab config show --json`:
+value. Even an empty value counts as `set`, since an explicitly empty setting
+may be rejected by the runtime. The `LAB_SECRET_*` group is shown once,
+without secret names. For a machine-readable version, use `lab config show --json`:
 
 ```sh
 uv run lab config show
