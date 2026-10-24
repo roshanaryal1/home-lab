@@ -13,6 +13,8 @@ import tomllib
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 TEXT = (ROOT / "CITATION.cff").read_text(encoding="utf-8")
 
@@ -96,6 +98,22 @@ def test_released_version_uses_its_actual_release_date() -> None:
         {"version": "1.2.3", "date-released": "2026-10-24"},
         "## [Unreleased]\n\n## [1.2.3] - 2026-10-24\n",
     )
+
+
+def test_unreleased_version_cannot_claim_a_release_date() -> None:
+    with pytest.raises(AssertionError, match="unpublished"):
+        _check_release_status(
+            {"version": "0.1.0", "date-released": "2026-09-28"},
+            "## [0.1.0] - unreleased\n",
+        )
+
+
+def test_published_date_must_match_changelog() -> None:
+    with pytest.raises(AssertionError, match="must match"):
+        _check_release_status(
+            {"version": "1.2.3", "date-released": "2026-10-23"},
+            "## [1.2.3] - 2026-10-24\n",
+        )
 
 
 def test_version_and_license_match_the_package() -> None:
