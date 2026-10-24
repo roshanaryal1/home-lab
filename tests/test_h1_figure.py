@@ -1,0 +1,84 @@
+"""The H1 chart must be reproducible, descriptive and sealed (#321)."""
+
+from __future__ import annotations
+
+import copy
+import importlib.util
+import json
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _figure() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("h1_figure", ROOT / "scripts" / "h1_figure.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_svg_exactly_reproducible_from_sealed_records() -> None:
+    fig = _figure()
+    rendered = fig.render()
+    assert rendered == (ROOT / "evals" / "h1_review" / "h1-results.svg").read_text()
+    assert fig.main(["--check"]) == 0
+    for text in (
+        "25/30 (83.3%)",
+        "3/30 (10.0%)",
+        "13/30 (43.3%)",
+        "5 / 30",
+        "8 / 30",
+        "REGISTERED",
+        "EXPLORATORY",
+        "H1 not supported",
+        "not independent human ground truth",
+    ):
+        assert text in rendered
+    assert "<title" in rendered and "<desc" in rendered
+    assert "{{" not in rendered
+
+
+def test_record_bytes_are_pinned_and_wrong_hash_is_refused(
+        tmp_path: Path) -> None:
+    fig = _figure()
+    frozen = fig.H1_RECORD.read_bytes()
+    assert fig.load_record(fig.H1_RECORD, fig.H1_SHA256)["valid"]
+    mutated = tmp_path / "h1-run.json"
+    mutated.write_bytes(frozen + b" ")
+    with pytest.raises(ValueError, match="SHA-256"):
+        fig.load_record(mutated, fig.H1_SHA256)
+
+
+def test_summary_refuses_duplicate_or_inconsistent_cases() -> None:
+    fig = _figure()
+    record = fig.load_record(fig.H1_RECORD, fig.H1_SHA256)
+    original = fig.summary(record)
+    assert (original["base"], original["correct"], original["false_promotions"]) == (25, 3, 5)
+
+    duplicate = copy.deepcopy(record)
+    duplicate["report"]["rows"][0] = duplicate["report"]["rows"][1]
+    with pytest.raises(ValueError, match="unique"):
+        fig.summary(duplicate)
+
+    wrong_result = copy.deepcopy(record)
+    wrong_result["report"]["false_promotions"] = 0
+    with pytest.raises(ValueError, match="disagree"):
+        fig.summary(wrong_result)
+
+
+def test_check_mode_does_not_touch_or_replace_figure(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fig = _figure()
+    svg = tmp_path / "h1.svg"
+    svg.write_text("sentinel", encoding="utf-8")
+    monkeypatch.setattr(fig, "SVG", svg)
+    with pytest.raises(SystemExit, match="differs from frozen records"):
+        fig.main(["--check"])
+    assert svg.read_text(encoding="utf-8") == "sentinel"
+    assert fig.main(["--out", str(svg)]) == 0
+    assert json.loads(fig.H1_RECORD.read_text(encoding="utf-8"))["valid"] is True
+    assert svg.read_text(encoding="utf-8") == fig.render()
