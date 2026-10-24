@@ -16,20 +16,22 @@ A DOI needs one thing only the repository owner can do.
 ## Per paper, or per version worth citing
 
 - [ ] Bump `version` in `pyproject.toml` and in `CITATION.cff` together.
-      Leave `date-released` absent while the version is unreleased. When
-      publishing it, set the release date to the matching changelog date.
-      The test fails on a version mismatch or an inconsistent date.
-- [ ] Update CHANGELOG.md: move the Unreleased notes under a
-      `## [<version>] - <date>` heading, and leave an empty `## [Unreleased]`
-      heading above it for the next notes. `tests/test_changelog.py` fails if
-      the heading for the version in `pyproject.toml` is missing, or if
-      Unreleased is not the first heading.
+      Keep `date-released` absent while the release does not exist.
+- [ ] Move the notes from CHANGELOG.md's Unreleased section to
+      `## [<version>] - unreleased`, leaving `## [Unreleased]` above it
+      for subsequent work. These headings keep CI green without claiming
+      that a version has already been published.
 - [ ] Run the evaluation on the mini (`lab eval run`, section 14 of
       `ops/mac-mini-setup.md`) and commit the sealed record, so the release
       contains the exact code, task set and result.
-- [ ] Publish a GitHub release for that tag. Zenodo archives it and mints a
-      DOI; paste the DOI badge into the README and add `doi:` to `CITATION.cff`
-      in the next commit.
+- [ ] Tag the intended commit and publish a GitHub release. Confirm that
+      the GitHub release exists before claiming a release date in metadata.
+      Zenodo archives it and mints a DOI.
+- [ ] In a post-publication metadata commit, replace the changelog version
+      heading's `unreleased` with the actual ISO date, add the same
+      `date-released` to `CITATION.cff`, and add the DOI from Zenodo to
+      `CITATION.cff` and the README. Citation tests check these local
+      fields agree; they do not prove a GitHub release exists.
 
 ## Versioning and compatibility (draft)
 
