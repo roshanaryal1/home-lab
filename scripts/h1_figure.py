@@ -71,6 +71,13 @@ def summary(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def render() -> str:
+    cases_file = REVIEW / "final-cases-v2.jsonl"
+    if hashlib.sha256(cases_file.read_bytes()).hexdigest() != CASES_SHA256:
+        raise ValueError("final case file differs from the frozen H1 labels")
+    frozen = {row["id"]: row["expected"] for row in
+              (json.loads(line) for line in cases_file.read_text(encoding="utf-8").splitlines())}
+    if len(frozen) != 30:
+        raise ValueError("frozen case file must contain 30 unique labels")
     h1 = summary(load_record(H1_RECORD, H1_SHA256))
     h1b = summary(load_record(H1B_RECORD, H1B_SHA256))
     cases_h1 = {row["case_id"]: (row["expected"], row["baseline"])
@@ -79,6 +86,8 @@ def render() -> str:
                  for row in h1b["rows"]}
     if cases_h1 != cases_h1b:
         raise ValueError("H1 and H1b did not use the same frozen cases and baseline")
+    if {key: label for key, (label, _) in cases_h1.items()} != frozen:
+        raise ValueError("run rows differ from frozen reference labels")
     if (h1["base"], h1["correct"], h1["false_promotions"],
             h1b["correct"], h1b["false_promotions"]) != (25, 3, 5, 13, 8):
         raise ValueError("frozen published counts changed; inspect inputs first")
