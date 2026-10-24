@@ -122,7 +122,7 @@ def test_duplicate_or_conflicting_release_headings_are_refused() -> None:
     with pytest.raises(AssertionError, match="exactly one"):
         _check_release_status(
             {"version": "1.2.3", "date-released": "2026-10-24"},
-            "## [1.2.3] - 2026-10-24\\n## [1.2.3] - unreleased\\n".replace("\\n", "\n"),
+            "## [1.2.3] - 2026-10-24\n## [1.2.3] - unreleased\n",
         )
 
 
