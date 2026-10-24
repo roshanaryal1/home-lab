@@ -341,6 +341,11 @@ tests/               pytest suite
 
 ## Running the tests
 
+The `shell-lint` workflow checks tracked `*.sh` files without executing
+them. See [docs/SHELL-VALIDATION.md](docs/SHELL-VALIDATION.md) for the
+checker, severity threshold and limits.
+
+
 ```sh
 uv sync --locked --extra dev   # exact Python from .python-version, deps from uv.lock
 uv run python -m pytest tests/ -q
