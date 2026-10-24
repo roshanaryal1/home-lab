@@ -383,6 +383,14 @@ Last, delete your clone, the folder `REPO` names.
 
 ## Troubleshooting
 
+For a fuller read-only-first diagnosis of database, operator-key, model,
+backup, service and permission failures, start with
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md). It distinguishes `ok`, `FAIL`
+and `skip`, and explains how to share redacted diagnostic evidence.
+For a real second-Mac test, use the
+[installation validation record](../ops/install-validation-template.md);
+a written guide is not a successful fresh-install test.
+
 ### The prerequisite check fails
 
 Run it again and fix only the item it reports. It is intentionally
