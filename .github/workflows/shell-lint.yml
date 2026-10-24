@@ -12,6 +12,7 @@ permissions:
 jobs:
   shellcheck:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -21,7 +22,7 @@ jobs:
           VERSION: v0.11.0
           SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
         run: |
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/shellcheck.tar.xz" \
+          curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 -o "$RUNNER_TEMP/shellcheck.tar.xz" \
             "https://github.com/koalaman/shellcheck/releases/download/${VERSION}/shellcheck-${VERSION}.linux.x86_64.tar.xz"
           printf '%s  %s\n' "$SHA256" "$RUNNER_TEMP/shellcheck.tar.xz" | sha256sum -c -
           tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
@@ -32,13 +33,16 @@ jobs:
           set -euo pipefail
           files=()
           while IFS= read -r -d '' path; do
-            echo "checking: $path"
-            case "$(head -n 1 -- "$path")" in
-              *bash*) bash -n "$path" ;;
-              *sh*) sh -n "$path" ;;
-              *) echo "unexpected interpreter in $path" >&2; exit 1 ;;
+            safe_path="./$path"
+            echo "checking: $safe_path"
+            case "$(head -n 1 -- "$safe_path")" in
+              '#!/bin/bash'|'#!/usr/bin/bash'|'#!/usr/bin/env bash')
+                bash -n "$safe_path" ;;
+              '#!/bin/sh'|'#!/usr/bin/sh'|'#!/usr/bin/env sh')
+                sh -n "$safe_path" ;;
+              *) echo "unsupported shell interpreter in $safe_path" >&2; exit 1 ;;
             esac
-            files+=("$path")
+            files+=("$safe_path")
           done < <(git ls-files -z -- '*.sh')
           if [ "${#files[@]}" -eq 0 ]; then
             echo "no tracked .sh files found" >&2
