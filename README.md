@@ -30,6 +30,10 @@ than quietly resolved.
 
 Current state, what is waiting and on whom, and what must not be redone: [docs/STATUS.md](docs/STATUS.md).
 
+The [24 October execution plan](docs/EXECUTION-PLAN-2026-10-24.md) orders
+open PRs, research evidence and security/hardware release gates without
+replacing the seven-month roadmap or authorizing a release.
+
 | Build step | State |
 |---|---|
 | 1. SQLite schema: tasks, leases, events, agents, approvals | done |
