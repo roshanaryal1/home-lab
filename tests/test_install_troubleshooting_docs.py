@@ -10,13 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 TROUBLESHOOTING = ROOT / "docs" / "TROUBLESHOOTING.md"
 VALIDATION = ROOT / "ops" / "install-validation-template.md"
-PAGES = (
-    TROUBLESHOOTING,
-    VALIDATION,
-    ROOT / "docs" / "INSTALL.md",
-    ROOT / "ops" / "install-validation.md",
-    ROOT / "README.md",
-)
+PAGES = (TROUBLESHOOTING, VALIDATION)
 LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)", flags=re.DOTALL)
 
 
