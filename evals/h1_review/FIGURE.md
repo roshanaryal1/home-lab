@@ -21,9 +21,11 @@ SHA-256:
 The script cross-checks every plotted number against the individual case
 rows, the record summaries, the case-file hash, unique case IDs and the
 unchanged reference label and rubric prediction for each case. It refuses a
-changed source record or a changed template. The archived primary H1 record
-is confirmatory; H1b reused the already-known cases and is **not** an
-independent test or a second attempt at H1's preregistered decision rule.
+changed source record or template (template SHA-256
+`f6f2a7a0fe6abb059ed361bea92106589af03b6c1096df739874ba22a275e4ea`).
+The archived primary H1 record is confirmatory; H1b reused the already-known
+cases and is **not** an independent test or a second attempt at H1's
+preregistered decision rule.
 
 Accuracy is computed over **all 30 cases**, so an abstention is a miss. False
 promotions count predictions above the assigned reference level (same rank
@@ -54,10 +56,13 @@ uv run python scripts/h1_figure.py --out evals/h1_review/h1-results.svg
 uv run python -m pytest tests/test_h1_figure.py -q
 ```
 
-`--check` changes nothing and fails if the checked-in SVG differs from
-what the immutable run files and template produce. `--out` rewrites only
-the specified output SVG. No network, model server, OSF connection, or
-inference runtime is used. The SVG template is
+`--check` changes nothing and compares exact UTF-8 bytes, including
+line endings, against what the immutable run files and template produce.
+`--out` accepts only a .svg path and refuses to overwrite any sealed run,
+case file, the template or the generator itself. It atomically replaces the
+target only after the complete figure is written, so an interrupted write
+does not leave a truncated figure. No network, model server, OSF connection,
+or inference runtime is used. The SVG template is
 `h1-results-template.svg`; the generated figure is `h1-results.svg`.
 
 Use this caption when reporting:
