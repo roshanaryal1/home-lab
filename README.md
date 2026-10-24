@@ -341,6 +341,11 @@ tests/               pytest suite
 
 ## Running the tests
 
+The `supply-chain` workflow audits locked Python dependencies and saves a
+CycloneDX SBOM on every PR. Its reproducible commands, network requirements
+and coverage limits are in [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
+
+
 ```sh
 uv sync --locked --extra dev   # exact Python from .python-version, deps from uv.lock
 uv run python -m pytest tests/ -q
