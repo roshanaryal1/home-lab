@@ -178,6 +178,65 @@ def test_redact_masks_by_key_name() -> None:
     assert masked["inner"]["secret"] == "<redacted>"
 
 
+@pytest.mark.safety
+def test_redact_walks_nested_arrays_without_mutating_original() -> None:
+    payload = {
+        "actions": [
+            {"url": "https://example.com", "api_key": "canary-in-array-1"},
+            [
+                {"headers": {"Authorization": "canary-nested-array-2"}},
+                {"items": [{"password": "canary-deep-array-3", "amount": 42}]},
+            ],
+        ],
+        "title": "request approval",
+    }
+    masked = _redact(payload)
+    assert masked["actions"][0]["api_key"] == "<redacted>"
+    assert masked["actions"][1][0]["headers"]["Authorization"] == "<redacted>"
+    assert masked["actions"][1][1]["items"][0]["password"] == "<redacted>"
+    assert masked["actions"][0]["url"] == "https://example.com"
+    assert masked["actions"][1][1]["items"][0]["amount"] == 42
+    assert masked["title"] == "request approval"
+    # Redaction is only for display. Policy decisions use the original bytes.
+    assert payload["actions"][0]["api_key"] == "canary-in-array-1"
+    assert payload["actions"][1][0]["headers"]["Authorization"] == "canary-nested-array-2"
+    assert masked is not payload
+    assert masked["actions"] is not payload["actions"]
+
+
+@pytest.mark.safety
+def test_show_hides_credentials_inside_action_arrays(db: Path, capsys) -> None:
+    payload = {
+        "operations": [
+            {"url": "https://example.com/invoices", "api_key": "canary-api-42"},
+            [{"headers": {"authorization": "canary-bearer-84"},
+              "password": "canary-password-126", "amount": 4200}],
+        ],
+    }
+    with TaskQueue(db, owner="t") as q:
+        policy = PolicyEngine(q._conn)
+        task = q.get(q.add_task("review batch", capability_tier="approve",
+                                payload=payload))
+        approval = policy.request_approval(task, "approve this batch")
+        bound_hash = q._conn.execute(
+            "SELECT action_hash FROM approvals WHERE id = ?", (approval,)
+        ).fetchone()["action_hash"]
+
+    assert run(db, "show", approval[:8]) == 0
+    out = capsys.readouterr().out
+    for secret in ("canary-api-42", "canary-bearer-84", "canary-password-126"):
+        assert secret not in out
+    assert "<redacted>" in out
+    assert "https://example.com/invoices" in out
+    assert "4200" in out
+
+    with TaskQueue(db, owner="t") as q:
+        assert q.get(task.id).payload == payload
+        assert q._conn.execute(
+            "SELECT action_hash FROM approvals WHERE id = ?", (approval,)
+        ).fetchone()["action_hash"] == bound_hash
+
+
 # ------------------------------------------------------------ decisions
 
 
