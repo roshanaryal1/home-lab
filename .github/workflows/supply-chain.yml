@@ -35,7 +35,7 @@ jobs:
         # this workflow so a future behaviour change fails visibly.
         run: uv export --locked --extra dev --format cyclonedx1.5 --output-file home-lab.cdx.json
       - name: Check exported SBOM structure
-        id: validate-sbom
+        id: validate_sbom
         if: ${{ always() && steps.sbom.outcome == 'success' }}
         run: |
           python3 - <<'PY'
@@ -53,7 +53,7 @@ jobs:
           print(f"validated CycloneDX SBOM with {len(components)} components")
           PY
       - name: Preserve SBOM for review
-        if: ${{ always() && steps.validate-sbom.outcome == 'success' }}
+        if: ${{ always() && steps.validate_sbom.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: python-dependencies-cyclonedx
