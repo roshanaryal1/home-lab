@@ -17,6 +17,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.5"
       - name: Record uv version
         run: uv --version
       - name: Check locked dependencies against known advisories
@@ -25,10 +27,16 @@ jobs:
         # uv audit queries OSV, so it requires network access.
         run: uv audit --locked
       - name: Export CycloneDX v1.5 SBOM from lockfile
+        id: sbom
+        # An advisory or OSV outage must fail the job, but should not keep
+        # reviewers from receiving the lockfile inventory needed to fix it.
+        if: ${{ always() }}
         # The output format is still in preview in uv. Keep the command in
         # this workflow so a future behaviour change fails visibly.
-        run: uv export --locked --format cyclonedx1.5 --output-file home-lab.cdx.json
+        run: uv export --locked --extra dev --format cyclonedx1.5 --output-file home-lab.cdx.json
       - name: Check exported SBOM structure
+        id: validate-sbom
+        if: ${{ always() && steps.sbom.outcome == 'success' }}
         run: |
           python3 - <<'PY'
           import json
@@ -40,12 +48,16 @@ jobs:
           components = sbom.get("components")
           assert isinstance(components, list) and components, "no components in SBOM"
           assert all(isinstance(item, dict) and item.get("name") for item in components)
+          names = {str(item["name"]).lower() for item in components}
+          assert {"pytest", "ruff", "mypy"} <= names, "dev dependencies missing from SBOM"
           print(f"validated CycloneDX SBOM with {len(components)} components")
           PY
       - name: Preserve SBOM for review
+        if: ${{ always() && steps.validate-sbom.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: python-dependencies-cyclonedx
           path: home-lab.cdx.json
           if-no-files-found: error
           retention-days: 14
+          overwrite: true
