@@ -72,7 +72,7 @@ def test_type_is_software_or_dataset() -> None:
 def _check_release_status(data: dict[str, object], changelog: str) -> None:
     version = str(data["version"])
     release = re.search(
-        rf"^## \\[{re.escape(version)}\\] - (unreleased|\\d{{4}}-\\d{{2}}-\\d{{2}})$",
+        rf"^## \[{re.escape(version)}\] - (unreleased|\d{{4}}-\d{{2}}-\d{{2}})$",
         changelog,
         flags=re.MULTILINE,
     )
@@ -94,7 +94,7 @@ def test_citation_release_status_matches_changelog() -> None:
 def test_released_version_uses_its_actual_release_date() -> None:
     _check_release_status(
         {"version": "1.2.3", "date-released": "2026-10-24"},
-        "## [Unreleased]\\n\\n## [1.2.3] - 2026-10-24\\n".replace("\\n", "\n"),
+        "## [Unreleased]\n\n## [1.2.3] - 2026-10-24\n",
     )
 
 
