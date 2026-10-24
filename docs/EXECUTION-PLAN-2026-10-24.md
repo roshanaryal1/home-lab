@@ -55,10 +55,10 @@ them and documenting that relationship.
 | Priority | Task and dependency | Work possible in GitHub before the owner acts | Required hardware/owner proof | Exit gate |
 |---|---|---|---|---|
 | P0 | [#70](https://github.com/roshanaryal1/home-lab/issues/70): operator/worker database boundary | Review privilege architecture, present separated-identity options and regression test design *without assuming a deployment decision* | Choose OS/account/database architecture; prove untrusted worker cannot forge/consume an operator approval on the deployed Mac | Signed approvals still work; unsigned, fabricated, modified, expired and replayed approvals fail; agent has no route around the trusted verifier |
-| P0 | [#79](https://github.com/roshanaryal1/home-lab/issues/79): emergency stop and alert | Review tests and document drill evidence format | Stop an active dummy task, verify no later tool effect; network outage reaches alert within the promised window | Timestamped on-target drill, no unexpected side effects |
+| P0 | [#79](https://github.com/roshanaryal1/home-lab/issues/79): emergency stop, alert and signed recovery | Review tests and document drill evidence format, including the split-key resume workflow fixed in [#408](https://github.com/roshanaryal1/home-lab/issues/408) | Stop an active dummy task, verify no later tool effect; network outage raises an alert within ten minutes; operator demonstrates a valid **signed** resume on the live database after stop, without disclosing its private key to the lab account | Timestamped on-target stop/no-effect/alert/**signed-resume** evidence; no unexpected side effects |
 | P0 | [#91](https://github.com/roshanaryal1/home-lab/issues/91), [#77](https://github.com/roshanaryal1/home-lab/issues/77): power and interrupted work | Audit existing recovery scripts; do not rerun destructive drills remotely | Supervised power interruption, FileVault boot/unlock assessment, resumed task and artifact recovery | Verified logs and no blind replay of non-idempotent actions |
-| P0 | [#235](https://github.com/roshanaryal1/home-lab/issues/235), [#287](https://github.com/roshanaryal1/home-lab/issues/287), [#318](https://github.com/roshanaryal1/home-lab/issues/318) | Check docs and tests against intended daemon identities and backup launcher | Confirm actual keepawake account, Full Disk Access grant, subsequent overnight backup and root-owned log handling | Runtime evidence and security boundary written up, not only merged code |
-| P1 | [#188](https://github.com/roshanaryal1/home-lab/issues/188): installability | Review docs and test checklist | Separate fresh account or Mac; record pass/fail, safe teardown and skipped assumptions | Real signed-off install record, not simply a green CI build |
+| P0 | [#235](https://github.com/roshanaryal1/home-lab/issues/235), [#287](https://github.com/roshanaryal1/home-lab/issues/287), [#318](https://github.com/roshanaryal1/home-lab/issues/318) | Check docs and tests against intended daemon identities and backup launcher | Confirm actual keepawake account, **only the dedicated backup launcher** has Full Disk Access, **Terminal's Full Disk Access is turned off and verified absent**, the subsequent scheduled overnight backup still passes, and root-owned log handling is reviewed | Runtime evidence for account privileges, privacy grants, actual backup and logging boundary; not only merged code |
+| P1 | [#188](https://github.com/roshanaryal1/home-lab/issues/188): installability | Review docs and test checklist | At least one initial fresh-account or fresh-Mac run for #188, with pass/fail, safe teardown and skipped assumptions; then recruit **three people other than the owner** for v1.0 | #188 needs an actual signed-off validation record; **v1.0 independently requires three non-owner installs on their own Macs, each passing `lab doctor`**, not only green CI |
 | P1 | Supply chain and release trust (#83, #341, #434) | Audit/SBOM/ShellCheck PRs, provenance *design* and documentation | Enable required check, publish/tag/Zenodo only when owner authorizes | Version provenance, DOI and complete checks on release commit |
 
 **Stop rule:** no security claim, signed release, broad external connector,
@@ -103,12 +103,48 @@ the deterministic rubric or change registered H1's failure verdict.
 
 ## Stage E: release readiness and launch
 
-The existing [seven-month plan](PLAN-7-MONTHS.md) remains the governing
-schedule. Release requires a fresh install, reproducible wheel, upgrade and
-rollback proof, 30-day candidate observation, successful power/network/restore
-drills, registered safety-claim records on the release commit, independent
-security review, and owner-approved release metadata. A draft paper and code
-unit tests are not substitutes for these.
+The existing [seven-month plan](PLAN-7-MONTHS.md), **What v1.0 must
+pass**, remains the authoritative 18-item checklist. No subset of the
+following can be treated as release readiness; record evidence for every item,
+against the exact proposed release commit:
+
+1. Clean wheel installation and module import in CI (#329).
+2. `lab --version` reports the intended release version (#330).
+3. **Three non-owner people** install on their own Macs using the guide and
+   pass `lab doctor` (#188). One owner-run fresh-account test is insufficient.
+4. Update from the prior release and one-command rollback without data loss
+   are demonstrated, including actual operator ownership steps.
+5. Migration tests run and pass from **every released schema version**.
+6. **30 consecutive days** of release-candidate observation on the Mac mini,
+   nightly self-test green throughout; each failure is recovered or catalogued
+   with evidence of its fix.
+7. Every monthly restore includes all required state and a verified
+   restore **into service**, including task artifacts (#67).
+8. Power-pull, network-unplug and interrupted-task drills pass on the Mac mini
+   (#77, #79, #91), with a valid signed-resume path after emergency stop (#408).
+9. M2, M5 and M6 are rerun on the **release commit** with **sealed records and
+   zero failures**, not inferred from earlier commits.
+10. Each new external-input/action feature has its safety claim registered
+    before implementation and passed on the release candidate.
+11. The operator/worker approval boundary in #70 is **decided and proved**.
+12. An **outside security reviewer** has read the code and deployed boundary;
+    every finding is fixed or has a documented release decision, with sensitive
+    details kept private until safe to disclose.
+13. CI includes wheel verification, locked dependency vulnerability audit,
+    SBOM, release provenance and per-module safety coverage floors; required
+    jobs actually gate merging in GitHub settings.
+14. Known CLI errors yield bounded one-line errors, not raw tracebacks (#331).
+15. Logs rotate in the deployed launchd jobs and the metrics endpoint is
+    verified **loopback only**.
+16. CHANGELOG, versioning and compatibility policy are approved by the owner.
+17. Install, upgrade and troubleshooting documentation is **tried by a
+    person who did not author it**, with observed behavior recorded.
+18. SECURITY.md contains the actual vulnerability-reporting path and
+    response commitment.
+
+After these checks, **only the owner** chooses whether to tag, publish the
+GitHub release and mint its DOI through Zenodo (#83). A draft paper, past green
+tests, or CI running on a different SHA is not substitute evidence.
 
 For every milestone, the handoff should contain: issue/PR links, exact SHA,
 CI status, changed interfaces, security assumptions, evidence filenames,
