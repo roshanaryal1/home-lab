@@ -2,7 +2,8 @@
 
 **Draft, not published.** On 2026-10-13 this repository has no tag, no GitHub
 release and no DOI (`gh release list` and `git ls-remote --tags origin` return
-nothing). `pyproject.toml` and `CITATION.cff` both say version 0.1.0. The owner
+nothing). `pyproject.toml` and `CITATION.cff` both say version 0.1.0, but
+`CITATION.cff` intentionally has no `date-released` until publication. The owner
 picks the version and the date; the steps are at the end of this file and in
 [ops/release.md](../ops/release.md). Tracked in
 [#83](https://github.com/roshanaryal1/home-lab/issues/83).
@@ -218,10 +219,12 @@ Results.
 Nothing below has been done. See also [ops/release.md](../ops/release.md).
 
 1. Choose the version. Set `version` in `pyproject.toml` and `CITATION.cff`
-   together (`tests/test_citation.py` fails if they differ), and set
-   `date-released` in `CITATION.cff` to the release date. It says 2026-09-28
-   today, which is before any release. Move the CHANGELOG's Unreleased notes
-   under the version, as `ops/release.md` says.
+   together (`tests/test_citation.py` fails if they differ). The citation
+   has no `date-released` while the version is unpublished. When the owner
+   publishes the release, give the changelog's version heading its actual
+   ISO date and add that same `date-released` to `CITATION.cff`.
+   Move the CHANGELOG's Unreleased notes under that version, as
+   `ops/release.md` says.
 2. `ops/release.md` also asks for a fresh `lab eval run` record on the Mac
    mini, committed before the release.
 3. Validate the citation file. The current file passed with `cffconvert`
