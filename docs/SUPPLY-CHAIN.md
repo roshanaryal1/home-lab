@@ -12,15 +12,18 @@ write an updated lockfile.
    and development dependencies, for known vulnerabilities and adverse package
    statuses. It queries OSV over the network and fails the job for a failed
    audit or service error. It does not claim to detect undisclosed defects.
-2. `uv export --locked --format cyclonedx1.5 --output-file home-lab.cdx.json`
+2. `uv export --locked --extra dev --format cyclonedx1.5 --output-file home-lab.cdx.json`
    exports a CycloneDX v1.5 SBOM from the same lockfile. The job checks its
-   format and verifies that the document contains named components.
+   format and checks that it includes named runtime and development components.
 3. The workflow stores `home-lab.cdx.json` as an Actions artifact named
-   `python-dependencies-cyclonedx`, retained for 14 days. Reviewers can
+   `python-dependencies-cyclonedx`, retained for 14 days. The export and
+   upload still run when a vulnerability audit fails, but the audit failure
+   remains visible and the job fails. Reviewers can
    inspect it before merging.
 
 The checkout action does not persist Git credentials and the workflow has
-read-only repository permissions. All actions are pinned by full commit SHA.
+read-only repository permissions. The workflow pins uv to version 0.13.5, and
+an artifact rerun replaces an earlier artifact from the same workflow run. All actions are pinned by full commit SHA.
 
 ## Run locally
 
@@ -29,7 +32,7 @@ Use the uv version provided by your development environment:
 ```sh
 uv --version
 uv audit --locked
-uv export --locked --format cyclonedx1.5 --output-file home-lab.cdx.json
+uv export --locked --extra dev --format cyclonedx1.5 --output-file home-lab.cdx.json
 ```
 
 The audit requires network access. This is separate from the project's
