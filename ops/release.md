@@ -71,6 +71,7 @@ How long a version gets fixes: owner to decide.
 - `LAB_BACKUP_DIR`: the backup folder, when `backup --to` is not given.
 - `LAB_LOG_DIR`: the folder for the supervisor's rotating JSON logs, when
   `--log-dir` is not given.
+- `LAB_LOG_LEVEL`: the supervisor's logging level.
 - `LAB_MCP_SERVERS`: the MCP server list. The default is
   `/etc/homelab/mcp.json`.
 - `LAB_REPO_SOURCES`: the signed repository source list, used by
@@ -87,6 +88,13 @@ How long a version gets fixes: owner to decide.
   macOS Keychain when the variable is not set.
 - `LAB_ALERT_KIND`: set by `lab/alert.py` for the operator's alert hook, to a
   fixed lowercase word.
+
+**Operator inspection.** `lab config show` (or `lab config show --json`)
+lists a fixed set of documented environment variable names and reports only
+`set` or `unset`. It never prints values, including paths or URLs. Names
+under `LAB_SECRET_*` are shown as a single group. The command does not open
+the queue, Keychain or a service's environment, and reports presence only,
+not configuration validity. See [INSTALL.md](../docs/INSTALL.md).
 
 **Not covered.** Internal modules in `lab/` that the table does not name, the
 wording of log lines and of CLI help text, the dashboard page, the layout of
