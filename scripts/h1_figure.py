@@ -1,0 +1,174 @@
+"""Reproduce an accessible H1/H1b SVG solely from the frozen run records.
+
+No model inference or research instrument is invoked. Existing run records and
+their SHA-256 digests are required; editing them makes this command refuse.
+H1b is exploratory and must never be presented as a rerun of registered H1.
+
+From repository root:
+    uv run python scripts/h1_figure.py --check
+    uv run python scripts/h1_figure.py --out evals/h1_review/h1-results.svg
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import tempfile
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+REVIEW = ROOT / "evals" / "h1_review"
+TEMPLATE = REVIEW / "h1-results-template.svg"
+TEMPLATE_SHA256 = "f6f2a7a0fe6abb059ed361bea92106589af03b6c1096df739874ba22a275e4ea"
+SVG = REVIEW / "h1-results.svg"
+
+H1_RECORD = REVIEW / "h1-run.json"
+H1B_RECORD = REVIEW / "h1b-run.json"
+H1_SHA256 = "9d06bed917dbea2e1d83e29856b820d68c9c9c5cd1f3967363f3f112148b8b3d"
+H1B_SHA256 = "e3b4dda4a674407025b7eb06380317578e89ec9a79aa4c868fa4dcfde62e0e9b"
+CASES_SHA256 = "f52e8f309733e78b56d1ac0ba354ff1c178bbf15912a196ef4038e3f93e0b396"
+RANK = {"no_artifact": 0, "insufficient_evidence": 0, "post": 1, "blog": 2,
+        "paper": 3}
+
+
+def load_record(path: Path, expected_sha256: str) -> dict[str, Any]:
+    """Read a frozen record only when its exact committed bytes match."""
+    raw = path.read_bytes()
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual != expected_sha256:
+        raise ValueError(f"{path.name}: SHA-256 differs from frozen record")
+    record: dict[str, Any] = json.loads(raw)
+    if record.get("valid") is not True or record.get("model_errors"):
+        raise ValueError(f"{path.name}: invalid run record")
+    if record.get("cases_sha256") != CASES_SHA256:
+        raise ValueError(f"{path.name}: different case file")
+    return record
+
+
+def summary(record: dict[str, Any]) -> dict[str, Any]:
+    """Compute every plotted value from per-case predictions, not report totals."""
+    rows = record["report"]["rows"]
+    if len(rows) != 30 or len({row["case_id"] for row in rows}) != 30:
+        raise ValueError("each run must contain 30 unique cases")
+    if any(row["expected"] not in RANK or row["baseline"] not in RANK
+           or (row["candidate"] is not None and row["candidate"] not in RANK)
+           for row in rows):
+        raise ValueError("record contains a route outside the five frozen labels")
+    base = sum(row["baseline"] == row["expected"] for row in rows)
+    correct = sum(row["candidate"] == row["expected"] for row in rows)
+    false_promotions = sum(
+        row["candidate"] is not None
+        and RANK[row["candidate"]] > RANK[row["expected"]]
+        for row in rows
+    )
+    if (record["report"]["n"] != len(rows)
+            or record["report"]["false_promotions"] != false_promotions
+            or abs(record["report"]["baseline_accuracy"] - base / 30) > 1e-9
+            or abs(record["report"]["candidate_accuracy_overall"] - correct / 30) > 1e-9):
+        raise ValueError("per-case data disagree with recorded summary")
+    return {"rows": rows, "base": base, "correct": correct,
+            "false_promotions": false_promotions}
+
+
+def render() -> str:
+    cases_file = REVIEW / "final-cases-v2.jsonl"
+    if hashlib.sha256(cases_file.read_bytes()).hexdigest() != CASES_SHA256:
+        raise ValueError("final case file differs from the frozen H1 labels")
+    frozen = {row["id"]: row["expected"] for row in
+              (json.loads(line) for line in cases_file.read_text(encoding="utf-8").splitlines())}
+    if len(frozen) != 30:
+        raise ValueError("frozen case file must contain 30 unique labels")
+    h1 = summary(load_record(H1_RECORD, H1_SHA256))
+    h1b = summary(load_record(H1B_RECORD, H1B_SHA256))
+    cases_h1 = {row["case_id"]: (row["expected"], row["baseline"])
+                for row in h1["rows"]}
+    cases_h1b = {row["case_id"]: (row["expected"], row["baseline"])
+                 for row in h1b["rows"]}
+    if cases_h1 != cases_h1b:
+        raise ValueError("H1 and H1b did not use the same frozen cases and baseline")
+    if {key: label for key, (label, _) in cases_h1.items()} != frozen:
+        raise ValueError("run rows differ from frozen reference labels")
+    if (h1["base"], h1["correct"], h1["false_promotions"],
+            h1b["correct"], h1b["false_promotions"]) != (25, 3, 5, 13, 8):
+        raise ValueError("frozen published counts changed; inspect inputs first")
+
+    def label(n: int) -> str:
+        return f"{n}/30 ({100 * n / 30:.1f}%)"
+
+    replacements = {
+        "RUBRIC_BAR_WIDTH": f"{450 * h1['base'] / 30:.1f}",
+        "H1_BAR_WIDTH": f"{450 * h1['correct'] / 30:.1f}",
+        "H1B_BAR_WIDTH": f"{450 * h1b['correct'] / 30:.1f}",
+        "H1_FALSE_BAR_WIDTH": f"{32 * h1['false_promotions']:.1f}",
+        "H1B_FALSE_BAR_WIDTH": f"{32 * h1b['false_promotions']:.1f}",
+        "RUBRIC_LABEL": label(h1["base"]),
+        "H1_LABEL": label(h1["correct"]),
+        "H1B_LABEL": label(h1b["correct"]),
+        "H1_FALSE_LABEL": f"{h1['false_promotions']} / 30",
+        "H1B_FALSE_LABEL": f"{h1b['false_promotions']} / 30",
+        "H1_HASH": H1_SHA256,
+        "H1B_HASH": H1B_SHA256,
+    }
+    template_bytes = TEMPLATE.read_bytes()
+    if hashlib.sha256(template_bytes).hexdigest() != TEMPLATE_SHA256:
+        raise ValueError("H1 SVG template differs from the pinned version")
+    image = template_bytes.decode("utf-8")
+    for key, value in replacements.items():
+        token = "{{" + key + "}}"
+        if image.count(token) != 1:
+            raise ValueError(f"figure template needs exactly one {token}")
+        image = image.replace(token, value)
+    if "{{" in image:
+        raise ValueError("unfilled figure template variable")
+    return image
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="H1 descriptive SVG from sealed records")
+    operation = parser.add_mutually_exclusive_group()
+    operation.add_argument("--check", action="store_true",
+                           help="verify the committed SVG matches frozen records; never write")
+    operation.add_argument("--out", type=Path, metavar="SVG",
+                           help="write the regenerated SVG to this path")
+    args = parser.parse_args(argv)
+    rendered = render()
+    output_bytes = rendered.encode("utf-8")
+    if args.check:
+        if SVG.read_bytes() != output_bytes:
+            raise SystemExit("H1 SVG differs from frozen records; regenerate and inspect")
+        print("H1 figure reproducible from frozen records")
+        return 0
+    if args.out is None:
+        parser.error("pass --check or --out SVG")
+    protected = (H1_RECORD, H1B_RECORD, REVIEW / "final-cases-v2.jsonl",
+                 TEMPLATE, Path(__file__))
+    output = args.out.resolve()
+    if output in (source.resolve() for source in protected):
+        raise SystemExit("refusing to overwrite a research input or figure template")
+    if args.out.suffix.lower() != ".svg":
+        raise SystemExit("output must have a .svg extension")
+
+    # A failure, crash, or concurrent checker sees the previous complete file
+    # or the new complete file, never a partly written SVG.
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", prefix=".h1-figure-",
+                                         suffix=".tmp", dir=args.out.parent,
+                                         delete=False) as handle:
+            temp_path = Path(handle.name)
+            handle.write(output_bytes)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, args.out)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+    print(f"Wrote {args.out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
