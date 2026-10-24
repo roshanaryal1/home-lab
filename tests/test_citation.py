@@ -118,6 +118,14 @@ def test_published_date_must_match_changelog() -> None:
         )
 
 
+def test_duplicate_or_conflicting_release_headings_are_refused() -> None:
+    with pytest.raises(AssertionError, match="exactly one"):
+        _check_release_status(
+            {"version": "1.2.3", "date-released": "2026-10-24"},
+            "## [1.2.3] - 2026-10-24\\n## [1.2.3] - unreleased\\n".replace("\\n", "\n"),
+        )
+
+
 def test_version_and_license_match_the_package() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
     assert DATA["version"] == pyproject["version"]
