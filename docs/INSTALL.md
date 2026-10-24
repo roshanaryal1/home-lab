@@ -381,6 +381,23 @@ rm -rf "$HOME/.cache/huggingface/hub/models--mlx-community--Qwen3-Coder-30B-A3B-
 For the small model the folder is `models--mlx-community--Qwen3-4B-Instruct-2507-4bit`.
 Last, delete your clone, the folder `REPO` names.
 
+## Inspect which settings this shell has
+
+`lab config show` reports whether each documented `LAB_*` setting is
+`set` or `unset` in the current process environment, without revealing any
+value. The `LAB_SECRET_*` group is shown once, without secret names. For a
+machine-readable version, use `lab config show --json`:
+
+```sh
+uv run lab config show
+uv run lab config show --json
+```
+
+This command works without a database and changes nothing. It does not read
+Keychain entries, check whether a setting is valid, check permissions, or show
+what a launchd daemon has in its own environment. Use `lab doctor` and
+`lab security-audit` for health and security checks.
+
 ## Troubleshooting
 
 ### The prerequisite check fails
