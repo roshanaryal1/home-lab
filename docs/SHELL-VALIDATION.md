@@ -19,18 +19,31 @@ file on pull requests to `main` and pushes to `main`.
 
 On Linux, with a trusted ShellCheck v0.11.0 installed and a Bash shell:
 
-```sh
+```bash
+set -euo pipefail
 files=()
 while IFS= read -r -d '' path; do
-  case "$(head -n 1 -- "$path")" in
-    *bash*) bash -n "$path" ;;
-    *sh*) sh -n "$path" ;;
-    *) echo "unrecognized interpreter: $path" >&2; exit 1 ;;
+  safe_path="./$path"
+  case "$(head -n 1 -- "$safe_path")" in
+    '#!/bin/bash'|'#!/usr/bin/bash'|'#!/usr/bin/env bash')
+      bash -n "$safe_path" ;;
+    '#!/bin/sh'|'#!/usr/bin/sh'|'#!/usr/bin/env sh')
+      sh -n "$safe_path" ;;
+    *) echo "unsupported shell interpreter: $safe_path" >&2; exit 1 ;;
   esac
-  files+=("$path")
+  files+=("$safe_path")
 done < <(git ls-files -z -- '*.sh')
+if [ "${#files[@]}" -eq 0 ]; then
+  echo "no tracked shell scripts" >&2
+  exit 1
+fi
 shellcheck --severity=warning -- "${files[@]}"
 ```
+
+**Merge protection:** Adding a workflow does not automatically make it a
+required branch-protection check. The repository owner must add the
+`shellcheck` job to `main`'s required status checks before this can be
+considered a merge-blocking safety control (see #434).
 
 This validates only tracked `*.sh` files and their static structure.
 It cannot prove that a script's privileged operations are safe on the
