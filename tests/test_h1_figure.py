@@ -24,7 +24,7 @@ def _figure() -> ModuleType:
 def test_svg_exactly_reproducible_from_sealed_records() -> None:
     fig = _figure()
     rendered = fig.render()
-    assert rendered == (ROOT / "evals" / "h1_review" / "h1-results.svg").read_text()
+    assert rendered.encode("utf-8") == (ROOT / "evals" / "h1_review" / "h1-results.svg").read_bytes()
     assert fig.main(["--check"]) == 0
     for text in (
         "25/30 (83.3%)",
@@ -82,3 +82,54 @@ def test_check_mode_does_not_touch_or_replace_figure(
     assert fig.main(["--out", str(svg)]) == 0
     assert json.loads(fig.H1_RECORD.read_text(encoding="utf-8"))["valid"] is True
     assert svg.read_text(encoding="utf-8") == fig.render()
+
+
+def test_template_is_pinned_even_if_placeholders_survive(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fig = _figure()
+    modified = tmp_path / "modified-template.svg"
+    raw = fig.TEMPLATE.read_bytes()
+    assert b"#f9fafb" in raw
+    modified.write_bytes(raw.replace(b"#f9fafb", b"#ffffff"))
+    monkeypatch.setattr(fig, "TEMPLATE", modified)
+    with pytest.raises(ValueError, match="template differs"):
+        fig.render()
+
+
+@pytest.mark.parametrize("protected", [
+    "H1_RECORD", "H1B_RECORD", "TEMPLATE",
+])
+def test_out_does_not_overwrite_research_sources(protected: str) -> None:
+    fig = _figure()
+    source = getattr(fig, protected)
+    original = source.read_bytes()
+    with pytest.raises(SystemExit, match="refusing to overwrite"):
+        fig.main(["--out", str(source)])
+    assert source.read_bytes() == original
+
+
+def test_exact_bytes_check_rejects_line_ending_changes(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fig = _figure()
+    altered_svg = tmp_path / "different-newlines.svg"
+    altered_svg.write_bytes(fig.render().replace("\n", "\r\n").encode("utf-8"))
+    monkeypatch.setattr(fig, "SVG", altered_svg)
+    with pytest.raises(SystemExit, match="differs"):
+        fig.main(["--check"])
+    assert altered_svg.read_bytes() != fig.render().encode("utf-8")
+
+
+def test_failed_atomic_replace_keeps_previous_complete_svg(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fig = _figure()
+    output = tmp_path / "figure.svg"
+    output.write_bytes(b"previous-good-version")
+
+    def fail_replace(src: object, dst: object) -> None:
+        raise OSError("simulated interrupted replacement")
+
+    monkeypatch.setattr(fig.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="interrupted"):
+        fig.main(["--out", str(output)])
+    assert output.read_bytes() == b"previous-good-version"
+    assert not list(tmp_path.glob(".h1-figure-*.tmp"))
