@@ -24,7 +24,8 @@ def _figure() -> ModuleType:
 def test_svg_exactly_reproducible_from_sealed_records() -> None:
     fig = _figure()
     rendered = fig.render()
-    assert rendered.encode("utf-8") == (ROOT / "evals" / "h1_review" / "h1-results.svg").read_bytes()
+    expected_svg = ROOT / "evals" / "h1_review" / "h1-results.svg"
+    assert rendered.encode("utf-8") == expected_svg.read_bytes()
     assert fig.main(["--check"]) == 0
     for text in (
         "25/30 (83.3%)",
