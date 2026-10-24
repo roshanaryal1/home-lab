@@ -35,6 +35,7 @@ Usage:
     python3 -m lab.cli eval run|rerun ...
     python3 -m lab.cli status [--json] [--since-hours N] [--stall-seconds N] [--stalled-minutes N]
     python3 -m lab.cli doctor
+    python3 -m lab.cli config show [--json]
     python3 -m lab.cli export --to DIR
     python3 -m lab.cli security-audit [--details]
     python3 -m lab.cli backup [--to DIR] [--artifacts DIR] [--keep N] [--alert-config FILE]
@@ -78,6 +79,7 @@ from lab import (
     alert,
     audit,
     backup,
+    config_view,
     control,
     deadman,
     doctor,
@@ -822,6 +824,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="with --alert-config, also send one short alert when every check "
                      "passes, so a result arrives every morning")
     sub.add_parser("doctor", help="read-only health check: exit 1 if any check fails")
+    cfg = sub.add_parser("config", help="inspect configuration presence, never values")
+    cfg_sub = cfg.add_subparsers(dest="config_command", required=True)
+    cfg_show = cfg_sub.add_parser("show", help="show set/unset for documented settings")
+    cfg_show.add_argument("--json", action="store_true", help="output statuses as JSON")
     inj = sub.add_parser("injection-suite", help="run the public injection suite (#368) in "
                          "throwaway labs; exit 1 if any attack succeeds")
     inj.add_argument("--version", default=None, help="suite version (default: the latest)")
@@ -1333,6 +1339,17 @@ def cmd_injection_suite(args: argparse.Namespace) -> int:
         for line in injection_suite.format_report(report).splitlines():
             print(_escape(line))
     return 0 if report.passed else 1
+
+
+def cmd_config_show(args: argparse.Namespace) -> int:
+    """Read only the process environment, not the database or any secret values."""
+    settings = config_view.snapshot(os.environ)
+    if args.json:
+        print(json.dumps(settings, indent=2, sort_keys=True))
+    else:
+        for key, status in settings.items():
+            print(f"{key}: {status}")
+    return 0
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -2418,6 +2435,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         return cmd_selftest(args)
     if args.command == "doctor":
         return cmd_doctor(args)
+    if args.command == "config":
+        return cmd_config_show(args)
     if args.command == "injection-suite":
         return cmd_injection_suite(args)
     if args.command == "security-audit":
