@@ -38,8 +38,26 @@ def test_secret_names_and_values_are_not_exposed() -> None:
     assert actual["LAB_MODEL_NAME"] == "set"
 
 
-def test_empty_secret_does_not_count_as_set() -> None:
-    assert snapshot({"LAB_SECRET_X": ""})["LAB_SECRET_*"] == "unset"
+def test_empty_secret_is_still_a_configured_name() -> None:
+    assert snapshot({"LAB_SECRET_X": ""})["LAB_SECRET_*"] == "set"
+
+
+def test_config_does_not_access_environment_values() -> None:
+    class NamesOnly(dict[str, str]):
+        def __getitem__(self, key: str) -> str:
+            raise AssertionError(f"value access forbidden: {key}")
+
+        def __iter__(self):
+            # A writer mutates the dictionary after the key iterator is
+            # created. A stable keys snapshot keeps this harmless.
+            names = tuple(super().__iter__())
+            self["LAB_SECRET_LATE"] = "canary"
+            return iter(names)
+
+    values = NamesOnly({"LAB_MODEL_URL": "hidden"})
+    result = snapshot(values)
+    assert result["LAB_MODEL_URL"] == "set"
+    assert result["LAB_SECRET_*"] == "unset"
 
 
 @pytest.mark.parametrize("as_json", [False, True])
