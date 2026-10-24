@@ -9,6 +9,11 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- `lab config show [--json]`: a read-only, fixed-allowlist view of whether
+  documented environment settings are set. It prints no raw values and groups
+  secret variables without revealing their names. It works without a queue
+  database and does not query Keychain or other processes (#428).
+
 - A backup also holds the operator's public key and the installed
   `com.homelab.*` service definitions, with a hash each, and its restore check
   writes them into `config/` beside the restored database. Secrets stay out.
