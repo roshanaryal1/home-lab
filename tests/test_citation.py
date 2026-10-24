@@ -73,13 +73,15 @@ def test_type_is_software_or_dataset() -> None:
 
 def _check_release_status(data: dict[str, object], changelog: str) -> None:
     version = str(data["version"])
-    release = re.search(
+    releases = re.findall(
         rf"^## \[{re.escape(version)}\] - (unreleased|\d{{4}}-\d{{2}}-\d{{2}})$",
         changelog,
         flags=re.MULTILINE,
     )
-    assert release, f"CHANGELOG.md needs a status for version {version}"
-    heading_date = release.group(1)
+    assert len(releases) == 1, (
+        f"CHANGELOG.md needs exactly one status for version {version}: {releases}"
+    )
+    heading_date = releases[0]
     if heading_date == "unreleased":
         assert "date-released" not in data, "an unpublished version cannot claim a release date"
     else:
