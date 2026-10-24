@@ -126,16 +126,27 @@ SECRET_HINTS = ("password", "token", "secret", "api_key", "apikey",
                 "credential", "authorization", "auth", "private_key")
 
 
+def _redact_value(value: Any) -> Any:
+    """Walk JSON arrays as well as objects before rendering an approval."""
+    if isinstance(value, dict):
+        return _redact(value)
+    if isinstance(value, list):
+        return [_redact_value(item) for item in value]
+    return value
+
+
 def _redact(params: dict[str, Any]) -> dict[str, Any]:
-    """Mask values whose key looks like a credential."""
+    """Mask credential-shaped keys at every depth of a JSON approval intent.
+
+    This is display-only: do not mutate the original intent, since the
+    approval must remain bound to its unredacted parameters and hash.
+    """
     out: dict[str, Any] = {}
     for key, value in params.items():
         if any(hint in key.lower() for hint in SECRET_HINTS):
             out[key] = "<redacted>"
-        elif isinstance(value, dict):
-            out[key] = _redact(value)
         else:
-            out[key] = value
+            out[key] = _redact_value(value)
     return out
 
 
