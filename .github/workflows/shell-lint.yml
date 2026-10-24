@@ -1,0 +1,52 @@
+name: shell-lint
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install verified ShellCheck v0.11.0
+        env:
+          VERSION: v0.11.0
+          SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+        run: |
+          curl -fsSL --retry 3 --connect-timeout 10 --max-time 90 -o "$RUNNER_TEMP/shellcheck.tar.xz" \
+            "https://github.com/koalaman/shellcheck/releases/download/${VERSION}/shellcheck-${VERSION}.linux.x86_64.tar.xz"
+          printf '%s  %s\n' "$SHA256" "$RUNNER_TEMP/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/shellcheck-${VERSION}" >> "$GITHUB_PATH"
+      - name: Syntax and static analysis of tracked shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=()
+          while IFS= read -r -d '' path; do
+            safe_path="./$path"
+            echo "checking: $safe_path"
+            case "$(head -n 1 -- "$safe_path")" in
+              '#!/bin/bash'|'#!/usr/bin/bash'|'#!/usr/bin/env bash')
+                bash -n "$safe_path" ;;
+              '#!/bin/sh'|'#!/usr/bin/sh'|'#!/usr/bin/env sh')
+                sh -n "$safe_path" ;;
+              *) echo "unsupported shell interpreter in $safe_path" >&2; exit 1 ;;
+            esac
+            files+=("$safe_path")
+          done < <(git ls-files -z -- '*.sh')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "no tracked .sh files found" >&2
+            exit 1
+          fi
+          shellcheck --severity=warning -- "${files[@]}"
+          echo "checked ${#files[@]} tracked shell scripts"

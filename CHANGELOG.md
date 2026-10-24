@@ -9,6 +9,10 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- A separate CI job syntax-checks and statically analyzes tracked maintenance
+  scripts with a SHA-256-verified ShellCheck binary, without running the scripts
+  or changing the deployed Mac (#432).
+
 - A backup also holds the operator's public key and the installed
   `com.homelab.*` service definitions, with a hash each, and its restore check
   writes them into `config/` beside the restored database. Secrets stay out.
