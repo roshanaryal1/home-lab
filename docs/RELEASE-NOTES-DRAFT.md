@@ -219,10 +219,12 @@ Results.
 Nothing below has been done. See also [ops/release.md](../ops/release.md).
 
 1. Choose the version. Set `version` in `pyproject.toml` and `CITATION.cff`
-   together (`tests/test_citation.py` fails if they differ), and set
-   `date-released` in `CITATION.cff` to the release date. It says 2026-09-28
-   today, which is before any release. Move the CHANGELOG's Unreleased notes
-   under the version, as `ops/release.md` says.
+   together (`tests/test_citation.py` fails if they differ). The citation
+   has no `date-released` while the version is unpublished. When the owner
+   publishes the release, give the changelog's version heading its actual
+   ISO date and add that same `date-released` to `CITATION.cff`.
+   Move the CHANGELOG's Unreleased notes under that version, as
+   `ops/release.md` says.
 2. `ops/release.md` also asks for a fresh `lab eval run` record on the Mac
    mini, committed before the release.
 3. Validate the citation file. The current file passed with `cffconvert`
