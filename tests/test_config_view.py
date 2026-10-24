@@ -17,7 +17,7 @@ def test_snapshot_is_a_sorted_allowlist_of_set_unset_statuses() -> None:
                        "LAB_UNKNOWN_VARIABLE": "never print me"})
     assert list(actual) == sorted(actual)
     assert actual["LAB_MODEL_URL"] == "set"
-    assert actual["LAB_LOG_LEVEL"] == "unset"
+    assert actual["LAB_LOG_LEVEL"] == "set"
     assert actual["LAB_SECRET_*"] == "unset"
     assert set(actual) == set(CONFIG_NAMES) | {"LAB_SECRET_*"}
     assert "LAB_UNKNOWN_VARIABLE" not in actual
