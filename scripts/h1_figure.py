@@ -14,12 +14,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 REVIEW = ROOT / "evals" / "h1_review"
 TEMPLATE = REVIEW / "h1-results-template.svg"
+TEMPLATE_SHA256 = "f6f2a7a0fe6abb059ed361bea92106589af03b6c1096df739874ba22a275e4ea"
 SVG = REVIEW / "h1-results.svg"
 
 H1_RECORD = REVIEW / "h1-run.json"
@@ -109,7 +112,10 @@ def render() -> str:
         "H1_HASH": H1_SHA256,
         "H1B_HASH": H1B_SHA256,
     }
-    image = TEMPLATE.read_text(encoding="utf-8")
+    template_bytes = TEMPLATE.read_bytes()
+    if hashlib.sha256(template_bytes).hexdigest() != TEMPLATE_SHA256:
+        raise ValueError("H1 SVG template differs from the pinned version")
+    image = template_bytes.decode("utf-8")
     for key, value in replacements.items():
         token = "{{" + key + "}}"
         if image.count(token) != 1:
@@ -129,14 +135,37 @@ def main(argv: list[str] | None = None) -> int:
                            help="write the regenerated SVG to this path")
     args = parser.parse_args(argv)
     rendered = render()
+    output_bytes = rendered.encode("utf-8")
     if args.check:
-        if SVG.read_text(encoding="utf-8") != rendered:
+        if SVG.read_bytes() != output_bytes:
             raise SystemExit("H1 SVG differs from frozen records; regenerate and inspect")
         print("H1 figure reproducible from frozen records")
         return 0
     if args.out is None:
         parser.error("pass --check or --out SVG")
-    args.out.write_text(rendered, encoding="utf-8")
+    protected = (H1_RECORD, H1B_RECORD, REVIEW / "final-cases-v2.jsonl",
+                 TEMPLATE, Path(__file__))
+    output = args.out.resolve()
+    if output in (source.resolve() for source in protected):
+        raise SystemExit("refusing to overwrite a research input or figure template")
+    if args.out.suffix.lower() != ".svg":
+        raise SystemExit("output must have a .svg extension")
+
+    # A failure, crash, or concurrent checker sees the previous complete file
+    # or the new complete file, never a partly written SVG.
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", prefix=".h1-figure-",
+                                         suffix=".tmp", dir=args.out.parent,
+                                         delete=False) as handle:
+            temp_path = Path(handle.name)
+            handle.write(output_bytes)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, args.out)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
     print(f"Wrote {args.out}")
     return 0
 
