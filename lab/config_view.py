@@ -36,13 +36,18 @@ CONFIG_NAMES: tuple[str, ...] = (
 def snapshot(environ: Mapping[str, str]) -> dict[str, str]:
     """Report presence, never raw environment values or unknown variable names.
 
-    An empty value is treated as unset. Secret variables appear only as a
-    single group, so even their suffixes cannot reveal project information.
-    A set variable is not necessarily valid or used by a running daemon.
+    Presence includes empty values, which may be invalid for some settings.
+    Secret variables appear only as a single group, so their suffixes cannot
+    reveal project information. A present value is not necessarily valid or
+    used by a running daemon.
+
+    Collect names once before reporting. In particular, os.environ's iterator
+    snapshots its backing keys, so mutations after this point do not change
+    which keys we report. Never read or enumerate their values.
     """
-    result = {name: "set" if environ.get(name) else "unset" for name in CONFIG_NAMES}
+    keys = frozenset(environ)
+    result = {name: "set" if name in keys else "unset" for name in CONFIG_NAMES}
     result["LAB_SECRET_*"] = (
-        "set" if any(key.startswith("LAB_SECRET_") and value
-                     for key, value in environ.items()) else "unset"
+        "set" if any(key.startswith("LAB_SECRET_") for key in keys) else "unset"
     )
     return dict(sorted(result.items()))
