@@ -96,5 +96,7 @@ def test_install_docs_link_troubleshooting_and_validation() -> None:
     for page in (ROOT / "docs" / "INSTALL.md", ROOT / "README.md",
                  ROOT / "ops" / "install-validation.md"):
         resolved = {path for _raw, path in _local_targets(page)}
-        assert TROUBLESHOOTING.resolve() in resolved, f"{page.name}: no working link to TROUBLESHOOTING.md"
-        assert VALIDATION.resolve() in resolved, f"{page.name}: no working link to the validation template"
+        assert TROUBLESHOOTING.resolve() in resolved, (
+            f"{page.name}: no working link to TROUBLESHOOTING.md")
+        assert VALIDATION.resolve() in resolved, (
+            f"{page.name}: no working link to the validation template")
