@@ -134,3 +134,20 @@ def test_failed_atomic_replace_keeps_previous_complete_svg(
         fig.main(["--out", str(output)])
     assert output.read_bytes() == b"previous-good-version"
     assert not list(tmp_path.glob(".h1-figure-*.tmp"))
+
+
+@pytest.mark.parametrize("token", ["{{RUBRIC_LABEL}}", "{{H1B_FALSE_LABEL}}"])
+def test_template_must_keep_both_copies_of_each_label(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, token: str) -> None:
+    # Labels appear in the accessible <desc> and as visible text. Dropping
+    # either copy must fail, even with a matching pin for the edited template.
+    import hashlib
+
+    fig = _figure()
+    edited = fig.TEMPLATE.read_text(encoding="utf-8").replace(token, "missing", 1)
+    template = tmp_path / "template.svg"
+    template.write_text(edited, encoding="utf-8")
+    monkeypatch.setattr(fig, "TEMPLATE", template)
+    monkeypatch.setattr(fig, "TEMPLATE_SHA256", hashlib.sha256(template.read_bytes()).hexdigest())
+    with pytest.raises(ValueError, match="exactly 2 of"):
+        fig.render()

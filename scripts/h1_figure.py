@@ -116,10 +116,15 @@ def render() -> str:
     if hashlib.sha256(template_bytes).hexdigest() != TEMPLATE_SHA256:
         raise ValueError("H1 SVG template differs from the pinned version")
     image = template_bytes.decode("utf-8")
+    # Each label appears twice: in the accessible <desc> and as visible text.
+    # Widths and hashes appear once. Counts stay exact, so a template edit
+    # that drops or duplicates a value still fails loudly.
+    labels = ("RUBRIC_LABEL", "H1_LABEL", "H1B_LABEL", "H1_FALSE_LABEL", "H1B_FALSE_LABEL")
     for key, value in replacements.items():
         token = "{{" + key + "}}"
-        if image.count(token) != 1:
-            raise ValueError(f"figure template needs exactly one {token}")
+        expected = 2 if key in labels else 1
+        if image.count(token) != expected:
+            raise ValueError(f"figure template needs exactly {expected} of {token}")
         image = image.replace(token, value)
     if "{{" in image:
         raise ValueError("unfilled figure template variable")
