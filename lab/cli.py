@@ -127,12 +127,31 @@ SECRET_HINTS = ("password", "token", "secret", "api_key", "apikey",
 
 
 def _redact_value(value: Any) -> Any:
-    """Walk JSON arrays as well as objects before rendering an approval."""
-    if isinstance(value, dict):
-        return _redact(value)
-    if isinstance(value, list):
-        return [_redact_value(item) for item in value]
-    return value
+    """Walk JSON arrays as well as objects before rendering an approval.
+
+    Iterative on purpose: a size-limited intent can still nest deeper than
+    Python's recursion limit, and the preview must not crash on it.
+    """
+    root: list[Any] = [None]
+    pending: list[tuple[Any, Any, Any]] = [(value, root, 0)]
+    while pending:
+        source, parent, slot = pending.pop()
+        if isinstance(source, dict):
+            copy: dict[str, Any] = {}
+            parent[slot] = copy
+            for key, item in source.items():
+                if any(hint in key.lower() for hint in SECRET_HINTS):
+                    copy[key] = "<redacted>"
+                else:
+                    copy[key] = None  # keeps key order; filled below
+                    pending.append((item, copy, key))
+        elif isinstance(source, list):
+            items: list[Any] = [None] * len(source)
+            parent[slot] = items
+            pending.extend((item, items, index) for index, item in enumerate(source))
+        else:
+            parent[slot] = source
+    return root[0]
 
 
 def _redact(params: dict[str, Any]) -> dict[str, Any]:
@@ -141,13 +160,8 @@ def _redact(params: dict[str, Any]) -> dict[str, Any]:
     This is display-only: do not mutate the original intent, since the
     approval must remain bound to its unredacted parameters and hash.
     """
-    out: dict[str, Any] = {}
-    for key, value in params.items():
-        if any(hint in key.lower() for hint in SECRET_HINTS):
-            out[key] = "<redacted>"
-        else:
-            out[key] = _redact_value(value)
-    return out
+    redacted: dict[str, Any] = _redact_value(params)
+    return redacted
 
 
 def _age(timestamp: str) -> str:
@@ -267,6 +281,16 @@ def cmd_show(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -
     intent = _bound_intent(row, task)
     if intent is None:
         return _refuse_unbound(row)
+    # Render before printing anything: the operator sees the whole redacted
+    # intent or nothing, never a partial preview they might approve from.
+    try:
+        rendered = json.dumps(_redact(intent), indent=2, sort_keys=True,
+                              ensure_ascii=True)
+    except (RecursionError, ValueError):
+        print(f"Approval {_escape(row['id'])}: its intent cannot be displayed safely "
+              "(nested too deeply to render). Do not approve it unseen.",
+              file=sys.stderr)
+        return 1
 
     print(f"Approval   {_escape(row['id'])}")
     print(f"State      {_escape(row['state'])}")
@@ -285,7 +309,7 @@ def cmd_show(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -
     print(f"Sensitivity {_escape(task.sensitivity)}")
     print()
     print("This approval authorises EXACTLY this intent:")
-    print(json.dumps(_redact(intent), indent=2, sort_keys=True, ensure_ascii=True))
+    print(rendered)
     print()
     print(f"Bound to   {_escape(row['action_hash'][:16])}...")
     print("Changing any parameter, the state it acts on, or the policy "

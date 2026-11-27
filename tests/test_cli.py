@@ -7,6 +7,7 @@ everything reported success.
 
 from __future__ import annotations
 
+import sys
 import tomllib
 from pathlib import Path
 
@@ -235,6 +236,50 @@ def test_show_hides_credentials_inside_action_arrays(db: Path, capsys) -> None:
         assert q._conn.execute(
             "SELECT action_hash FROM approvals WHERE id = ?", (approval,)
         ).fetchone()["action_hash"] == bound_hash
+
+
+@pytest.mark.safety
+def test_redact_handles_nesting_deeper_than_the_recursion_limit() -> None:
+    # A size-limited intent can still nest past Python's recursion limit;
+    # the preview must not crash on it (it used to raise RecursionError).
+    depth = sys.getrecursionlimit() + 200
+    leaf: dict[str, object] = {"password": "canary-deepest", "amount": 7}
+    payload: object = leaf
+    for level in range(depth):
+        payload = {"level": [payload]} if level % 2 else {"level": payload}
+    masked = _redact(payload)  # type: ignore[arg-type]
+
+    node: object = masked
+    original: object = payload
+    for level in reversed(range(depth)):
+        assert isinstance(node, dict) and isinstance(original, dict)
+        node, original = node["level"], original["level"]
+        if level % 2:
+            assert isinstance(node, list) and isinstance(original, list)
+            assert node is not original
+            node, original = node[0], original[0]
+    assert node == {"password": "<redacted>", "amount": 7}
+    assert original is leaf and leaf["password"] == "canary-deepest"
+
+
+@pytest.mark.safety
+def test_show_fails_closed_when_the_intent_cannot_be_rendered(
+        db: Path, capsys, monkeypatch) -> None:
+    with TaskQueue(db, owner="t") as q:
+        policy = PolicyEngine(q._conn)
+        task = q.get(q.add_task("deep call", capability_tier="approve",
+                                payload={"api_key": "canary-unrendered"}))
+        approval = policy.request_approval(task, "deep")
+
+    def explode(_params: object) -> object:
+        raise RecursionError("too deep")
+
+    monkeypatch.setattr("lab.cli._redact", explode)
+    assert run(db, "show", approval[:8]) == 1
+    captured = capsys.readouterr()
+    assert "canary-unrendered" not in captured.out + captured.err
+    assert "cannot be displayed safely" in captured.err
+    assert "This approval authorises EXACTLY this intent" not in captured.out
 
 
 # ------------------------------------------------------------ decisions

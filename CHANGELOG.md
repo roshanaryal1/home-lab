@@ -80,6 +80,9 @@ They are a draft until the owner approves them.
 - Approval previews now redact credential-named fields within lists and nested
   arrays as well as dictionaries. Display masking leaves persisted intents and
   authorization hashes untouched, with CLI regressions for arrays (#437).
+  Redaction no longer recurses, so an intent nested past Python's recursion
+  limit is still masked and shown; if an intent cannot be rendered at all,
+  `show` refuses with one line instead of printing a partial preview.
 
 - A known database or file error in the CLI prints one line, not a traceback.
   `--debug` keeps the traceback
