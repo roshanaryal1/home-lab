@@ -48,9 +48,11 @@ between-condition effect.
 
 ## Reproduction
 
-From the repository root:
+From the repository root. The first line installs the `dev` extra, which
+holds `pytest`; plain `uv run` does not install extras.
 
 ```sh
+uv sync --locked --extra dev
 uv run python scripts/h1_figure.py --check
 uv run python scripts/h1_figure.py --out evals/h1_review/h1-results.svg
 uv run python -m pytest tests/test_h1_figure.py -q
@@ -59,10 +61,14 @@ uv run python -m pytest tests/test_h1_figure.py -q
 `--check` changes nothing and compares exact UTF-8 bytes, including
 line endings, against what the immutable run files and template produce.
 `--out` accepts only a .svg path and refuses to overwrite any sealed run,
-case file, the template or the generator itself. It atomically replaces the
-target only after the complete figure is written, so an interrupted write
-does not leave a truncated figure. No network, model server, OSF connection,
-or inference runtime is used. The SVG template is
+case file, the template or the generator itself. An existing target is
+compared by file identity, so another spelling of a protected file (a
+different letter case on a case-insensitive volume, or a hard link) is
+also refused. It atomically replaces the target only after the complete
+figure is written, so an interrupted write does not leave a truncated
+figure. The replacement keeps the old file's permission bits; a new file
+gets the usual mode under the current umask. No network, model server, OSF
+connection, or inference runtime is used. The SVG template is
 `h1-results-template.svg`; the generated figure is `h1-results.svg`.
 
 Use this caption when reporting:
