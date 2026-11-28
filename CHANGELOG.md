@@ -83,6 +83,11 @@ They are a draft until the owner approves them.
   Redaction no longer recurses, so an intent nested past Python's recursion
   limit is still masked and shown; if an intent cannot be rendered at all,
   `show` refuses with one line instead of printing a partial preview.
+  CLI and Telegram previews now match credential key names whatever their
+  case or separators, so `X-API-Key`, `privateKey`, `Proxy-Authorization` and
+  `Set-Cookie` are masked while `author` stays visible. If Python cannot decode
+  a stored task payload, `show` prints one refusal line, and a chat preview
+  that cannot be rendered is refused in one line.
 
 - A known database or file error in the CLI prints one line, not a traceback.
   `--debug` keeps the traceback
