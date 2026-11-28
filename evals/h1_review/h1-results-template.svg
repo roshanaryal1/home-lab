@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="635" viewBox="0 0 960 635" role="img" aria-labelledby="chart-title chart-desc">
+  <title id="chart-title">H1 accuracy and false promotions on 30 frozen cases</title>
+  <desc id="chart-desc">Rubric {{RUBRIC_LABEL}} correct, registered H1 candidate {{H1_LABEL}} correct, exploratory H1b candidate {{H1B_LABEL}} correct. H1 has {{H1_FALSE_LABEL}} false promotions, H1b has {{H1B_FALSE_LABEL}}. H1 remains not supported; H1b cannot change the preregistered verdict. SHA256 records: H1 {{H1_HASH}}, H1b {{H1B_HASH}}.</desc>
+  <rect x="0" y="0" width="960" height="635" fill="#f9fafb"/>
+  <text x="50" y="57" font-family="Arial, Helvetica, sans-serif" font-size="27" font-weight="700" fill="#172b40">H1: route accuracy and false promotions</text>
+  <text x="50" y="86" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#475569">30 frozen cases | one registered H1 run, one exploratory H1b run | baseline unchanged</text>
+  <rect x="38" y="111" width="884" height="335" rx="12" fill="#ffffff" stroke="#d6dee7"/>
+  <text x="66" y="149" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#172b40">Correct routes (percentage of all 30 cases)</text>
+  <text x="274" y="180" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">0%</text>
+  <text x="490" y="180" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">50%</text>
+  <text x="717" y="180" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">100%</text>
+  <line x1="275" y1="191" x2="275" y2="407" stroke="#dce3eb" stroke-width="1"/>
+  <line x1="500" y1="191" x2="500" y2="407" stroke="#dce3eb" stroke-width="1" stroke-dasharray="4 5"/>
+  <line x1="725" y1="191" x2="725" y2="407" stroke="#dce3eb" stroke-width="1"/>
+  <text x="66" y="237" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#172b40">Deterministic rubric</text>
+  <rect x="275" y="211" width="{{RUBRIC_BAR_WIDTH}}" height="35" rx="4" fill="#22577a"/>
+  <text x="750" y="235" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#172b40">{{RUBRIC_LABEL}}</text>
+  <text x="66" y="310" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#172b40">H1 candidate</text>
+  <text x="66" y="328" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">REGISTERED</text>
+  <rect x="275" y="284" width="{{H1_BAR_WIDTH}}" height="35" rx="4" fill="#c15745"/>
+  <text x="750" y="308" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#172b40">{{H1_LABEL}}</text>
+  <text x="66" y="385" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#172b40">H1b candidate</text>
+  <text x="66" y="403" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">EXPLORATORY</text>
+  <rect x="275" y="359" width="{{H1B_BAR_WIDTH}}" height="35" rx="4" fill="#b98034"/>
+  <text x="750" y="383" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#172b40">{{H1B_LABEL}}</text>
+  <rect x="38" y="461" width="884" height="117" rx="12" fill="#ffffff" stroke="#d6dee7"/>
+  <text x="66" y="493" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#172b40">False promotions (higher is worse)</text>
+  <text x="66" y="523" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#172b40">H1 registered</text>
+  <rect x="275" y="508" width="{{H1_FALSE_BAR_WIDTH}}" height="18" rx="3" fill="#c15745"/>
+  <text x="620" y="523" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#172b40">{{H1_FALSE_LABEL}}</text>
+  <text x="66" y="552" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#172b40">H1b exploratory</text>
+  <rect x="275" y="538" width="{{H1B_FALSE_BAR_WIDTH}}" height="18" rx="3" fill="#b98034"/>
+  <text x="620" y="552" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#172b40">{{H1B_FALSE_LABEL}}</text>
+  <text x="50" y="601" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#334155">H1 not supported. H1b does not replace the registered result. Abstentions count as incorrect.</text>
+  <text x="50" y="621" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">Reference labels were assigned by AI-majority review, not independent human ground truth.</text>
+</svg>

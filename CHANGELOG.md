@@ -9,6 +9,10 @@ They are a draft until the owner approves them.
 
 ### Added
 
+- Reproducible SVG of H1's registered and H1b's exploratory result,
+  generated from SHA-256-pinned run records; it changes no registered
+  outcome or frozen data (#321).
+
 - A backup also holds the operator's public key and the installed
   `com.homelab.*` service definitions, with a hash each, and its restore check
   writes them into `config/` beside the restored database. Secrets stay out.
