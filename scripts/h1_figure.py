@@ -154,6 +154,16 @@ def main(argv: list[str] | None = None) -> int:
     output = args.out.resolve()
     if output in (source.resolve() for source in protected):
         raise SystemExit("refusing to overwrite a research input or figure template")
+    # Different spellings can name one file: another letter case on a
+    # case-insensitive volume, or a hard link. resolve() keeps the spelling it
+    # was given, so an existing target is compared by device and inode.
+    try:
+        existing: os.stat_result | None = os.stat(args.out)
+    except FileNotFoundError:
+        existing = None
+    if existing is not None and any(
+            os.path.samestat(existing, os.stat(source)) for source in protected):
+        raise SystemExit("refusing to overwrite a research input or figure template")
     if args.out.suffix.lower() != ".svg":
         raise SystemExit("output must have a .svg extension")
 

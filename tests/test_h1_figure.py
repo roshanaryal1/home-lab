@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 from types import ModuleType
 
@@ -97,16 +98,59 @@ def test_template_is_pinned_even_if_placeholders_survive(
         fig.render()
 
 
+def _protected_copy(fig: ModuleType, name: str, tmp_path: Path,
+                    monkeypatch: pytest.MonkeyPatch) -> Path:
+    # Point the module at a temporary copy, so a regression in the guard
+    # damages the copy and never the tracked input the other tests read.
+    source: Path = getattr(fig, name)
+    copied = tmp_path / source.name
+    copied.write_bytes(source.read_bytes())
+    monkeypatch.setattr(fig, name, copied)
+    return copied
+
+
 @pytest.mark.parametrize("protected", [
-    "H1_RECORD", "H1B_RECORD", "TEMPLATE",
+    "H1_RECORD", "H1B_RECORD", "CASES", "TEMPLATE",
 ])
-def test_out_does_not_overwrite_research_sources(protected: str) -> None:
+def test_out_does_not_overwrite_research_sources(
+        protected: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fig = _figure()
-    source = getattr(fig, protected)
+    source = _protected_copy(fig, protected, tmp_path, monkeypatch)
     original = source.read_bytes()
     with pytest.raises(SystemExit, match="refusing to overwrite"):
         fig.main(["--out", str(source)])
     assert source.read_bytes() == original
+
+
+def test_out_refuses_another_letter_case_of_the_template(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # On a case-insensitive volume a differently capitalised path names the
+    # same directory entry, so replacing it would overwrite the template.
+    fig = _figure()
+    template = _protected_copy(fig, "TEMPLATE", tmp_path, monkeypatch)
+    variant = template.with_name(template.stem.upper() + template.suffix)
+    assert variant != template
+    if not variant.exists():
+        pytest.skip("temporary directory is on a case-sensitive volume")
+    original = template.read_bytes()
+    with pytest.raises(SystemExit, match="refusing to overwrite"):
+        fig.main(["--out", str(variant)])
+    assert template.read_bytes() == original
+
+
+def test_out_refuses_a_hard_link_to_a_protected_input(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # File identity, not spelling, decides. A second name for the template
+    # is refused on any filesystem, which runs the same guard on Linux.
+    fig = _figure()
+    template = _protected_copy(fig, "TEMPLATE", tmp_path, monkeypatch)
+    alias = tmp_path / "alias.svg"
+    os.link(template, alias)
+    original = template.read_bytes()
+    with pytest.raises(SystemExit, match="refusing to overwrite"):
+        fig.main(["--out", str(alias)])
+    assert template.read_bytes() == original
+    assert os.path.samefile(template, alias)
 
 
 def test_render_parses_the_case_bytes_it_hashed(monkeypatch: pytest.MonkeyPatch) -> None:
