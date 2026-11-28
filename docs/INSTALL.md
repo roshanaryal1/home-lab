@@ -390,14 +390,19 @@ may be rejected by the runtime. The `LAB_SECRET_*` group is shown once,
 without secret names. For a machine-readable version, use `lab config show --json`:
 
 ```sh
-uv run lab config show
-uv run lab config show --json
+cd "$REPO"
+.venv/bin/python -B -m lab.cli config show
+.venv/bin/python -B -m lab.cli config show --json
 ```
 
-This command works without a database and changes nothing. It does not read
-Keychain entries, check whether a setting is valid, check permissions, or show
-what a launchd daemon has in its own environment. Use `lab doctor` and
-`lab security-audit` for health and security checks.
+Run it with the interpreter that `uv sync` installed, as above, not with
+`uv run`, which can create or update `.venv` before the command starts. `-B`
+stops Python writing bytecode caches. Invoked this way, the command works
+without a database and changes nothing. A mistyped invocation exits 2 with a
+fixed error that does not repeat what was typed, in case a word was a secret.
+It does not read Keychain entries, check whether a setting is valid, check
+permissions, or show what a launchd daemon has in its own environment. Use
+`lab doctor` and `lab security-audit` for health and security checks.
 
 ## Troubleshooting
 

@@ -66,11 +66,11 @@ import sys
 import tempfile
 import time
 import unicodedata
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
@@ -121,6 +121,14 @@ from lab.skillstore import SkillStore, SkillStoreError
 from lab.vault import Vault
 
 DEFAULT_DB = Path.home() / ".local" / "share" / "home-lab" / "lab.db"
+
+# argparse quotes the word it rejects ("ignored explicit argument 'X'",
+# "unrecognized arguments: X"), and a `lab config` invocation may carry a secret by
+# mistake, as in `lab config show --json="$LAB_SECRET_TOKEN"`. Its argument errors
+# print this fixed text instead, exit 2, and repeat nothing that was typed (#428).
+CONFIG_ARGS_ERROR = ("usage: lab config show [--json]\n"
+                     "lab config: error: arguments not accepted; they are not repeated "
+                     "here, since one may be a secret\n")
 
 # Anything matching these is redacted in `show`, so approving an action
 # never becomes a way to read a credential off the terminal.
@@ -544,9 +552,51 @@ def cmd_memory_budget(args: argparse.Namespace) -> int:
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="lab", description="Operate the home lab."
+class _Parser(argparse.ArgumentParser):
+    """With ``quiet_errors`` set, an argument error prints CONFIG_ARGS_ERROR, never the
+    message argparse built, since that message quotes what was typed (#428)."""
+
+    def __init__(self, *args: Any, quiet_errors: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.quiet_errors = quiet_errors
+
+    def error(self, message: str) -> NoReturn:
+        if self.quiet_errors:
+            self.exit(2, CONFIG_ARGS_ERROR)
+        super().error(message)
+
+
+@dataclass(frozen=True)
+class _EnvDefault:
+    """A path option's default, read from the environment only once a command is chosen.
+
+    A ``default=`` is evaluated while the parser is built, which happens for every
+    command, so reading os.environ there read these values even for `lab config show`,
+    which reads names only (#428). Only the chosen command's defaults reach the
+    namespace, and main resolves them there.
+    """
+
+    name: str
+    fallback: str | None = None
+
+    def resolve(self) -> Path | None:
+        if self.fallback is not None:
+            return Path(os.environ.get(self.name, self.fallback))
+        value = os.environ.get(self.name)       # unset and empty both mean no key
+        return Path(value) if value else None
+
+
+def _resolve_env_defaults(args: argparse.Namespace) -> None:
+    for dest, value in list(vars(args).items()):
+        if isinstance(value, _EnvDefault):
+            setattr(args, dest, value.resolve())
+
+
+def build_parser(*, quiet_errors: bool = False) -> argparse.ArgumentParser:
+    """``quiet_errors`` gives the root parser's errors fixed text; main sets it for a
+    `lab config` invocation. The config parsers always have it."""
+    parser = _Parser(
+        prog="lab", description="Operate the home lab.", quiet_errors=quiet_errors
     )
     parser.add_argument("--version", action="version", version=f"lab {_version()}")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB,
@@ -579,8 +629,7 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("--expires-at", default=None,
                          help="with --signature: the window end `--request` printed")
     approve.add_argument("--operator-pubkey", type=Path,
-                         default=(Path(os.environ["LAB_OPERATOR_PUBKEY"])
-                                  if os.environ.get("LAB_OPERATOR_PUBKEY") else None),
+                         default=_EnvDefault("LAB_OPERATOR_PUBKEY"),
                          help="the key a --signature is checked with")
 
     deny = sub.add_parser("deny", help="refuse an approval")
@@ -679,12 +728,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     mc = sub.add_parser("mcp", help="operator-signed MCP servers: snapshot what to sign, list")
     mc.add_argument("--servers", type=Path,
-                    default=Path(os.environ.get("LAB_MCP_SERVERS", "/etc/homelab/mcp.json")),
+                    default=_EnvDefault("LAB_MCP_SERVERS", "/etc/homelab/mcp.json"),
                     help="the JSON list of server entries "
                          "(default: $LAB_MCP_SERVERS or /etc/homelab/mcp.json)")
     mc.add_argument("--operator-pubkey", type=Path,
-                    default=(Path(os.environ["LAB_OPERATOR_PUBKEY"])
-                             if os.environ.get("LAB_OPERATOR_PUBKEY") else None),
+                    default=_EnvDefault("LAB_OPERATOR_PUBKEY"),
                     help="the key every entry must be signed with "
                          "(default: $LAB_OPERATOR_PUBKEY)")
     mc_sub = mc.add_subparsers(dest="mcp_command", required=True)
@@ -703,13 +751,11 @@ def build_parser() -> argparse.ArgumentParser:
     rp = sub.add_parser("repo", help="operator-signed repository sources and where each "
                                      "acquired repository came from (ADR 0008)")
     rp.add_argument("--sources", type=Path,
-                    default=Path(os.environ.get("LAB_REPO_SOURCES",
-                                                "/etc/homelab/sources.json")),
+                    default=_EnvDefault("LAB_REPO_SOURCES", "/etc/homelab/sources.json"),
                     help="the JSON list of source entries "
                          "(default: $LAB_REPO_SOURCES or /etc/homelab/sources.json)")
     rp.add_argument("--operator-pubkey", type=Path,
-                    default=(Path(os.environ["LAB_OPERATOR_PUBKEY"])
-                             if os.environ.get("LAB_OPERATOR_PUBKEY") else None),
+                    default=_EnvDefault("LAB_OPERATOR_PUBKEY"),
                     help="the key every entry must be signed with "
                          "(default: $LAB_OPERATOR_PUBKEY)")
     rp_sub = rp.add_subparsers(dest="repo_command", required=True)
@@ -825,8 +871,10 @@ def build_parser() -> argparse.ArgumentParser:
                      "passes, so a result arrives every morning")
     sub.add_parser("doctor", help="read-only health check: exit 1 if any check fails")
     cfg = sub.add_parser("config", help="inspect configuration presence, never values")
+    cfg.quiet_errors = True
     cfg_sub = cfg.add_subparsers(dest="config_command", required=True)
     cfg_show = cfg_sub.add_parser("show", help="show set/unset for documented settings")
+    cfg_show.quiet_errors = True
     cfg_show.add_argument("--json", action="store_true", help="output statuses as JSON")
     inj = sub.add_parser("injection-suite", help="run the public injection suite (#368) in "
                          "throwaway labs; exit 1 if any attack succeeds")
@@ -939,8 +987,7 @@ def build_parser() -> argparse.ArgumentParser:
     ctl.add_argument("--signature", default=None,
                      help="a resume signature made by `operator sign-resume`")
     ctl.add_argument("--operator-pubkey", type=Path,
-                     default=(Path(os.environ["LAB_OPERATOR_PUBKEY"])
-                              if os.environ.get("LAB_OPERATOR_PUBKEY") else None),
+                     default=_EnvDefault("LAB_OPERATOR_PUBKEY"),
                      help="the key a --signature is checked with (default: the deployed key, "
                           "or $LAB_OPERATOR_PUBKEY)")
 
@@ -2483,7 +2530,12 @@ def _dispatch(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    words = sys.argv[1:] if argv is None else argv
+    # The root parser rejects an unknown or malformed word around `config` too, as in
+    # `lab --debug=X config show` or `lab config show X`. Any "config" word gives its
+    # errors the fixed text; another command then only loses the detail (#428).
+    args = build_parser(quiet_errors="config" in words).parse_args(words)
+    _resolve_env_defaults(args)
     try:
         return _dispatch(args)
     except (sqlite3.DatabaseError, MigrationError, OSError) as exc:
