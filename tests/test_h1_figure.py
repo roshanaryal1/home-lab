@@ -6,6 +6,7 @@ import copy
 import importlib.util
 import json
 import os
+import stat
 from pathlib import Path
 from types import ModuleType
 
@@ -174,6 +175,31 @@ def test_render_parses_the_case_bytes_it_hashed(monkeypatch: pytest.MonkeyPatch)
     expected_svg = ROOT / "evals" / "h1_review" / "h1-results.svg"
     assert fig.render().encode("utf-8") == expected_svg.read_bytes()
     assert cases.reads == 1
+
+
+@pytest.mark.parametrize("mode", [0o644, 0o640])
+def test_out_keeps_permission_bits_of_the_replaced_figure(
+        tmp_path: Path, mode: int) -> None:
+    fig = _figure()
+    output = tmp_path / "figure.svg"
+    output.write_bytes(b"previous-version")
+    output.chmod(mode)
+    assert fig.main(["--out", str(output)]) == 0
+    assert stat.S_IMODE(output.stat().st_mode) == mode
+    assert output.read_bytes() == fig.render().encode("utf-8")
+
+
+@pytest.mark.parametrize(("umask", "mode"), [(0o022, 0o644), (0o027, 0o640)])
+def test_out_gives_a_new_figure_the_umask_default(
+        tmp_path: Path, umask: int, mode: int) -> None:
+    fig = _figure()
+    output = tmp_path / "new-figure.svg"
+    previous = os.umask(umask)
+    try:
+        assert fig.main(["--out", str(output)]) == 0
+    finally:
+        os.umask(previous)
+    assert stat.S_IMODE(output.stat().st_mode) == mode
 
 
 def test_exact_bytes_check_rejects_line_ending_changes(

@@ -133,6 +133,15 @@ def render() -> str:
     return image
 
 
+def _new_file_mode() -> int:
+    """Return the mode open() gives a new file: 0o666 less the umask."""
+    # Python 3.13 has no os.getumask(), so set and restore it. The brief
+    # value is private (0o077), and this command is single-threaded.
+    umask = os.umask(0o077)
+    os.umask(umask)
+    return 0o666 & ~umask
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="H1 descriptive SVG from sealed records")
     operation = parser.add_mutually_exclusive_group()
@@ -166,6 +175,9 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("refusing to overwrite a research input or figure template")
     if args.out.suffix.lower() != ".svg":
         raise SystemExit("output must have a .svg extension")
+    # NamedTemporaryFile creates 0600. Keep the permission bits of the file
+    # being replaced; give a new file what open() would under the umask.
+    mode = (existing.st_mode & 0o777) if existing is not None else _new_file_mode()
 
     # A failure, crash, or concurrent checker sees the previous complete file
     # or the new complete file, never a partly written SVG.
@@ -177,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
             temp_path = Path(handle.name)
             handle.write(output_bytes)
             handle.flush()
+            os.fchmod(handle.fileno(), mode)
             os.fsync(handle.fileno())
         os.replace(temp_path, args.out)
     finally:
