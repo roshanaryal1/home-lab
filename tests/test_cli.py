@@ -7,6 +7,8 @@ everything reported success.
 
 from __future__ import annotations
 
+import json
+import sys
 import tomllib
 from pathlib import Path
 
@@ -177,6 +179,207 @@ def test_redact_masks_by_key_name() -> None:
     assert masked["url"] == "u"
     assert masked["inner"]["secret"] == "<redacted>"
 
+
+@pytest.mark.safety
+def test_redact_walks_nested_arrays_without_mutating_original() -> None:
+    payload = {
+        "actions": [
+            {"url": "https://example.com", "api_key": "canary-in-array-1"},
+            [
+                {"headers": {"Authorization": "canary-nested-array-2"}},
+                {"items": [{"password": "canary-deep-array-3", "amount": 42}]},
+            ],
+        ],
+        "title": "request approval",
+    }
+    masked = _redact(payload)
+    assert masked["actions"][0]["api_key"] == "<redacted>"
+    assert masked["actions"][1][0]["headers"]["Authorization"] == "<redacted>"
+    assert masked["actions"][1][1]["items"][0]["password"] == "<redacted>"
+    assert masked["actions"][0]["url"] == "https://example.com"
+    assert masked["actions"][1][1]["items"][0]["amount"] == 42
+    assert masked["title"] == "request approval"
+    # Redaction is only for display. Policy decisions use the original bytes.
+    assert payload["actions"][0]["api_key"] == "canary-in-array-1"
+    assert payload["actions"][1][0]["headers"]["Authorization"] == "canary-nested-array-2"
+    assert masked is not payload
+    assert masked["actions"] is not payload["actions"]
+
+
+@pytest.mark.safety
+def test_show_hides_credentials_inside_action_arrays(db: Path, capsys) -> None:
+    payload = {
+        "operations": [
+            {"url": "https://example.com/invoices", "api_key": "canary-api-42"},
+            [{"headers": {"authorization": "canary-bearer-84"},
+              "password": "canary-password-126", "amount": 4200}],
+        ],
+    }
+    with TaskQueue(db, owner="t") as q:
+        policy = PolicyEngine(q._conn)
+        task = q.get(q.add_task("review batch", capability_tier="approve",
+                                payload=payload))
+        approval = policy.request_approval(task, "approve this batch")
+        bound_hash = q._conn.execute(
+            "SELECT action_hash FROM approvals WHERE id = ?", (approval,)
+        ).fetchone()["action_hash"]
+
+    assert run(db, "show", approval[:8]) == 0
+    out = capsys.readouterr().out
+    for secret in ("canary-api-42", "canary-bearer-84", "canary-password-126"):
+        assert secret not in out
+    assert "<redacted>" in out
+    assert "https://example.com/invoices" in out
+    assert "4200" in out
+
+    with TaskQueue(db, owner="t") as q:
+        assert q.get(task.id).payload == payload
+        assert q._conn.execute(
+            "SELECT action_hash FROM approvals WHERE id = ?", (approval,)
+        ).fetchone()["action_hash"] == bound_hash
+
+
+@pytest.mark.safety
+def test_redact_handles_nesting_deeper_than_the_recursion_limit() -> None:
+    # A size-limited intent can still nest past Python's recursion limit;
+    # the preview must not crash on it (it used to raise RecursionError).
+    depth = sys.getrecursionlimit() + 200
+    leaf: dict[str, object] = {"password": "canary-deepest", "amount": 7}
+    payload: object = leaf
+    for level in range(depth):
+        payload = {"level": [payload]} if level % 2 else {"level": payload}
+    masked = _redact(payload)  # type: ignore[arg-type]
+
+    node: object = masked
+    original: object = payload
+    for level in reversed(range(depth)):
+        assert isinstance(node, dict) and isinstance(original, dict)
+        node, original = node["level"], original["level"]
+        if level % 2:
+            assert isinstance(node, list) and isinstance(original, list)
+            assert node is not original
+            node, original = node[0], original[0]
+    assert node == {"password": "<redacted>", "amount": 7}
+    assert original is leaf and leaf["password"] == "canary-deepest"
+
+
+@pytest.mark.safety
+def test_show_fails_closed_when_the_intent_cannot_be_rendered(
+        db: Path, capsys, monkeypatch) -> None:
+    with TaskQueue(db, owner="t") as q:
+        policy = PolicyEngine(q._conn)
+        task = q.get(q.add_task("deep call", capability_tier="approve",
+                                payload={"api_key": "canary-unrendered"}))
+        approval = policy.request_approval(task, "deep")
+
+    def explode(_params: object) -> object:
+        raise RecursionError("too deep")
+
+    monkeypatch.setattr("lab.cli._redact", explode)
+    assert run(db, "show", approval[:8]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert len(captured.err.splitlines()) == 1
+    assert "canary-unrendered" not in captured.err
+    assert "cannot be displayed safely" in captured.err
+
+
+@pytest.mark.safety
+def test_show_refuses_in_one_line_when_the_task_payload_cannot_be_decoded(
+        db: Path, capsys) -> None:
+    # SQLite's json_valid and 64 KiB checks accept an integer longer than
+    # Python's int-to-string digit limit, but json.loads raises ValueError.
+    default = sys.int_info.default_max_str_digits
+    previous = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(default)
+    try:
+        with TaskQueue(db, owner="t") as q:
+            policy = PolicyEngine(q._conn)
+            task = q.get(q.add_task("huge number", capability_tier="approve",
+                                    payload={"api_key": "canary-undecoded"}))
+            approval = policy.request_approval(task, "huge")
+            q._conn.execute(
+                "UPDATE tasks SET payload = ? WHERE id = ?",
+                ('{"api_key": "canary-undecoded", "amount": ' + "9" * (default + 1) + "}",
+                 task.id))
+
+        assert run(db, "show", approval[:8]) == 1
+    finally:
+        sys.set_int_max_str_digits(previous)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert len(captured.err.splitlines()) == 1
+    assert "canary-undecoded" not in captured.err
+    assert "cannot be displayed safely" in captured.err
+    assert "Traceback" not in captured.err
+
+
+# Each spelling a client, gateway or SDK uses for the same credential field.
+CREDENTIAL_KEY_SPELLINGS = (
+    "X-API-Key", "x-api-key", "X_API_KEY", "xApiKey", "api-key", "apiKey", "APIKey",
+    "privateKey", "private-key", "PrivateKey", "PRIVATE_KEY", "private.key",
+    "Authorization", "Proxy-Authorization", "proxyAuthorization", "Authorisation",
+    "Cookie", "Set-Cookie", "setCookie",
+    "clientSecret", "client_secret", "accessToken", "X-Auth-Token", "refresh-token",
+    "db_password", "PASSWORD", "credentials",
+    "auth", "Auth", "X-aUtH", "basicAuth", "basic_auth", "OAuth", "oauth2", "OAuth2", "authKey",
+    "auth_order", "authentication", "X-Amz-Security-Token",
+    # Run-together lower-case names the original substring rule masked: the
+    # `author` fix must not unmask them.
+    "proxyauth", "authcode", "authn", "authz", "xauth", "authheader", "httpauth",
+    "authconfig",
+    # Fullwidth letters, and a zero-width space inside a hint.
+    "\uff21\uff35\uff34\uff28", "pass\u200bword",
+)
+
+
+@pytest.mark.safety
+@pytest.mark.parametrize("key", CREDENTIAL_KEY_SPELLINGS)
+def test_redact_masks_a_credential_key_however_it_is_spelled(key: str) -> None:
+    canary = f"canary-{key}"
+    payload = {"operations": [{"headers": {key: canary}, "url": "https://example.com"}]}
+    masked = _redact(payload)
+    assert masked["operations"][0]["headers"][key] == "<redacted>"
+    assert canary not in json.dumps(masked)
+    assert masked["operations"][0]["url"] == "https://example.com"
+
+
+@pytest.mark.safety
+def test_redact_keeps_author_fields_visible_next_to_a_masked_authorization() -> None:
+    visible = {
+        "author": "Alice", "authors": ["Bob"], "coauthor": "Carol",
+        "authorName": "Dana", "Author-Email": "erin@example.com",
+        "basic_author": "Frank", "authority": "example.com",
+    }
+    payload = {"operations": [{**visible, "Authorization": "Bearer canary-next-to-author"}]}
+    masked = _redact(payload)
+    assert masked["operations"] == [{**visible, "Authorization": "<redacted>"}]
+
+
+
+@pytest.mark.safety
+def test_show_hides_header_style_credentials_and_keeps_the_author(db: Path, capsys) -> None:
+    payload = {"operations": [
+        {"url": "https://example.com/upload", "author": "Alice",
+         "headers": {"X-API-Key": "canary-x-api-key",
+                     "Proxy-Authorization": "canary-proxy-auth",
+                     "Cookie": "canary-cookie", "Set-Cookie": "canary-set-cookie"}},
+        [{"privateKey": "canary-private-key", "private-key": "canary-kebab-key"}],
+    ]}
+    with TaskQueue(db, owner="t") as q:
+        policy = PolicyEngine(q._conn)
+        task = q.get(q.add_task("upload", capability_tier="approve", payload=payload))
+        approval = policy.request_approval(task, "uploads with a key")
+
+    assert run(db, "show", approval[:8]) == 0
+    out = capsys.readouterr().out
+    for canary in ("canary-x-api-key", "canary-proxy-auth", "canary-cookie",
+                   "canary-set-cookie", "canary-private-key", "canary-kebab-key"):
+        assert canary not in out
+    assert '"author": "Alice"' in out
+    assert "https://example.com/upload" in out
+    with TaskQueue(db, owner="t") as q:
+        assert q.get(task.id).payload == payload
 
 # ------------------------------------------------------------ decisions
 

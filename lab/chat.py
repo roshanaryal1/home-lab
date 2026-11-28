@@ -450,7 +450,10 @@ class ChatChannel:
             return (f"Approval {short} is not shown: its stored intent is not the action "
                     "its hash binds, so the row was changed outside the gate. "
                     f"Refuse it with /deny {short}")
-        shown = json.dumps(_redact(intent), sort_keys=True, ensure_ascii=True)
+        try:
+            shown = json.dumps(_redact(intent), sort_keys=True, ensure_ascii=True)
+        except (RecursionError, ValueError):
+            return f"Approval {short} cannot be displayed safely. Refuse it with /deny {short}"
         if len(shown) > MAX_INTENT_CHARS:
             shown = shown[:MAX_INTENT_CHARS] + " ... (cut; read it in full with show)"
         return (

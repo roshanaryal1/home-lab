@@ -400,6 +400,47 @@ def test_approve_redacts_and_cuts_a_long_intent(lab: Lab) -> None:
     assert "s3cret" not in reply and "(cut; read it in full with show)" in reply
 
 
+@pytest.mark.safety
+def test_approve_masks_header_style_credentials_and_keeps_the_author(lab: Lab) -> None:
+    """The chat preview shares `lab show`'s redaction, and goes to Telegram."""
+    task_id = lab.say("upload it").task_id
+    assert task_id is not None
+    approval = PolicyEngine(lab.queue._conn).authorize_tool(
+        task_id, "connector.call",
+        {"connector": "x", "path": "/", "author": "Alice",
+         "requests": [{"headers": {"X-API-Key": "canary-chat-x-api-key",
+                                   "Set-Cookie": "canary-chat-cookie"}},
+                      {"privateKey": "canary-chat-private-key"}]},
+        Tier.APPROVE).approval_id
+    assert approval is not None
+    lab.say(f"/approve {approval[:12]}")
+    recipient, reply = lab.server.sent[-1]
+    assert recipient == OWNER
+    for canary in ("canary-chat-x-api-key", "canary-chat-cookie", "canary-chat-private-key"):
+        assert canary not in reply
+    assert '"author": "Alice"' in reply
+    for key in ("X-API-Key", "Set-Cookie", "privateKey"):
+        assert f'"{key}": "<redacted>"' in reply
+
+
+@pytest.mark.safety
+def test_approve_refuses_when_the_chat_preview_cannot_be_rendered(lab: Lab, monkeypatch) -> None:
+    task_id = lab.say("upload it").task_id
+    assert task_id is not None
+    approval = PolicyEngine(lab.queue._conn).authorize_tool(
+        task_id, "connector.call", {"privateKey": "canary-chat-render"}, Tier.APPROVE).approval_id
+    assert approval is not None
+
+    def fail_render(_params: object) -> object:
+        raise RecursionError("canary-chat-render")
+
+    monkeypatch.setattr("lab.cli._redact", fail_render)
+    reply = lab.say(f"/approve {approval[:12]}").reply
+    assert reply is not None and len(reply.splitlines()) == 1
+    assert f"/deny {approval[:12]}" in reply
+    assert "--expect-hash" not in reply and "canary-chat-render" not in reply
+
+
 def test_chat_sees_and_denies_only_approvals_of_chat_tasks(lab: Lab) -> None:
     policy = PolicyEngine(lab.queue._conn)
     operator_task = lab.queue.add_task("operator work",

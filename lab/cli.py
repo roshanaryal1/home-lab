@@ -120,23 +120,77 @@ from lab.vault import Vault
 
 DEFAULT_DB = Path.home() / ".local" / "share" / "home-lab" / "lab.db"
 
-# Anything matching these is redacted in `show`, so approving an action
-# never becomes a way to read a credential off the terminal.
-SECRET_HINTS = ("password", "token", "secret", "api_key", "apikey",
-                "credential", "authorization", "auth", "private_key")
+# Anything matching these is redacted in `show` and in the chat preview, so
+# approving an action never becomes a way to read a credential off the
+# terminal. A hint is matched against the key with case, separators and
+# camelCase humps removed, so `X-API-Key`, `x_api_key` and `xApiKey` are one
+# name and `privateKey` is `private_key`. `auth` counts anywhere in a word
+# (`basicAuth`, `oauth2`, `proxyauth`, `auth_order`) except where `or` follows
+# it, as in `author`, `coauthor` and `authority`: who wrote something is not a
+# secret. `authorization` is a hint of its own.
+SECRET_HINTS = ("password", "token", "secret", "apikey", "privatekey", "credential",
+                "authorization", "authorisation", "auth", "cookie")
+_SECRET_KEY = re.compile("|".join(
+    r"auth(?!or)" if hint == "auth" else re.escape(hint) for hint in SECRET_HINTS))
+# A hump is a lower-case letter or digit before a capital (privateKey), or the
+# last capital of an acronym before a word (APIKey).
+_CAMEL_HUMP = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+_NOT_ALNUM = re.compile(r"[^a-z0-9]+")
+
+
+def _is_secret_key(key: str) -> bool:
+    """True if a field name looks like a credential, however it is spelled.
+
+    Compatibility forms and accents are folded to plain letters first, and
+    any other character only separates words, so punctuation, accents or
+    fullwidth letters inside a hint do not hide it. Each hint is tried on the
+    joined words (`x-api-key` is `xapikey`) and on each word alone. A
+    look-alike letter from another script still hides a hint: key names are
+    a display aid, not a boundary against whoever wrote the intent.
+    """
+    folded = "".join(ch for ch in unicodedata.normalize("NFKD", key)
+                     if not unicodedata.combining(ch))
+    words = [word for word in _NOT_ALNUM.split(_CAMEL_HUMP.sub(" ", folded).casefold())
+             if word]
+    return any(_SECRET_KEY.search(form) for form in ("".join(words), *words))
+
+
+def _redact_value(value: Any) -> Any:
+    """Walk JSON arrays as well as objects before rendering an approval.
+
+    Iterative on purpose: a size-limited intent can still nest deeper than
+    Python's recursion limit, and the preview must not crash on it.
+    """
+    root: list[Any] = [None]
+    pending: list[tuple[Any, Any, Any]] = [(value, root, 0)]
+    while pending:
+        source, parent, slot = pending.pop()
+        if isinstance(source, dict):
+            copy: dict[str, Any] = {}
+            parent[slot] = copy
+            for key, item in source.items():
+                if _is_secret_key(key):
+                    copy[key] = "<redacted>"
+                else:
+                    copy[key] = None  # keeps key order; filled below
+                    pending.append((item, copy, key))
+        elif isinstance(source, list):
+            items: list[Any] = [None] * len(source)
+            parent[slot] = items
+            pending.extend((item, items, index) for index, item in enumerate(source))
+        else:
+            parent[slot] = source
+    return root[0]
 
 
 def _redact(params: dict[str, Any]) -> dict[str, Any]:
-    """Mask values whose key looks like a credential."""
-    out: dict[str, Any] = {}
-    for key, value in params.items():
-        if any(hint in key.lower() for hint in SECRET_HINTS):
-            out[key] = "<redacted>"
-        elif isinstance(value, dict):
-            out[key] = _redact(value)
-        else:
-            out[key] = value
-    return out
+    """Mask credential-shaped keys at every depth of a JSON approval intent.
+
+    This is display-only: do not mutate the original intent, since the
+    approval must remain bound to its unredacted parameters and hash.
+    """
+    redacted: dict[str, Any] = _redact_value(params)
+    return redacted
 
 
 def _age(timestamp: str) -> str:
@@ -224,6 +278,15 @@ def _refuse_unbound(row: sqlite3.Row) -> int:
     return 1
 
 
+def _refuse_undisplayable(row: sqlite3.Row, why: str) -> int:
+    """One line on stderr and nothing on stdout: a preview that cannot be
+    finished is not started, so there is no partial one to approve from."""
+    print(f"Approval {_escape(row['id'])}: {why}, so it cannot be displayed safely. "
+          f"Do not approve it unseen; deny it: deny {_escape(row['id'][:12])} --by <you>",
+          file=sys.stderr)
+    return 1
+
+
 def cmd_approvals(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -> int:
     pending = policy.pending()
     if not pending:
@@ -246,7 +309,12 @@ def cmd_show(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -
     if row is None:
         return 1
 
-    task = queue.get(row["task_id"])
+    try:
+        task = queue.get(row["task_id"])
+    except (ValueError, RecursionError):
+        # SQLite's json_valid accepts a payload Python cannot decode, such as
+        # an integer longer than the int-to-string digit limit.
+        return _refuse_undisplayable(row, "its task payload cannot be decoded")
     if task is None:
         print(f"Approval {_escape(row['id'])} points at a task that no longer exists",
               file=sys.stderr)
@@ -256,6 +324,13 @@ def cmd_show(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -
     intent = _bound_intent(row, task)
     if intent is None:
         return _refuse_unbound(row)
+    # Render before printing anything: the operator sees the whole redacted
+    # intent or nothing, never a partial preview they might approve from.
+    try:
+        rendered = json.dumps(_redact(intent), indent=2, sort_keys=True,
+                              ensure_ascii=True)
+    except (RecursionError, ValueError):
+        return _refuse_undisplayable(row, "its intent cannot be rendered")
 
     print(f"Approval   {_escape(row['id'])}")
     print(f"State      {_escape(row['state'])}")
@@ -274,7 +349,7 @@ def cmd_show(queue: TaskQueue, policy: PolicyEngine, args: argparse.Namespace) -
     print(f"Sensitivity {_escape(task.sensitivity)}")
     print()
     print("This approval authorises EXACTLY this intent:")
-    print(json.dumps(_redact(intent), indent=2, sort_keys=True, ensure_ascii=True))
+    print(rendered)
     print()
     print(f"Bound to   {_escape(row['action_hash'][:16])}...")
     print("Changing any parameter, the state it acts on, or the policy "
