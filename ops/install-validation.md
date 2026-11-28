@@ -76,3 +76,8 @@ Run these in order:
 
 Record the outputs (what ran, on which Mac and macOS version, what you saw) in
 the issue, and commit a dated note here or under `ops/drills/log/`.
+Use [install-validation-template.md](install-validation-template.md) as
+the record format, and consult
+[docs/TROUBLESHOOTING.md](../docs/TROUBLESHOOTING.md) for read-only
+diagnosis if a check fails. Keep all raw secrets and private paths off GitHub;
+mark untested steps as NOT RUN, not PASS.

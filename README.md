@@ -69,6 +69,11 @@ agent may hold, and the staged rollout, are in ADR 0006.
 
 ## Install on your own Mac
 
+If an installation or its security checks fail, use the
+[read-only troubleshooting guide](docs/TROUBLESHOOTING.md).
+The [fresh-Mac validation record](ops/install-validation-template.md)
+provides a checklist for #188 without claiming the test already passed.
+
 New users should start with [docs/INSTALL.md](docs/INSTALL.md). It covers requirements, RAM-based model selection, the read-only prerequisite check, installation, first run, backup variables and uninstall. The deployment runbook is linked from there for the system-level launchd setup.
 
 ## Running on the Mac mini
