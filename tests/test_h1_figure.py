@@ -109,6 +109,29 @@ def test_out_does_not_overwrite_research_sources(protected: str) -> None:
     assert source.read_bytes() == original
 
 
+def test_render_parses_the_case_bytes_it_hashed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # If the case file changed between a hash read and a parse read, the
+    # parser would see bytes that never passed the SHA-256 check.
+    fig = _figure()
+    frozen = fig.CASES.read_bytes()
+
+    class ChangesAfterFirstRead:
+        reads = 0
+
+        def read_bytes(self) -> bytes:
+            self.reads += 1
+            return frozen if self.reads == 1 else b"{unhashed"
+
+        def read_text(self, encoding: str = "utf-8") -> str:
+            return self.read_bytes().decode(encoding)
+
+    cases = ChangesAfterFirstRead()
+    monkeypatch.setattr(fig, "CASES", cases)
+    expected_svg = ROOT / "evals" / "h1_review" / "h1-results.svg"
+    assert fig.render().encode("utf-8") == expected_svg.read_bytes()
+    assert cases.reads == 1
+
+
 def test_exact_bytes_check_rejects_line_ending_changes(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fig = _figure()

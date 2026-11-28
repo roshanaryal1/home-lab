@@ -29,6 +29,7 @@ H1_RECORD = REVIEW / "h1-run.json"
 H1B_RECORD = REVIEW / "h1b-run.json"
 H1_SHA256 = "9d06bed917dbea2e1d83e29856b820d68c9c9c5cd1f3967363f3f112148b8b3d"
 H1B_SHA256 = "e3b4dda4a674407025b7eb06380317578e89ec9a79aa4c868fa4dcfde62e0e9b"
+CASES = REVIEW / "final-cases-v2.jsonl"
 CASES_SHA256 = "f52e8f309733e78b56d1ac0ba354ff1c178bbf15912a196ef4038e3f93e0b396"
 RANK = {"no_artifact": 0, "insufficient_evidence": 0, "post": 1, "blog": 2,
         "paper": 3}
@@ -74,11 +75,12 @@ def summary(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def render() -> str:
-    cases_file = REVIEW / "final-cases-v2.jsonl"
-    if hashlib.sha256(cases_file.read_bytes()).hexdigest() != CASES_SHA256:
+    # Read once: the bytes that pass the hash check are the bytes parsed.
+    cases_raw = CASES.read_bytes()
+    if hashlib.sha256(cases_raw).hexdigest() != CASES_SHA256:
         raise ValueError("final case file differs from the frozen H1 labels")
     frozen = {row["id"]: row["expected"] for row in
-              (json.loads(line) for line in cases_file.read_text(encoding="utf-8").splitlines())}
+              (json.loads(line) for line in cases_raw.decode("utf-8").splitlines())}
     if len(frozen) != 30:
         raise ValueError("frozen case file must contain 30 unique labels")
     h1 = summary(load_record(H1_RECORD, H1_SHA256))
@@ -148,8 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.out is None:
         parser.error("pass --check or --out SVG")
-    protected = (H1_RECORD, H1B_RECORD, REVIEW / "final-cases-v2.jsonl",
-                 TEMPLATE, Path(__file__))
+    protected = (H1_RECORD, H1B_RECORD, CASES, TEMPLATE, Path(__file__))
     output = args.out.resolve()
     if output in (source.resolve() for source in protected):
         raise SystemExit("refusing to overwrite a research input or figure template")
