@@ -11,7 +11,10 @@ remaining acceptance gate belongs to [#188](https://github.com/roshanaryal1/home
 - Tester (role or pseudonym, not a private account name): **NOT RUN**
 - Hardware: Apple silicon model and memory tier only: **NOT RUN**
 - macOS version: **NOT RUN**
-- Clean Mac or fresh non-admin macOS user: **NOT RUN**
+- Clean Mac, or a fresh macOS operator account that can use `sudo` (an
+  administrator, as INSTALL.md requires for the install): **NOT RUN**
+- Dedicated `lab` account created by `setup-plan --apply`, separate from the
+  operator account and not an administrator: **NOT RUN**
 - Existing lab/deployment on this machine: **NOT RUN**
 - Repository commit (full SHA): **NOT RUN**
 - `uv --version`, Python version and lockfile state: **NOT RUN**
